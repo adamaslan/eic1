@@ -1,0 +1,8 @@
+{
+  "name": "veil",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
