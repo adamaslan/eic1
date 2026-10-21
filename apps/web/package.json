@@ -1,0 +1,29 @@
+{
+  "name": "web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "react-router build",
+    "dev": "react-router dev",
+    "start": "npm run dev",
+    "typecheck": "react-router typegen && tsc"
+  },
+  "dependencies": {
+    "@react-router/node": "^8.5.0",
+    "idb": "^8.0.4",
+    "isbot": "^5.1.43",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router": "^8.5.0"
+  },
+  "devDependencies": {
+    "@react-router/dev": "^8.5.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.12.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  }
+}

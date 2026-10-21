@@ -1,0 +1,9 @@
+[build]
+command = "react-router build"
+publish = "build/client"
+
+[build.environment]
+NODE_VERSION = "24"
+
+[dev]
+command = "react-router dev"

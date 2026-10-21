@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+  --color-veil-bg: #08080b;
+  --color-veil-surface: #101015;
+  --color-veil-surface-2: #17171e;
+  --color-veil-border: #26262f;
+  --color-veil-text: #ededf2;
+  --color-veil-muted: #8a8a99;
+  --color-veil-accent: #c6f24e;
+  --color-veil-like: #ff5c8a;
+}
+
+html,
+body {
+  @apply bg-white dark:bg-gray-950;
+}
