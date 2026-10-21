@@ -3,7 +3,7 @@ import { AppError } from "@veil/core";
 import type { Route } from "./+types/unlock";
 import { Window } from "~/ui95/Window";
 import { Button95 } from "~/ui95/Button95";
-import { Link } from "react-router";
+import { Link, Navigate, useNavigate } from "react-router";
 import { vaultCreate, vaultExists, vaultUnlock } from "~/platform/vault-service";
 import { useSessionStore } from "~/platform/session";
 
@@ -17,15 +17,13 @@ const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outli
 export default function Unlock() {
   const vault = useSessionStore((state) => state.vault);
   const setVault = useSessionStore((state) => state.setVault);
-  const lock = useSessionStore((state) => state.lock);
+  const navigate = useNavigate();
 
   const [exists, setExists] = useState<boolean | null>(null);
   const [passphrase, setPassphrase] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState("");
-  const [readBack, setReadBack] = useState<string | null>(null);
 
   useEffect(() => {
     vaultExists().then(setExists);
@@ -48,6 +46,7 @@ export default function Unlock() {
     try {
       const opened = exists ? await vaultUnlock(passphrase) : await vaultCreate(passphrase);
       setVault(opened);
+      navigate("/", { replace: true });
       setPassphrase("");
       setConfirm("");
     } catch (caught) {
@@ -58,18 +57,8 @@ export default function Unlock() {
     }
   }
 
-  async function saveNote() {
-    if (!vault || !note.trim()) return;
-    setError(null);
-    try {
-      const id = await vault.putRecord("item", new TextEncoder().encode(note));
-      const bytes = await vault.getRecord(id);
-      setReadBack(bytes ? new TextDecoder().decode(bytes) : null);
-      setNote("");
-    } catch (caught) {
-      if (!(caught instanceof AppError)) throw caught;
-      setError(caught.message);
-    }
+  if (vault) {
+    return <Navigate to="/" replace />;
   }
 
   return (
@@ -117,35 +106,6 @@ export default function Unlock() {
               {exists ? "Unlock" : "Create vault"}
             </Button95>
           </form>
-        )}
-
-        {vault && (
-          <div className="flex flex-col gap-2 text-[12px]">
-            <p>Unlocked. Notes are encrypted before they reach storage.</p>
-            <label className="flex flex-col gap-0.5">
-              Test note
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={3}
-                className={inputClass}
-              />
-            </label>
-            <div className="flex gap-2">
-              <Button95 onClick={saveNote}>Save note</Button95>
-              <Button95 onClick={lock}>Lock</Button95>
-            </div>
-            {readBack !== null && (
-              <p>
-                Read back from encrypted storage: <strong>{readBack}</strong>
-              </p>
-            )}
-            {error && (
-              <p role="alert" className="text-[#800000]">
-                {error}
-              </p>
-            )}
-          </div>
         )}
 
         <p className="mt-3">
