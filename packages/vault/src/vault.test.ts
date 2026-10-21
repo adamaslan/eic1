@@ -5,6 +5,8 @@ import {
   VaultNotFoundError,
   WrongPassphraseError,
   type EncryptedRecord,
+  type Item,
+  type RecordKind,
   type VaultMeta,
   type VaultStore,
 } from "@veil/core";
@@ -26,6 +28,9 @@ class MemoryStore implements VaultStore {
   }
   async getRecord(id: string) {
     return this.records.get(id) ?? null;
+  }
+  async listRecords(kind: RecordKind) {
+    return [...this.records.values()].filter((record) => record.kind === kind);
   }
 }
 
@@ -93,6 +98,57 @@ describe("vault repository", () => {
 
     await expect(vault.getRecord(id)).rejects.toBeInstanceOf(VaultLockedError);
     await expect(vault.putRecord("item", note("y"))).rejects.toBeInstanceOf(VaultLockedError);
+  });
+});
+
+const sampleItem = (overrides: Partial<Item> = {}): Item => ({
+  id: "item-1",
+  type: "listing",
+  title: "ThinkPad 701C",
+  category: "electronics",
+  priceCents: 34000,
+  description: "Works. Keys all present.",
+  createdAt: "2026-10-21T10:00:00.000Z",
+  likes: 3,
+  mediaIds: [],
+  thumbId: null,
+  schemaVersion: 1,
+  ...overrides,
+});
+
+describe("vault items", () => {
+  it("stores an item and reads it back after unlock", async () => {
+    const first = await createVault(deps, PASSPHRASE);
+    await first.putItem(sampleItem());
+    first.lock();
+
+    const second = await unlockVault(deps, PASSPHRASE);
+
+    expect(await second.getItem("item-1")).toEqual(sampleItem());
+  });
+
+  it("lists every item, decrypted", async () => {
+    const vault = await createVault(deps, PASSPHRASE);
+    await vault.putItem(sampleItem({ id: "a" }));
+    await vault.putItem(sampleItem({ id: "b", type: "photo", category: "moments", priceCents: null }));
+
+    const items = await vault.listItems();
+
+    expect(items.map((item) => item.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("ignores non-item records when listing items", async () => {
+    const vault = await createVault(deps, PASSPHRASE);
+    await vault.putRecord("media", note("raw bytes"));
+    await vault.putItem(sampleItem());
+
+    expect(await vault.listItems()).toHaveLength(1);
+  });
+
+  it("returns null for an unknown item id", async () => {
+    const vault = await createVault(deps, PASSPHRASE);
+
+    expect(await vault.getItem("missing")).toBeNull();
   });
 });
 

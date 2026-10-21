@@ -1,5 +1,7 @@
 import {
   type Bytes,
+  type Item,
+  ItemSchema,
   VaultAlreadyExistsError,
   VaultCorruptError,
   VaultLockedError,
@@ -26,6 +28,9 @@ export interface VaultDeps {
 export interface UnlockedVault {
   putRecord(kind: RecordKind, plaintext: Bytes): Promise<string>;
   getRecord(id: string): Promise<Bytes | null>;
+  putItem(item: Item): Promise<void>;
+  getItem(id: string): Promise<Item | null>;
+  listItems(): Promise<Item[]>;
   /** Drops the key reference. Every later call throws VaultLockedError. */
   lock(): void;
 }
@@ -80,10 +85,47 @@ function openSession(deps: VaultDeps, initialKey: VaultKey): UnlockedVault {
       return openBytes(crypto, keyInUse, { iv: record.iv, ciphertext: record.ciphertext });
     },
 
+    async putItem(item) {
+      const parsed = ItemSchema.parse(item);
+      const sealed = await sealBytes(crypto, activeKey(), encodeJson(parsed));
+      await store.putRecord({ v: 1, id: parsed.id, kind: "item", iv: sealed.iv, ciphertext: sealed.ciphertext });
+    },
+
+    async getItem(id) {
+      const keyInUse = activeKey();
+      const record = await store.getRecord(id);
+      if (!record || record.kind !== "item") {
+        return null;
+      }
+      return decodeItem(await openBytes(crypto, keyInUse, { iv: record.iv, ciphertext: record.ciphertext }));
+    },
+
+    async listItems() {
+      const keyInUse = activeKey();
+      const records = await store.listRecords("item");
+      return Promise.all(
+        records.map(async (record) =>
+          decodeItem(await openBytes(crypto, keyInUse, { iv: record.iv, ciphertext: record.ciphertext })),
+        ),
+      );
+    },
+
     lock() {
       key = null;
     },
   };
+}
+
+function encodeJson(value: unknown): Bytes {
+  return new TextEncoder().encode(JSON.stringify(value));
+}
+
+function decodeItem(bytes: Bytes): Item {
+  const parsed = ItemSchema.safeParse(JSON.parse(new TextDecoder().decode(bytes)));
+  if (!parsed.success) {
+    throw new VaultCorruptError("A stored item could not be read.");
+  }
+  return parsed.data;
 }
 
 // 128 random bits as lowercase base32 (26 chars). Never sequential.
