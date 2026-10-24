@@ -4,6 +4,7 @@ import { Window } from "~/ui95/Window";
 import { Tabs95 } from "~/ui95/Tabs95";
 import { Button95 } from "~/ui95/Button95";
 import { Taskbar } from "~/ui95/Taskbar";
+import { Link } from "react-router";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Veil 95" }];
@@ -25,6 +26,9 @@ export default function Home() {
         <div className="flex flex-col gap-3">
           <Tabs95 tabs={TABS} activeId={active} onChange={setActive} />
           <p className="text-[12px]">Active view: {active}</p>
+          <Link to="/unlock" className="text-[12px] text-[#0000cc] underline">
+            Open vault
+          </Link>
           <Button95 pressed={pressed} onClick={() => setPressed((p) => !p)}>
             {pressed ? "Pressed" : "Press me"}
           </Button95>
