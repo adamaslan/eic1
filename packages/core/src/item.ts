@@ -21,6 +21,8 @@ export const ItemSchema = z.object({
   likes: z.number().int().nonnegative(),
   mediaIds: z.array(z.string()).default([]),
   thumbId: z.string().nullable().default(null),
+  // Encoding of both the media and thumb records (the web picks WebP or JPEG per browser).
+  mediaMime: z.string().default("image/webp"),
   schemaVersion: z.literal(1),
 });
 export type Item = z.infer<typeof ItemSchema>;

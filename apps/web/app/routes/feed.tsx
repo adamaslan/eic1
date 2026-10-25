@@ -5,6 +5,7 @@ import { selectFeed, useVaultItems } from "@veil/features";
 import type { Route } from "./+types/feed";
 import { Card95 } from "~/ui95/Card95";
 import { DemoSeed } from "~/components/demo-seed";
+import { useMediaUri } from "~/platform/use-media-uri";
 import { useSessionStore } from "~/platform/session";
 
 export function meta(_args: Route.MetaArgs) {
@@ -49,15 +50,21 @@ export default function Feed() {
 }
 
 function PhotoCard({ item, now }: { item: Item; now: Date }) {
+  const vault = useSessionStore((state) => state.vault);
+  const thumbUri = useMediaUri(vault, item.thumbId, item.mediaMime);
   const hue = hueFor(item.id);
   return (
     <Link to={`/item/${item.id}`} className="block">
       <Card95>
-        <div
-          className="h-[160px] w-full"
-          style={{ background: `linear-gradient(135deg, hsl(${hue} 70% 60%), hsl(${(hue + 40) % 360} 70% 35%))` }}
-          aria-hidden="true"
-        />
+        {thumbUri ? (
+          <img src={thumbUri} alt={item.title} className="h-[160px] w-full object-cover" />
+        ) : (
+          <div
+            className="h-[160px] w-full"
+            style={{ background: `linear-gradient(135deg, hsl(${hue} 70% 60%), hsl(${(hue + 40) % 360} 70% 35%))` }}
+            aria-hidden="true"
+          />
+        )}
         <div className="flex items-center justify-between gap-2 px-1 py-1">
           <span className="truncate font-bold">{item.title}</span>
           <span className="shrink-0 text-[#0000cc]">

@@ -38,6 +38,7 @@ export async function seedDemoItems(vault: UnlockedVault, now: Date): Promise<nu
       likes: demo.likes,
       mediaIds: [],
       thumbId: null,
+      mediaMime: "image/webp",
       schemaVersion: 1,
     };
     await vault.putItem(item);
