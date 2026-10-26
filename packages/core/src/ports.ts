@@ -1,4 +1,4 @@
-import type { Bytes, EncryptedRecord, VaultMeta } from "./model";
+import type { Bytes, EncryptedRecord, RecordKind, VaultMeta } from "./model";
 
 /**
  * Opaque derived key. Each platform decides what it wraps; shared code
@@ -20,4 +20,5 @@ export interface VaultStore {
   putMeta(meta: VaultMeta): Promise<void>;
   putRecord(record: EncryptedRecord): Promise<void>;
   getRecord(id: string): Promise<EncryptedRecord | null>;
+  listRecords(kind: RecordKind): Promise<EncryptedRecord[]>;
 }
