@@ -70,8 +70,7 @@ export default function Compose() {
       await saveComposedItem(vault, result.fields, images, { newId: newItemId, now: new Date() });
       navigate(type === "photo" ? "/" : "/market");
     } catch (caught) {
-      if (!(caught instanceof AppError)) throw caught;
-      setNotice(caught.message);
+      setNotice(caught instanceof AppError ? caught.message : "Could not save this post. Check available storage and try again.");
       setSaving(false);
     }
   }

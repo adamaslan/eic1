@@ -25,7 +25,7 @@ describe("parsePriceToCents", () => {
   });
 
   it("rejects non-amounts", () => {
-    for (const bad of ["abc", "-5", "1.234", "1,000", "12 dollars"]) {
+    for (const bad of ["abc", "-5", "1.234", "1,000", "12 dollars", "99999999999999"]) {
       expect(parsePriceToCents(bad)).toBeNaN();
     }
   });
