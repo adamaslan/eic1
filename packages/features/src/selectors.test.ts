@@ -13,6 +13,7 @@ const make = (overrides: Partial<Item>): Item => ({
   likes: 0,
   mediaIds: [],
   thumbId: null,
+  mediaMime: "image/webp",
   schemaVersion: 1,
   ...overrides,
 });

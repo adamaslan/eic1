@@ -3,6 +3,7 @@ import { formatPrice, timeAgo } from "@veil/core";
 import { useVaultItems } from "@veil/features";
 import type { Route } from "./+types/item";
 import { Window } from "~/ui95/Window";
+import { useMediaUri } from "~/platform/use-media-uri";
 import { useSessionStore } from "~/platform/session";
 
 export function meta(_args: Route.MetaArgs) {
@@ -31,6 +32,7 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
   return (
     <Window title={item.title}>
       <div className="flex flex-col gap-2 text-[12px]">
+        <ItemImage mediaId={item.mediaIds[0] ?? null} mime={item.mediaMime} title={item.title} />
         <p className="text-[#404040]">
           {item.category} · {formatPrice(item.priceCents)} · {timeAgo(item.createdAt, new Date())} · ♥ {item.likes}
         </p>
@@ -47,4 +49,11 @@ function BackLink() {
       Back to feed
     </Link>
   );
+}
+
+function ItemImage({ mediaId, mime, title }: { mediaId: string | null; mime: string; title: string }) {
+  const vault = useSessionStore((state) => state.vault);
+  const uri = useMediaUri(vault, mediaId, mime);
+  if (!uri) return null;
+  return <img src={uri} alt={title} className="max-h-[60vh] w-full object-contain" />;
 }

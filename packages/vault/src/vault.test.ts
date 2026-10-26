@@ -112,6 +112,7 @@ const sampleItem = (overrides: Partial<Item> = {}): Item => ({
   likes: 3,
   mediaIds: [],
   thumbId: null,
+  mediaMime: "image/webp",
   schemaVersion: 1,
   ...overrides,
 });

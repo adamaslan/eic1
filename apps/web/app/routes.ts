@@ -4,6 +4,7 @@ export default [
   layout("layouts/desktop.tsx", [
     index("routes/feed.tsx"),
     route("market", "routes/market.tsx"),
+    route("compose", "routes/compose.tsx"),
     route("item/:id", "routes/item.tsx"),
   ]),
   route("unlock", "routes/unlock.tsx"),

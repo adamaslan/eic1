@@ -7,6 +7,7 @@ import { useSessionStore } from "~/platform/session";
 const TABS = [
   { id: "feed", label: "Feed" },
   { id: "market", label: "Market" },
+  { id: "compose", label: "+ Post" },
 ];
 
 // Every desktop screen needs an unlocked vault. Locking anywhere sends the user to /unlock.
@@ -21,7 +22,7 @@ export default function DesktopLayout() {
     return <Navigate to="/unlock" replace />;
   }
 
-  const active = pathname.startsWith("/market") ? "market" : "feed";
+  const active = pathname.startsWith("/market") ? "market" : pathname.startsWith("/compose") ? "compose" : "feed";
   const clock = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   return (
@@ -30,7 +31,7 @@ export default function DesktopLayout() {
         <Tabs95
           tabs={TABS}
           activeId={active}
-          onChange={(id) => navigate(id === "feed" ? "/" : "/market")}
+          onChange={(id) => navigate(id === "feed" ? "/" : `/${id}`)}
         />
       </header>
       <main className="flex-1 p-2 pb-16">
