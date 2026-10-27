@@ -49,4 +49,14 @@ export class IndexedDbVaultStore implements VaultStore {
   async listRecords(kind: RecordKind): Promise<EncryptedRecord[]> {
     return (await this.db()).getAllFromIndex("records", "kind", kind);
   }
+
+  async listAllRecords(): Promise<EncryptedRecord[]> {
+    return (await this.db()).getAll("records");
+  }
+
+  async clear(): Promise<void> {
+    const db = await this.db();
+    const tx = db.transaction(["meta", "records"], "readwrite");
+    await Promise.all([tx.objectStore("meta").clear(), tx.objectStore("records").clear(), tx.done]);
+  }
 }

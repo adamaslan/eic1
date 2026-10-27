@@ -21,4 +21,8 @@ export interface VaultStore {
   putRecord(record: EncryptedRecord): Promise<void>;
   getRecord(id: string): Promise<EncryptedRecord | null>;
   listRecords(kind: RecordKind): Promise<EncryptedRecord[]>;
+  /** Every record of every kind, for backups. */
+  listAllRecords(): Promise<EncryptedRecord[]>;
+  /** Removes the meta and every record. */
+  clear(): Promise<void>;
 }

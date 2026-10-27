@@ -1,5 +1,14 @@
 import { SubtleCryptoPort } from "@veil/crypto";
-import { createVault, newRecordId, unlockVault, type UnlockedVault, type VaultDeps } from "@veil/vault";
+import {
+  createVault,
+  exportBackup,
+  importBackup,
+  newRecordId,
+  unlockVault,
+  wipeVault,
+  type UnlockedVault,
+  type VaultDeps,
+} from "@veil/vault";
 import { IndexedDbVaultStore } from "./indexeddb-store";
 
 // One app-wide set of platform adapters. Shared packages receive these by
@@ -25,4 +34,16 @@ export async function vaultExists(): Promise<boolean> {
 
 export function newItemId(): string {
   return newRecordId(cryptoPort);
+}
+
+export function vaultExport(): Promise<string> {
+  return exportBackup(deps.store, deps.now());
+}
+
+export function vaultImport(text: string): Promise<{ records: number }> {
+  return importBackup(deps.store, text);
+}
+
+export function vaultWipe(): Promise<void> {
+  return wipeVault(deps.store);
 }

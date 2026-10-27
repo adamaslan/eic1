@@ -4,35 +4,11 @@ import {
   VaultLockedError,
   VaultNotFoundError,
   WrongPassphraseError,
-  type EncryptedRecord,
   type Item,
-  type RecordKind,
-  type VaultMeta,
-  type VaultStore,
 } from "@veil/core";
 import { SubtleCryptoPort } from "@veil/crypto";
+import { MemoryStore } from "./memory-store";
 import { createVault, newRecordId, unlockVault, type VaultDeps } from "./vault";
-
-class MemoryStore implements VaultStore {
-  meta: VaultMeta | null = null;
-  records = new Map<string, EncryptedRecord>();
-
-  async getMeta() {
-    return this.meta;
-  }
-  async putMeta(meta: VaultMeta) {
-    this.meta = meta;
-  }
-  async putRecord(record: EncryptedRecord) {
-    this.records.set(record.id, record);
-  }
-  async getRecord(id: string) {
-    return this.records.get(id) ?? null;
-  }
-  async listRecords(kind: RecordKind) {
-    return [...this.records.values()].filter((record) => record.kind === kind);
-  }
-}
 
 const NOW = new Date("2026-10-21T00:00:00Z");
 const PASSPHRASE = "correct horse battery";

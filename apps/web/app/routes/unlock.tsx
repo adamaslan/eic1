@@ -1,10 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { AppError } from "@veil/core";
 import type { Route } from "./+types/unlock";
 import { Window } from "~/ui95/Window";
 import { Button95 } from "~/ui95/Button95";
 import { Link, Navigate, useNavigate } from "react-router";
-import { vaultCreate, vaultExists, vaultUnlock } from "~/platform/vault-service";
+import { vaultCreate, vaultExists, vaultImport, vaultUnlock } from "~/platform/vault-service";
 import { useSessionStore } from "~/platform/session";
 
 export function meta(_args: Route.MetaArgs) {
@@ -12,6 +12,7 @@ export function meta(_args: Route.MetaArgs) {
 }
 
 const MIN_PASSPHRASE_LENGTH = 8;
+const MAX_BACKUP_BYTES = 200 * 1024 * 1024;
 const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
 
 export default function Unlock() {
@@ -24,10 +25,33 @@ export default function Unlock() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [restored, setRestored] = useState<number | null>(null);
 
   useEffect(() => {
     vaultExists().then(setExists);
   }, []);
+
+  async function handleRestore(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setError(null);
+    if (file.size > MAX_BACKUP_BYTES) {
+      setError("That file is too large to be a Veil backup.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { records } = await vaultImport(await file.text());
+      setRestored(records);
+      setExists(true);
+    } catch (caught) {
+      if (!(caught instanceof AppError)) throw caught;
+      setError(caught.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,6 +92,9 @@ export default function Unlock() {
 
         {exists !== null && !vault && (
           <form onSubmit={handleSubmit} className="flex flex-col gap-2 text-[12px]">
+            {restored !== null && (
+              <p role="status">Backup restored ({restored} records). Enter the passphrase it was created with.</p>
+            )}
             <p>
               {exists
                 ? "Enter your passphrase to unlock the vault."
@@ -106,6 +133,13 @@ export default function Unlock() {
               {exists ? "Unlock" : "Create vault"}
             </Button95>
           </form>
+        )}
+
+        {exists === false && !vault && (
+          <label className="mt-3 flex flex-col gap-0.5 text-[12px]">
+            Restore from backup
+            <input type="file" accept=".vault,application/json" onChange={handleRestore} disabled={busy} />
+          </label>
         )}
 
         <p className="mt-3">

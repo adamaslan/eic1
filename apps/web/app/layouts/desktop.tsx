@@ -3,11 +3,13 @@ import { useClock } from "@veil/features";
 import { Tabs95 } from "~/ui95/Tabs95";
 import { Taskbar } from "~/ui95/Taskbar";
 import { useSessionStore } from "~/platform/session";
+import { useAutoLock } from "~/platform/use-auto-lock";
 
 const TABS = [
   { id: "feed", label: "Feed" },
   { id: "market", label: "Market" },
   { id: "compose", label: "+ Post" },
+  { id: "vault", label: "Vault" },
 ];
 
 // Every desktop screen needs an unlocked vault. Locking anywhere sends the user to /unlock.
@@ -17,12 +19,17 @@ export default function DesktopLayout() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const now = useClock();
+  useAutoLock(vault !== null, lock);
 
   if (!vault) {
     return <Navigate to="/unlock" replace />;
   }
 
-  const active = pathname.startsWith("/market") ? "market" : pathname.startsWith("/compose") ? "compose" : "feed";
+  const active = pathname.startsWith("/market") ? "market" : pathname.startsWith("/compose")
+      ? "compose"
+      : pathname.startsWith("/vault")
+        ? "vault"
+        : "feed";
   const clock = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   return (

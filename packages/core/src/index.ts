@@ -1,3 +1,4 @@
+export * from "./base64";
 export * from "./errors";
 export * from "./format";
 export * from "./item";
