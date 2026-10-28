@@ -53,6 +53,22 @@ describe("vault repository", () => {
     await expect(createVault(deps, PASSPHRASE)).rejects.toBeInstanceOf(VaultAlreadyExistsError);
   });
 
+  it("allows only one of two simultaneous vault creations", async () => {
+    const results = await Promise.allSettled([
+      createVault(deps, "first passphrase"),
+      createVault(deps, "second passphrase"),
+    ]);
+
+    const winners = results.flatMap((result, index) => result.status === "fulfilled" ? [index] : []);
+    const failures = results.filter((result) => result.status === "rejected");
+    expect(winners).toHaveLength(1);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.status === "rejected" && failures[0].reason).toBeInstanceOf(VaultAlreadyExistsError);
+
+    const winnerPassphrase = winners[0] === 0 ? "first passphrase" : "second passphrase";
+    await expect(unlockVault(deps, winnerPassphrase)).resolves.toBeDefined();
+  });
+
   it("reports a missing vault on unlock", async () => {
     await expect(unlockVault(deps, PASSPHRASE)).rejects.toBeInstanceOf(VaultNotFoundError);
   });
@@ -74,6 +90,18 @@ describe("vault repository", () => {
 
     await expect(vault.getRecord(id)).rejects.toBeInstanceOf(VaultLockedError);
     await expect(vault.putRecord("item", note("y"))).rejects.toBeInstanceOf(VaultLockedError);
+  });
+
+  it("rejects writes from a stale session after the vault is wiped and recreated", async () => {
+    const staleVault = await createVault(deps, PASSPHRASE);
+    const wipeSession = await unlockVault(deps, PASSPHRASE);
+    await wipeSession.wipe();
+    const currentVault = await createVault(deps, "new vault passphrase");
+
+    await expect(staleVault.putItem(sampleItem())).rejects.toBeInstanceOf(VaultLockedError);
+    await expect(staleVault.putRecord("media", note("stale media"))).rejects.toBeInstanceOf(VaultLockedError);
+    await expect(staleVault.wipe()).rejects.toBeInstanceOf(VaultLockedError);
+    expect(await currentVault.listItems()).toEqual([]);
   });
 });
 

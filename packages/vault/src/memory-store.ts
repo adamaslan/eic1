@@ -1,4 +1,12 @@
-import type { EncryptedRecord, RecordKind, VaultMeta, VaultStore } from "@veil/core";
+import {
+  VaultAlreadyExistsError,
+  VaultLockedError,
+  type Bytes,
+  type EncryptedRecord,
+  type RecordKind,
+  type VaultMeta,
+  type VaultStore,
+} from "@veil/core";
 
 /** In-memory VaultStore for tests. Not exported from the package. */
 export class MemoryStore implements VaultStore {
@@ -7,6 +15,28 @@ export class MemoryStore implements VaultStore {
 
   async getMeta() {
     return this.meta;
+  }
+  async initialize(meta: VaultMeta, records: EncryptedRecord[]) {
+    if (this.meta !== null || this.records.size > 0) {
+      throw new VaultAlreadyExistsError("A vault already exists on this device.");
+    }
+    this.meta = meta;
+    for (const record of records) {
+      this.records.set(record.id, record);
+    }
+  }
+  async putRecordForVault(expectedSalt: Bytes, record: EncryptedRecord) {
+    if (!this.meta || !sameBytes(this.meta.kdf.salt, expectedSalt)) {
+      throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
+    }
+    this.records.set(record.id, record);
+  }
+  async clearForVault(expectedSalt: Bytes) {
+    if (!this.meta || !sameBytes(this.meta.kdf.salt, expectedSalt)) {
+      throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
+    }
+    this.meta = null;
+    this.records.clear();
   }
   async putMeta(meta: VaultMeta) {
     this.meta = meta;
@@ -23,8 +53,8 @@ export class MemoryStore implements VaultStore {
   async listAllRecords() {
     return [...this.records.values()];
   }
-  async clear() {
-    this.meta = null;
-    this.records.clear();
-  }
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.length === right.length && left.every((byte, index) => byte === right[index]);
 }

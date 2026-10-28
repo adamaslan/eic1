@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   EncryptedRecordSchema,
   RecordKindSchema,
-  VaultAlreadyExistsError,
   VaultCorruptError,
   VaultMetaSchema,
   decodeBase64,
@@ -73,43 +72,19 @@ export async function exportBackup(store: VaultStore, now: Date): Promise<string
 
 /**
  * Restores a backup into an empty store. Refuses to overwrite an existing
- * vault: wipe it first. Records are written before the meta, so a failure
- * midway leaves no meta behind and the partial records are cleared.
+ * vault: wipe it first. The store initializes the header and records atomically
+ * so a failed restore cannot leave partial data or clear another tab's vault.
  */
 export async function importBackup(store: VaultStore, text: string): Promise<{ records: number }> {
-  if (await store.getMeta()) {
-    throw new VaultAlreadyExistsError("This device already has a vault. Wipe it before restoring a backup.");
-  }
-  const backup = parseBackup(text);
-  try {
-    for (const record of backup.records) {
-      await store.putRecord(
-        EncryptedRecordSchema.parse({ ...record, iv: decodeBase64(record.iv), ciphertext: decodeBase64(record.ciphertext) }),
-      );
-    }
-    await store.putMeta(
-      VaultMetaSchema.parse({
-        ...backup.meta,
-        kdf: { ...backup.meta.kdf, salt: decodeBase64(backup.meta.kdf.salt) },
-        verifier: {
-          iv: decodeBase64(backup.meta.verifier.iv),
-          ciphertext: decodeBase64(backup.meta.verifier.ciphertext),
-        },
-      }),
-    );
-  } catch (caught) {
-    await store.clear();
-    throw new VaultCorruptError(`The backup could not be restored: ${describe(caught)}`);
-  }
-  return { records: backup.records.length };
+  const { meta, records } = parseBackup(text);
+  await store.initialize(meta, records);
+  return { records: records.length };
 }
 
-/** Deletes the vault header and every record. The data cannot be recovered afterwards. */
-export function wipeVault(store: VaultStore): Promise<void> {
-  return store.clear();
-}
-
-function parseBackup(text: string): z.infer<typeof BackupSchema> {
+function parseBackup(text: string): {
+  meta: z.infer<typeof VaultMetaSchema>;
+  records: z.infer<typeof EncryptedRecordSchema>[];
+} {
   let json: unknown;
   try {
     json = JSON.parse(text);
@@ -120,9 +95,28 @@ function parseBackup(text: string): z.infer<typeof BackupSchema> {
   if (!parsed.success) {
     throw new VaultCorruptError("That file is not a Veil backup, or it is from a newer version.");
   }
-  return parsed.data;
-}
-
-function describe(caught: unknown): string {
-  return caught instanceof Error ? caught.message : "unknown error";
+  try {
+    const meta = VaultMetaSchema.parse({
+      ...parsed.data.meta,
+      kdf: { ...parsed.data.meta.kdf, salt: decodeBase64(parsed.data.meta.kdf.salt) },
+      verifier: {
+        iv: decodeBase64(parsed.data.meta.verifier.iv),
+        ciphertext: decodeBase64(parsed.data.meta.verifier.ciphertext),
+      },
+    });
+    const records = parsed.data.records.map((record) =>
+      EncryptedRecordSchema.parse({
+        ...record,
+        iv: decodeBase64(record.iv),
+        ciphertext: decodeBase64(record.ciphertext),
+      }),
+    );
+    if (new Set(records.map((record) => record.id)).size !== records.length) {
+      throw new VaultCorruptError("That backup contains duplicate record identifiers.");
+    }
+    return { meta, records };
+  } catch (error) {
+    if (error instanceof VaultCorruptError) throw error;
+    throw new VaultCorruptError("That backup contains invalid encrypted data.");
+  }
 }

@@ -2,7 +2,6 @@ import {
   type Bytes,
   type Item,
   ItemSchema,
-  VaultAlreadyExistsError,
   VaultCorruptError,
   VaultLockedError,
   VaultMetaSchema,
@@ -31,17 +30,16 @@ export interface UnlockedVault {
   putItem(item: Item): Promise<void>;
   getItem(id: string): Promise<Item | null>;
   listItems(): Promise<Item[]>;
+  /** Wipes this vault only while its original header is still current. */
+  wipe(): Promise<void>;
   /** Drops the key reference. Every later call throws VaultLockedError. */
   lock(): void;
 }
 
 export async function createVault(deps: VaultDeps, passphrase: string): Promise<UnlockedVault> {
-  if (await deps.store.getMeta()) {
-    throw new VaultAlreadyExistsError("A vault already exists on this device.");
-  }
   const { meta, key } = await createVaultMeta(deps.crypto, passphrase, deps.now());
-  await deps.store.putMeta(meta);
-  return openSession(deps, key);
+  await deps.store.initialize(meta, []);
+  return openSession(deps, key, meta.kdf.salt);
 }
 
 export async function unlockVault(deps: VaultDeps, passphrase: string): Promise<UnlockedVault> {
@@ -54,10 +52,10 @@ export async function unlockVault(deps: VaultDeps, passphrase: string): Promise<
     throw new VaultCorruptError("The stored vault header is unreadable.");
   }
   const key = await deriveVaultKey(deps.crypto, parsed.data, passphrase);
-  return openSession(deps, key);
+  return openSession(deps, key, parsed.data.kdf.salt);
 }
 
-function openSession(deps: VaultDeps, initialKey: VaultKey): UnlockedVault {
+function openSession(deps: VaultDeps, initialKey: VaultKey, expectedVaultSalt: Bytes): UnlockedVault {
   const { store, crypto } = deps;
   let key: VaultKey | null = initialKey;
 
@@ -72,7 +70,7 @@ function openSession(deps: VaultDeps, initialKey: VaultKey): UnlockedVault {
     async putRecord(kind, plaintext) {
       const sealed = await sealBytes(crypto, activeKey(), plaintext);
       const id = newRecordId(crypto);
-      await store.putRecord({ v: 1, id, kind, iv: sealed.iv, ciphertext: sealed.ciphertext });
+      await store.putRecordForVault(expectedVaultSalt, { v: 1, id, kind, iv: sealed.iv, ciphertext: sealed.ciphertext });
       return id;
     },
 
@@ -88,7 +86,13 @@ function openSession(deps: VaultDeps, initialKey: VaultKey): UnlockedVault {
     async putItem(item) {
       const parsed = ItemSchema.parse(item);
       const sealed = await sealBytes(crypto, activeKey(), encodeJson(parsed));
-      await store.putRecord({ v: 1, id: parsed.id, kind: "item", iv: sealed.iv, ciphertext: sealed.ciphertext });
+      await store.putRecordForVault(expectedVaultSalt, {
+        v: 1,
+        id: parsed.id,
+        kind: "item",
+        iv: sealed.iv,
+        ciphertext: sealed.ciphertext,
+      });
     },
 
     async getItem(id) {
@@ -111,6 +115,12 @@ function openSession(deps: VaultDeps, initialKey: VaultKey): UnlockedVault {
     },
 
     lock() {
+      key = null;
+    },
+
+    async wipe() {
+      activeKey();
+      await deps.store.clearForVault(expectedVaultSalt);
       key = null;
     },
   };

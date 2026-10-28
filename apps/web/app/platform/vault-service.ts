@@ -5,7 +5,6 @@ import {
   importBackup,
   newRecordId,
   unlockVault,
-  wipeVault,
   type UnlockedVault,
   type VaultDeps,
 } from "@veil/vault";
@@ -44,6 +43,6 @@ export function vaultImport(text: string): Promise<{ records: number }> {
   return importBackup(deps.store, text);
 }
 
-export function vaultWipe(): Promise<void> {
-  return wipeVault(deps.store);
+export function vaultWipe(vault: UnlockedVault): Promise<void> {
+  return vault.wipe();
 }

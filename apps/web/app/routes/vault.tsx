@@ -41,9 +41,16 @@ export default function VaultScreen() {
 
   async function handleWipe() {
     setError(null);
-    await vaultWipe();
-    lock();
-    navigate("/unlock", { replace: true });
+    if (!vault) return;
+    try {
+      await vaultWipe(vault);
+      lock();
+      navigate("/unlock", { replace: true });
+    } catch (caught) {
+      if (!(caught instanceof AppError)) throw caught;
+      lock();
+      setError(caught.message);
+    }
   }
 
   const count = state.status === "ready" ? state.items.length : null;
