@@ -3,7 +3,6 @@ import { useClock } from "@veil/features";
 import { Bevel } from "~/ui95/Bevel";
 import { Taskbar } from "~/ui95/Taskbar";
 import { useSessionStore } from "~/platform/session";
-import { useAutoLock } from "~/platform/use-auto-lock";
 
 const TABS = [
   { id: "feed", label: "Feed" },
@@ -18,7 +17,6 @@ export default function DesktopLayout() {
   const lock = useSessionStore((state) => state.lock);
   const { pathname } = useLocation();
   const now = useClock();
-  useAutoLock(vault !== null, lock);
 
   if (!vault) {
     return <Navigate to="/unlock" replace />;
