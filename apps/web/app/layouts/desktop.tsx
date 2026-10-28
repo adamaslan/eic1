@@ -38,7 +38,7 @@ export default function DesktopLayout() {
           {TABS.map((tab) => (
             <Bevel key={tab.id} variant={tab.id === active ? "in" : "out"}>
               <Link
-                to={tab.id === "feed" ? "/" : `/${tab.id}`}
+                to={`/${tab.id}`}
                 aria-current={tab.id === active ? "page" : undefined}
                 className={`block min-h-[44px] bg-[#c0c0c0] px-3 py-1 text-[12px] text-[#0a0a0a] sm:min-h-0 ${tab.id === active ? "translate-x-px translate-y-px" : ""}`}
               >
