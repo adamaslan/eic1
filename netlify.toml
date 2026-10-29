@@ -1,0 +1,13 @@
+# Netlify builds from the repo root. The web app is an npm workspace member, so
+# install and build happen here and only the SPA output is published.
+[build]
+command = "npm run build --workspace web"
+publish = "apps/web/build/client"
+
+[build.environment]
+NODE_VERSION = "24"
+
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200
