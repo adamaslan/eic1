@@ -23,7 +23,7 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
       <Window title="Not found">
         <div className="flex flex-col gap-2 text-[12px]">
           <p>That item is not in this vault.</p>
-          <BackLink />
+          <BackLink type={null} />
         </div>
       </Window>
     );
@@ -32,21 +32,24 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
   return (
     <Window title={item.title}>
       <div className="flex flex-col gap-2 text-[12px]">
-        <ItemImage mediaId={item.mediaIds[0] ?? null} mime={item.mediaMime} title={item.title} />
+        {item.mediaIds.map((mediaId) => (
+          <ItemImage key={mediaId} mediaId={mediaId} mime={item.mediaMime} title={item.title} />
+        ))}
         <p className="text-[#404040]">
           {item.category} · {formatPrice(item.priceCents)} · {timeAgo(item.createdAt, new Date())} · ♥ {item.likes}
         </p>
         <p className="whitespace-pre-wrap">{item.description || "No description."}</p>
-        <BackLink />
+        <BackLink type={item.type} />
       </div>
     </Window>
   );
 }
 
-function BackLink() {
+function BackLink({ type }: { type: "photo" | "listing" | null }) {
+  const to = type === "listing" ? "/market" : "/";
   return (
-    <Link to="/" className="text-[#0000cc] underline">
-      Back to feed
+    <Link to={to} className="text-[#0000cc] underline">
+      {type === "listing" ? "Back to market" : "Back to feed"}
     </Link>
   );
 }

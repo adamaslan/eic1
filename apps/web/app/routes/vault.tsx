@@ -34,8 +34,7 @@ export default function VaultScreen() {
       downloadTextFile(`veil95-${day}.vault`, await vaultExport());
       setNotice("Backup downloaded. It is encrypted; you still need your passphrase to open it.");
     } catch (caught) {
-      if (!(caught instanceof AppError)) throw caught;
-      setError(caught.message);
+      setError(caught instanceof AppError ? caught.message : "The backup could not be created.");
     }
   }
 
@@ -47,9 +46,7 @@ export default function VaultScreen() {
       lock();
       navigate("/unlock", { replace: true });
     } catch (caught) {
-      if (!(caught instanceof AppError)) throw caught;
-      lock();
-      setError(caught.message);
+      setError(caught instanceof AppError ? caught.message : "The vault could not be wiped. Your current session is still open.");
     }
   }
 

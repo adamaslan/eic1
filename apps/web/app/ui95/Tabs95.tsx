@@ -19,7 +19,7 @@ export function Tabs95({ tabs, activeId, onChange }: Tabs95Props) {
           key={tab.id}
           role="tab"
           aria-selected={tab.id === activeId}
-          pressed={tab.id === activeId}
+          sunken={tab.id === activeId}
           onClick={() => onChange(tab.id)}
         >
           {tab.label}

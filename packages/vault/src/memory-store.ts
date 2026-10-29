@@ -16,6 +16,9 @@ export class MemoryStore implements VaultStore {
   async getMeta() {
     return this.meta;
   }
+  async getBackupSnapshot() {
+    return { meta: this.meta, records: [...this.records.values()] };
+  }
   async initialize(meta: VaultMeta, records: EncryptedRecord[]) {
     if (this.meta !== null || this.records.size > 0) {
       throw new VaultAlreadyExistsError("A vault already exists on this device.");

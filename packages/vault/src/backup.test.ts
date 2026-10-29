@@ -82,6 +82,19 @@ describe("base64", () => {
 });
 
 describe("backup", () => {
+  it("exports metadata and records from the store snapshot", async () => {
+    source = new MemoryStore();
+    await createVault(depsFor(source), PASSPHRASE);
+    source.getMeta = async () => {
+      throw new Error("export must use a consistent snapshot");
+    };
+    source.listAllRecords = async () => {
+      throw new Error("export must use a consistent snapshot");
+    };
+
+    await expect(exportBackup(source, NOW)).resolves.toContain(BACKUP_FORMAT);
+  });
+
   it("restores into a fresh store that unlocks with the same passphrase", async () => {
     const text = await exportBackup(source, NOW);
     const target = new MemoryStore();

@@ -46,11 +46,10 @@ const BackupSchema = z.object({
  * ciphertext, so exporting does not need the passphrase or an unlocked session.
  */
 export async function exportBackup(store: VaultStore, now: Date): Promise<string> {
-  const meta = await store.getMeta();
+  const { meta, records } = await store.getBackupSnapshot();
   if (!meta) {
     throw new VaultCorruptError("There is no vault to export.");
   }
-  const records = await store.listAllRecords();
   const backup: z.infer<typeof BackupSchema> = {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,

@@ -1,6 +1,6 @@
-import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
+import { Link, Navigate, Outlet, useLocation } from "react-router";
 import { useClock } from "@veil/features";
-import { Tabs95 } from "~/ui95/Tabs95";
+import { Bevel } from "~/ui95/Bevel";
 import { Taskbar } from "~/ui95/Taskbar";
 import { useSessionStore } from "~/platform/session";
 import { useAutoLock } from "~/platform/use-auto-lock";
@@ -16,7 +16,6 @@ const TABS = [
 export default function DesktopLayout() {
   const vault = useSessionStore((state) => state.vault);
   const lock = useSessionStore((state) => state.lock);
-  const navigate = useNavigate();
   const { pathname } = useLocation();
   const now = useClock();
   useAutoLock(vault !== null, lock);
@@ -35,11 +34,19 @@ export default function DesktopLayout() {
   return (
     <div className="flex min-h-screen flex-col bg-[#008080]">
       <header className="p-2 pb-0">
-        <Tabs95
-          tabs={TABS}
-          activeId={active}
-          onChange={(id) => navigate(id === "feed" ? "/" : `/${id}`)}
-        />
+        <nav aria-label="Main navigation" className="flex flex-wrap gap-1">
+          {TABS.map((tab) => (
+            <Bevel key={tab.id} variant={tab.id === active ? "in" : "out"}>
+              <Link
+                to={tab.id === "feed" ? "/" : `/${tab.id}`}
+                aria-current={tab.id === active ? "page" : undefined}
+                className={`block min-h-[44px] bg-[#c0c0c0] px-3 py-1 text-[12px] text-[#0a0a0a] sm:min-h-0 ${tab.id === active ? "translate-x-px translate-y-px" : ""}`}
+              >
+                {tab.label}
+              </Link>
+            </Bevel>
+          ))}
+        </nav>
       </header>
       <main className="flex-1 p-2 pb-16">
         <Outlet />

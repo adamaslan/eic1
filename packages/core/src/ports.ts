@@ -17,6 +17,8 @@ export interface CryptoPort {
 
 export interface VaultStore {
   getMeta(): Promise<VaultMeta | null>;
+  /** Reads the header and every encrypted record from one consistent snapshot. */
+  getBackupSnapshot(): Promise<{ meta: VaultMeta | null; records: EncryptedRecord[] }>;
   /** Atomically initializes an empty store with a vault header and its records. */
   initialize(meta: VaultMeta, records: EncryptedRecord[]): Promise<void>;
   /** Writes only if the current vault still has the expected random salt. */

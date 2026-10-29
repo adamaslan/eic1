@@ -36,6 +36,7 @@ export function parsePriceToCents(raw: string): number | null {
   if (text === "") return null;
   if (!/^\d+(\.\d{1,2})?$/.test(text)) return Number.NaN;
   const cents = Math.round(Number(text) * 100);
+  if (!Number.isSafeInteger(cents)) return Number.NaN;
   return cents === 0 ? null : cents;
 }
 

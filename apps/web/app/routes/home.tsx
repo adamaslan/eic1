@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { Route } from "./+types/home";
 import { Window } from "~/ui95/Window";
-import { Tabs95 } from "~/ui95/Tabs95";
 import { Button95 } from "~/ui95/Button95";
 import { Taskbar } from "~/ui95/Taskbar";
 import { Link } from "react-router";
@@ -24,8 +23,14 @@ export default function Home() {
     <main className="min-h-screen bg-[#008080] p-3 pb-16">
       <Window title="Veil 95 — primitives">
         <div className="flex flex-col gap-3">
-          <Tabs95 tabs={TABS} activeId={active} onChange={setActive} />
-          <p className="text-[12px]">Active view: {active}</p>
+          <div role="group" aria-label="Active view" className="flex flex-wrap gap-1">
+            {TABS.map((tab) => (
+              <Button95 key={tab.id} pressed={tab.id === active} onClick={() => setActive(tab.id)}>
+                {tab.label}
+              </Button95>
+            ))}
+          </div>
+          <p role="status" className="text-[12px]">Active view: {active}</p>
           <Link to="/unlock" className="text-[12px] text-[#0000cc] underline">
             Open vault
           </Link>

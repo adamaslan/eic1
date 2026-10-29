@@ -28,7 +28,17 @@ export default function Unlock() {
   const [restored, setRestored] = useState<number | null>(null);
 
   useEffect(() => {
-    vaultExists().then(setExists);
+    let cancelled = false;
+    vaultExists()
+      .then((vaultFound) => {
+        if (!cancelled) setExists(vaultFound);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Storage is unavailable in this browser. The vault cannot be opened.");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function handleRestore(event: ChangeEvent<HTMLInputElement>) {
@@ -46,8 +56,7 @@ export default function Unlock() {
       setRestored(records);
       setExists(true);
     } catch (caught) {
-      if (!(caught instanceof AppError)) throw caught;
-      setError(caught.message);
+      setError(caught instanceof AppError ? caught.message : "The backup could not be read or restored.");
     } finally {
       setBusy(false);
     }
@@ -74,8 +83,7 @@ export default function Unlock() {
       setPassphrase("");
       setConfirm("");
     } catch (caught) {
-      if (!(caught instanceof AppError)) throw caught;
-      setError(caught.message);
+      setError(caught instanceof AppError ? caught.message : "The vault could not be opened. Check browser storage and try again.");
     } finally {
       setBusy(false);
     }
@@ -89,6 +97,7 @@ export default function Unlock() {
     <main className="min-h-screen bg-[#008080] p-3">
       <Window title="Vault — encrypted local storage">
         {exists === null && <p className="text-[12px]">Checking this device…</p>}
+        {exists === null && error && <p role="alert" className="text-[12px] text-[#800000]">{error}</p>}
 
         {exists !== null && !vault && (
           <form onSubmit={handleSubmit} className="flex flex-col gap-2 text-[12px]">

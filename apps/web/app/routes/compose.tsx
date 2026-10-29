@@ -46,16 +46,19 @@ export default function Compose() {
     if (files.length > room) setNotice(`Only ${MAX_MEDIA_PER_ITEM} photos per post. Extra files were skipped.`);
 
     const added: CompressedImage[] = [];
-    for (const file of files.slice(0, Math.max(0, room))) {
-      try {
-        added.push(await compressImage(file, (label, percent) => setProgress({ label: `${file.name}: ${label}`, percent })));
-      } catch (caught) {
-        if (!(caught instanceof UnsupportedMediaError)) throw caught;
-        setNotice(caught.message);
+    try {
+      for (const file of files.slice(0, Math.max(0, room))) {
+        try {
+          added.push(await compressImage(file, (label, percent) => setProgress({ label: `${file.name}: ${label}`, percent })));
+        } catch (caught) {
+          setNotice(caught instanceof UnsupportedMediaError ? caught.message : "This photo could not be processed.");
+        }
       }
+    } finally {
+      setProgress(null);
+      setImages((current) => [...current, ...added]);
+      setErrors((current) => ({ ...current, media: undefined }));
     }
-    setProgress(null);
-    setImages((current) => [...current, ...added]);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -65,13 +68,14 @@ export default function Compose() {
     setErrors(result.ok ? {} : result.errors);
     if (!result.ok) return;
 
+    setNotice(null);
     setSaving(true);
     try {
       await saveComposedItem(vault, result.fields, images, { newId: newItemId, now: new Date() });
       navigate(type === "photo" ? "/" : "/market");
     } catch (caught) {
-      if (!(caught instanceof AppError)) throw caught;
-      setNotice(caught.message);
+      setNotice(caught instanceof AppError ? caught.message : "The post could not be saved. Please try again.");
+    } finally {
       setSaving(false);
     }
   }
@@ -83,14 +87,25 @@ export default function Compose() {
           <legend className="mb-1 font-bold">Post type</legend>
           {(["photo", "listing"] as const).map((option) => (
             <label key={option} className="flex items-center gap-1">
-              <input type="radio" name={`${formId}-type`} checked={type === option} onChange={() => setType(option)} />
+              <input
+                type="radio"
+                name={`${formId}-type`}
+                checked={type === option}
+                onChange={() => {
+                  setType(option);
+                  setErrors((current) => ({ ...current, media: undefined, price: undefined }));
+                }}
+              />
               {option === "photo" ? "Photo moment" : "Marketplace listing"}
             </label>
           ))}
         </fieldset>
 
         <Field label="Title" error={errors.title} htmlFor={`${formId}-title`}>
-          <input id={`${formId}-title`} className={FIELD} value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input id={`${formId}-title`} className={FIELD} value={title} onChange={(e) => {
+            setTitle(e.target.value);
+            setErrors((current) => ({ ...current, title: undefined }));
+          }} />
         </Field>
 
         {type === "listing" && (
@@ -115,7 +130,10 @@ export default function Compose() {
                 className={`${FIELD} sm:w-[120px]`}
                 inputMode="decimal"
                 value={price}
-                onChange={(e) => setPrice(e.target.value)}
+                onChange={(e) => {
+                  setPrice(e.target.value);
+                  setErrors((current) => ({ ...current, price: undefined }));
+                }}
               />
             </Field>
           </>
@@ -127,7 +145,10 @@ export default function Compose() {
             className={FIELD}
             rows={3}
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              setErrors((current) => ({ ...current, description: undefined }));
+            }}
           />
         </Field>
 
@@ -153,7 +174,10 @@ export default function Compose() {
                   type="button"
                   aria-label={`Remove ${image.name}`}
                   className="cursor-pointer px-1"
-                  onClick={() => setImages((current) => current.filter((_, i) => i !== index))}
+                  onClick={() => {
+                    setImages((current) => current.filter((_, i) => i !== index));
+                    setErrors((current) => ({ ...current, media: undefined }));
+                  }}
                 >
                   ✕
                 </button>

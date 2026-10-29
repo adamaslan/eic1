@@ -42,6 +42,16 @@ export class IndexedDbVaultStore implements VaultStore {
     return (await (await this.db()).get("meta", META_KEY)) ?? null;
   }
 
+  async getBackupSnapshot(): Promise<{ meta: VaultMeta | null; records: EncryptedRecord[] }> {
+    const tx = (await this.db()).transaction(["meta", "records"], "readonly");
+    const [meta, records] = await Promise.all([
+      tx.objectStore("meta").get(META_KEY),
+      tx.objectStore("records").getAll(),
+      tx.done,
+    ]);
+    return { meta: meta ?? null, records };
+  }
+
   async initialize(meta: VaultMeta, records: EncryptedRecord[]): Promise<void> {
     const db = await this.db();
     const tx = db.transaction(["meta", "records"], "readwrite");

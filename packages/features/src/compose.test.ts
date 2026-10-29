@@ -29,6 +29,10 @@ describe("parsePriceToCents", () => {
       expect(parsePriceToCents(bad)).toBeNaN();
     }
   });
+
+  it("rejects cent values outside the safe integer range", () => {
+    expect(parsePriceToCents("90071992547410")).toBeNaN();
+  });
 });
 
 describe("validateCompose", () => {

@@ -47,7 +47,7 @@ export async function compressImage(
   if (file.type.startsWith("video/")) {
     throw new UnsupportedMediaError("Video is not supported yet. Pick a photo.");
   }
-  if (!file.type.startsWith("image/")) {
+  if (file.type !== "" && !file.type.startsWith("image/")) {
     throw new UnsupportedMediaError(`${file.name} is not an image.`);
   }
   if (file.size > MAX_IMAGE_INPUT_BYTES) {

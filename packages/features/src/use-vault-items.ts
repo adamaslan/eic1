@@ -26,8 +26,9 @@ export function useVaultItems(vault: UnlockedVault | null): VaultItems {
         if (!cancelled) setState({ status: "ready", items });
       })
       .catch((caught: unknown) => {
-        if (!(caught instanceof AppError)) throw caught;
-        if (!cancelled) setState({ status: "error", message: caught.message });
+        if (cancelled) return;
+        const message = caught instanceof AppError ? caught.message : "This vault could not be read.";
+        setState({ status: "error", message });
       });
     return () => {
       cancelled = true;
