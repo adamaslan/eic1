@@ -205,9 +205,55 @@ describe("share regression cases", () => {
     expect(await copy()).toMatchObject({ likes: 5, likedByMe: true });
     await toggleLike(reader, (await copy())!);
     expect((await copy())!.likes).toBe(4);
+    // The owner has not received the unlike: re-import the exact acknowledged file.
+    const acknowledgedFile = JSON.stringify(acknowledged);
+    await importShareBundle(reader, acknowledgedFile, { settings: readerSettings, newId, now: NOW });
+    expect(await copy()).toMatchObject({ likes: 4, likedByMe: false });
+    await toggleLike(reader, (await copy())!);
+    expect(await copy()).toMatchObject({ likes: 5, likedByMe: true });
+    await send(reader, owner, readerSettings, ownerSettings);
+    await send(owner, reader, ownerSettings, readerSettings);
+    expect(await owner.getItem("p1")).toMatchObject({ likes: 5, likedBy: ["bob"] });
+    expect(await copy()).toMatchObject({ likes: 5, likedByMe: true });
+    await toggleLike(reader, (await copy())!);
+    await importShareBundle(reader, acknowledgedFile, { settings: readerSettings, newId, now: NOW });
+    expect(await copy()).toMatchObject({ likes: 4, likedByMe: false });
     await send(reader, owner, readerSettings, ownerSettings);
     await send(owner, reader, ownerSettings, readerSettings);
     expect(await copy()).toMatchObject({ likes: 4, likedByMe: false });
+    expect(await owner.getItem("p1")).toMatchObject({ likes: 4, likedBy: [] });
+  });
+
+  it("floors an imported pending unlike at zero", async () => {
+    const vault = await open();
+    const post = { ...getSampleItems(NOW)[0]!, id: "p1", visibility: "shareable" as const, likes: 0, likedBy: ["bob"] };
+    const { text } = await buildShareBundle(vault, settingsFor("alice", "alice"), [post], NOW);
+    await importShareBundle(vault, text, { settings: settingsFor("bob", "bob"), newId, now: NOW });
+    expect(await vault.getItem("post:alice:p1")).toMatchObject({ likes: 0, likedByMe: false });
+  });
+
+  it("imports version-1 posts without likedBy as having no acknowledged likes", async () => {
+    const vault = await open();
+    const post = { ...getSampleItems(NOW)[0]!, id: "p1", visibility: "shareable" as const, likes: 4 };
+    const bundle = JSON.parse((await buildShareBundle(vault, settingsFor("alice", "alice"), [post], NOW)).text);
+    delete bundle.posts[0].likedBy;
+    const text = JSON.stringify(bundle);
+    expect(parseShareBundle(text).posts[0]!.likedBy).toEqual([]);
+    const deps = { settings: settingsFor("bob", "bob"), newId, now: NOW };
+    await importShareBundle(vault, text, deps);
+    expect(await vault.getItem("post:alice:p1")).toMatchObject({ likes: 4, likedByMe: false });
+    await toggleLike(vault, (await vault.getItem("post:alice:p1"))!);
+    await importShareBundle(vault, text, deps);
+    expect(await vault.getItem("post:alice:p1")).toMatchObject({ likes: 5, likedByMe: true });
+  });
+
+  it("exports likes only from ids namespaced for the item's author", async () => {
+    const vault = await open();
+    const base = { ...getSampleItems(NOW)[0]!, authorId: "alice", likedByMe: true };
+    const items = ["post:alice:p1", "alice:p2", "p3", "post:other:p4", "junk:alice:p5", "post:alice:"].map((id) => ({ ...base, id }));
+    const { text } = await buildShareBundle(vault, settingsFor("bob", "bob"), items, NOW);
+    expect(JSON.parse(text).likes).toEqual([{ ownerId: "alice", postId: "p1" }]);
+    expect(parseShareBundle(text).likes).toEqual([{ ownerId: "alice", postId: "p1" }]);
   });
 
   it("exports up to 5000 likes without truncation and keeps the 100-post cap", async () => {

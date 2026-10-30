@@ -36,7 +36,7 @@ const PostSchema = z.object({
   description: z.string().max(2000),
   createdAt: z.iso.datetime(),
   likes: z.number().int().nonnegative(),
-  likedBy: z.array(idField),
+  likedBy: z.array(idField).default([]),
   media: z.array(MediaSchema).max(MAX_MEDIA_PER_ITEM),
   thumb: MediaSchema.nullable(),
 });
@@ -66,7 +66,11 @@ export async function buildShareBundle(vault: UnlockedVault, settings: Settings,
   if (!settings.authorId || !settings.handle) {
     throw new AppError("Choose a handle before sharing.");
   }
-  const likedPosts = items.filter((item) => item.authorId !== null && item.likedByMe);
+  const likedPosts = items.filter((item) => {
+    if (item.authorId === null || !item.likedByMe) return false;
+    const prefix = `post:${item.authorId}:`;
+    return item.id.startsWith(prefix) && item.id.length > prefix.length;
+  });
   if (likedPosts.length > MAX_LIKES) {
     throw new AppError(`Too many liked posts to share. The limit is ${MAX_LIKES}.`);
   }
@@ -176,6 +180,8 @@ export async function importShareBundle(
       }
       mediaMime = post.thumb?.mime ?? post.media[0]?.mime ?? "image/webp";
     }
+    const likedByMe = existing?.likedByMe ?? false;
+    const acknowledged = post.likedBy.includes(deps.settings.authorId);
     const item = ItemSchema.parse({
       id,
       type: post.type,
@@ -184,15 +190,15 @@ export async function importShareBundle(
       priceCents: post.priceCents,
       description: post.description,
       createdAt: post.createdAt,
-      // Add my pending like only until the owner acknowledges it in their membership list.
-      likes: post.likes + (!post.likedBy.includes(deps.settings.authorId) && existing?.likedByMe ? 1 : 0),
+      // Reconcile my pending like or unlike against the owner's membership list.
+      likes: Math.max(0, post.likes + (likedByMe && !acknowledged ? 1 : 0) - (!likedByMe && acknowledged ? 1 : 0)),
       mediaIds,
       thumbId,
       mediaMime,
       visibility: "private",
       authorId: author.id,
       authorHandle: author.handle,
-      likedByMe: existing?.likedByMe ?? false,
+      likedByMe,
       likedBy: [],
       schemaVersion: 1,
     });
