@@ -42,7 +42,7 @@ export interface UnlockedVault {
   /** Seals a JSON value as a settings, connection, or note record and writes it. Replaces only records of the same kind. */
   putJson(kind: JsonRecordKind, id: string, value: unknown): Promise<void>;
   getJson(id: string): Promise<unknown | null>;
-  listJson(kind: JsonRecordKind): Promise<unknown[]>;
+  listJson(kind: JsonRecordKind, opts?: { skipUndecryptable?: boolean }): Promise<unknown[]>;
   /** Wipes this vault only while its original header is still current. */
   wipe(): Promise<void>;
   /** Drops the key reference. Every later call throws VaultLockedError. */
@@ -172,14 +172,19 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedGeneration: 
       return decodeJson(await openBytes(crypto, keyInUse, { iv: record.iv, ciphertext: record.ciphertext }));
     },
 
-    async listJson(kind) {
+    async listJson(kind, opts) {
       const keyInUse = activeKey();
       const records = await store.listRecords(kind);
-      return Promise.all(
-        records.map(async (record) =>
-          decodeJson(await openBytes(crypto, keyInUse, { iv: record.iv, ciphertext: record.ciphertext })),
-        ),
-      );
+      const values: unknown[] = [];
+      for (const record of records) {
+        try {
+          values.push(decodeJson(await openBytes(crypto, keyInUse, { iv: record.iv, ciphertext: record.ciphertext })));
+        } catch (err) {
+          // Opt-in only: one record that will not decrypt must not hide the rest of the kind.
+          if (!opts?.skipUndecryptable) throw err;
+        }
+      }
+      return values;
     },
 
     lock() {
