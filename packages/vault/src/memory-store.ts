@@ -6,6 +6,7 @@ import {
   type RecordKind,
   type VaultMeta,
   type VaultStore,
+  vaultGeneration,
 } from "@veil/core";
 
 /** In-memory VaultStore for tests. Not exported from the package. */
@@ -28,14 +29,16 @@ export class MemoryStore implements VaultStore {
       this.records.set(record.id, record);
     }
   }
-  async putRecordForVault(expectedSalt: Bytes, record: EncryptedRecord) {
-    if (!this.meta || !sameBytes(this.meta.kdf.salt, expectedSalt)) {
+  async putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[]) {
+    if (!this.meta || !sameBytes(vaultGeneration(this.meta), expectedGeneration)) {
       throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
     }
-    this.records.set(record.id, record);
+    for (const record of records) {
+      this.records.set(record.id, record);
+    }
   }
-  async clearForVault(expectedSalt: Bytes) {
-    if (!this.meta || !sameBytes(this.meta.kdf.salt, expectedSalt)) {
+  async clearForVault(expectedGeneration: Bytes) {
+    if (!this.meta || !sameBytes(vaultGeneration(this.meta), expectedGeneration)) {
       throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
     }
     this.meta = null;

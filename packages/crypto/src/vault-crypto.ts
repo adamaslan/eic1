@@ -11,6 +11,7 @@ import {
 export const KDF_ITERATIONS = 600_000;
 
 const SALT_BYTES = 16;
+const GENERATION_BYTES = 16;
 const IV_BYTES = 12;
 const VERIFIER_PLAINTEXT = new TextEncoder().encode("veil-vault-verifier-v1");
 
@@ -37,6 +38,7 @@ export async function createVaultMeta(
     kdf: { name: "PBKDF2", hash: "SHA-256", iterations: KDF_ITERATIONS, salt },
     verifier,
     createdAt: now.toISOString(),
+    generation: crypto.randomBytes(GENERATION_BYTES),
   };
   return { meta, key };
 }

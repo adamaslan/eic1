@@ -4,11 +4,13 @@ import {
   VaultLockedError,
   VaultNotFoundError,
   WrongPassphraseError,
+  type Bytes,
   type Item,
+  type RecordKind,
 } from "@veil/core";
 import { SubtleCryptoPort } from "@veil/crypto";
 import { MemoryStore } from "./memory-store";
-import { createVault, newRecordId, unlockVault, type VaultDeps } from "./vault";
+import { createVault, newRecordId, unlockVault, type UnlockedVault, type VaultDeps } from "./vault";
 
 const NOW = new Date("2026-10-21T00:00:00Z");
 const PASSPHRASE = "correct horse battery";
@@ -22,18 +24,24 @@ beforeEach(() => {
   deps = { store, crypto: new SubtleCryptoPort(), now: () => NOW };
 });
 
+async function putRecord(vault: UnlockedVault, kind: RecordKind, plaintext: Bytes): Promise<string> {
+  const record = await vault.sealRecord(kind, plaintext);
+  await vault.putRecords([record]);
+  return record.id;
+}
+
 describe("vault repository", () => {
   it("creates a vault and reads back a record in the same session", async () => {
     const vault = await createVault(deps, PASSPHRASE);
 
-    const id = await vault.putRecord("item", note("first photo"));
+    const id = await putRecord(vault, "item", note("first photo"));
 
     expect(await vault.getRecord(id)).toEqual(note("first photo"));
   });
 
   it("unlocks an existing vault and reads records written earlier", async () => {
     const first = await createVault(deps, PASSPHRASE);
-    const id = await first.putRecord("item", note("kept across reloads"));
+    const id = await putRecord(first, "item", note("kept across reloads"));
     first.lock();
 
     const second = await unlockVault(deps, PASSPHRASE);
@@ -75,7 +83,7 @@ describe("vault repository", () => {
 
   it("never stores plaintext in the record", async () => {
     const vault = await createVault(deps, PASSPHRASE);
-    const id = await vault.putRecord("item", note("secret listing text"));
+    const id = await putRecord(vault, "item", note("secret listing text"));
 
     const stored = store.records.get(id);
 
@@ -85,11 +93,11 @@ describe("vault repository", () => {
 
   it("blocks every operation after lock", async () => {
     const vault = await createVault(deps, PASSPHRASE);
-    const id = await vault.putRecord("item", note("x"));
+    const id = await putRecord(vault, "item", note("x"));
     vault.lock();
 
     await expect(vault.getRecord(id)).rejects.toBeInstanceOf(VaultLockedError);
-    await expect(vault.putRecord("item", note("y"))).rejects.toBeInstanceOf(VaultLockedError);
+    await expect(putRecord(vault, "item", note("y"))).rejects.toBeInstanceOf(VaultLockedError);
   });
 
   it("rejects writes from a stale session after the vault is wiped and recreated", async () => {
@@ -99,7 +107,7 @@ describe("vault repository", () => {
     const currentVault = await createVault(deps, "new vault passphrase");
 
     await expect(staleVault.putItem(sampleItem())).rejects.toBeInstanceOf(VaultLockedError);
-    await expect(staleVault.putRecord("media", note("stale media"))).rejects.toBeInstanceOf(VaultLockedError);
+    await expect(putRecord(staleVault, "media", note("stale media"))).rejects.toBeInstanceOf(VaultLockedError);
     await expect(staleVault.wipe()).rejects.toBeInstanceOf(VaultLockedError);
     expect(await currentVault.listItems()).toEqual([]);
   });
@@ -144,7 +152,7 @@ describe("vault items", () => {
 
   it("ignores non-item records when listing items", async () => {
     const vault = await createVault(deps, PASSPHRASE);
-    await vault.putRecord("media", note("raw bytes"));
+    await putRecord(vault, "media", note("raw bytes"));
     await vault.putItem(sampleItem());
 
     expect(await vault.listItems()).toHaveLength(1);

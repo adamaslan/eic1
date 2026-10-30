@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Bytes } from "@veil/core";
+import type { Bytes, EncryptedRecord, Item } from "@veil/core";
 import type { UnlockedVault } from "@veil/vault";
 import { parsePriceToCents, saveComposedItem, validateCompose, type ComposeInput } from "./compose";
 
@@ -71,21 +71,25 @@ describe("saveComposedItem", () => {
 
   function fakeVault() {
     const records: Array<{ kind: string; bytes: Bytes }> = [];
-    const putItem = vi.fn(async () => {});
+    const written: EncryptedRecord[][] = [];
+    const sealed = (kind: string, id: string) => ({ v: 1, id, kind, iv: bytes(0), ciphertext: bytes(0) });
     const vault = {
-      putRecord: vi.fn(async (kind: string, plaintext: Bytes) => {
+      sealRecord: vi.fn(async (kind: string, plaintext: Bytes) => {
         records.push({ kind, bytes: plaintext });
-        return `${kind}-${records.length}`;
+        return sealed(kind, `${kind}-${records.length}`);
       }),
-      putItem,
+      sealItem: vi.fn(async (item: Item) => sealed("item", item.id)),
+      putRecords: vi.fn(async (batch: EncryptedRecord[]) => {
+        written.push(batch);
+      }),
     } as unknown as UnlockedVault;
-    return { vault, records, putItem };
+    return { vault, records, written };
   }
 
   const fields = { type: "photo" as const, title: "Fog", category: "moments" as const, priceCents: null, description: "" };
 
   it("stores media, the first thumb, then an item pointing at them", async () => {
-    const { vault, records, putItem } = fakeVault();
+    const { vault, records, written } = fakeVault();
     const item = await saveComposedItem(
       vault,
       fields,
@@ -106,16 +110,40 @@ describe("saveComposedItem", () => {
       createdAt: "2026-10-25T12:00:00.000Z",
       likes: 0,
     });
-    expect(putItem).toHaveBeenCalledWith(item);
+    expect(written).toHaveLength(1);
+    expect(written[0]?.map((record) => record.kind)).toEqual(["media", "media", "thumb", "item"]);
+  });
+
+  it("writes nothing when any image fails to seal", async () => {
+    const { vault, written } = fakeVault();
+    const sealRecord = vault.sealRecord as unknown as ReturnType<typeof vi.fn>;
+    sealRecord.mockImplementationOnce(async () => ({ v: 1, id: "media-1" }));
+    sealRecord.mockImplementationOnce(async () => {
+      throw new Error("encryption failed");
+    });
+
+    await expect(
+      saveComposedItem(
+        vault,
+        fields,
+        [
+          { bytes: bytes(1), thumb: bytes(11), mime: "image/jpeg" },
+          { bytes: bytes(2), thumb: bytes(12), mime: "image/jpeg" },
+        ],
+        { newId: () => "ghi", now: new Date() },
+      ),
+    ).rejects.toThrow("encryption failed");
+    expect(written).toHaveLength(0);
   });
 
   it("saves a media-less listing with no thumb", async () => {
-    const { vault, records } = fakeVault();
+    const { vault, records, written } = fakeVault();
     const item = await saveComposedItem(vault, { ...fields, type: "listing", category: "bikes" }, [], {
       newId: () => "def",
       now: new Date(),
     });
     expect(records).toHaveLength(0);
+    expect(written[0]?.map((record) => record.kind)).toEqual(["item"]);
     expect(item).toMatchObject({ mediaIds: [], thumbId: null });
   });
 });

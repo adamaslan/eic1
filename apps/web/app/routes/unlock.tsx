@@ -12,7 +12,6 @@ export function meta(_args: Route.MetaArgs) {
 }
 
 const MIN_PASSPHRASE_LENGTH = 8;
-const MAX_BACKUP_BYTES = 200 * 1024 * 1024;
 const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
 
 export default function Unlock() {
@@ -46,10 +45,6 @@ export default function Unlock() {
     event.target.value = "";
     if (!file) return;
     setError(null);
-    if (file.size > MAX_BACKUP_BYTES) {
-      setError("That file is too large to be a Veil backup.");
-      return;
-    }
     setBusy(true);
     try {
       const { records } = await vaultImport(await file.text());

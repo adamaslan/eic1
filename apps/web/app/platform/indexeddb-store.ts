@@ -7,6 +7,7 @@ import {
   type RecordKind,
   type VaultMeta,
   type VaultStore,
+  vaultGeneration,
 } from "@veil/core";
 
 const DB_NAME = "veil";
@@ -83,17 +84,17 @@ export class IndexedDbVaultStore implements VaultStore {
     }
   }
 
-  async putRecordForVault(expectedSalt: Bytes, record: EncryptedRecord): Promise<void> {
+  async putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[]): Promise<void> {
     const db = await this.db();
     const tx = db.transaction(["meta", "records"], "readwrite");
     const metaStore = tx.objectStore("meta");
     try {
       const currentMeta = await metaStore.get(META_KEY);
-      if (!currentMeta || !sameBytes(currentMeta.kdf.salt, expectedSalt)) {
+      if (!currentMeta || !sameBytes(vaultGeneration(currentMeta), expectedGeneration)) {
         throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
       }
-      await tx.objectStore("records").put(record);
-      await tx.done;
+      const recordStore = tx.objectStore("records");
+      await Promise.all([...records.map((record) => recordStore.put(record)), tx.done]);
     } catch (error) {
       try {
         tx.abort();
@@ -105,13 +106,13 @@ export class IndexedDbVaultStore implements VaultStore {
     }
   }
 
-  async clearForVault(expectedSalt: Bytes): Promise<void> {
+  async clearForVault(expectedGeneration: Bytes): Promise<void> {
     const db = await this.db();
     const tx = db.transaction(["meta", "records"], "readwrite");
     const metaStore = tx.objectStore("meta");
     try {
       const currentMeta = await metaStore.get(META_KEY);
-      if (!currentMeta || !sameBytes(currentMeta.kdf.salt, expectedSalt)) {
+      if (!currentMeta || !sameBytes(vaultGeneration(currentMeta), expectedGeneration)) {
         throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
       }
       await Promise.all([metaStore.delete(META_KEY), tx.objectStore("records").clear(), tx.done]);

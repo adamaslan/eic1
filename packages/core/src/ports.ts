@@ -21,10 +21,10 @@ export interface VaultStore {
   getBackupSnapshot(): Promise<{ meta: VaultMeta | null; records: EncryptedRecord[] }>;
   /** Atomically initializes an empty store with a vault header and its records. */
   initialize(meta: VaultMeta, records: EncryptedRecord[]): Promise<void>;
-  /** Writes only if the current vault still has the expected random salt. */
-  putRecordForVault(expectedSalt: Bytes, record: EncryptedRecord): Promise<void>;
-  /** Removes the vault only if its current random salt matches the session. */
-  clearForVault(expectedSalt: Bytes): Promise<void>;
+  /** Writes every record in one transaction, only if the vault's generation still matches. */
+  putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[]): Promise<void>;
+  /** Removes the vault only if its current generation matches the session. */
+  clearForVault(expectedGeneration: Bytes): Promise<void>;
   putMeta(meta: VaultMeta): Promise<void>;
   putRecord(record: EncryptedRecord): Promise<void>;
   getRecord(id: string): Promise<EncryptedRecord | null>;

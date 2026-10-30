@@ -1,4 +1,12 @@
-import { CATEGORIES, ItemSchema, type Bytes, type Category, type Item, type ItemType } from "@veil/core";
+import {
+  CATEGORIES,
+  ItemSchema,
+  type Bytes,
+  type Category,
+  type EncryptedRecord,
+  type Item,
+  type ItemType,
+} from "@veil/core";
 import type { UnlockedVault } from "@veil/vault";
 import { MAX_MEDIA_PER_ITEM } from "@veil/media";
 
@@ -80,8 +88,10 @@ export interface ComposedMedia {
 }
 
 /**
- * Encrypts each image and the first thumbnail into the vault, then the item that points at them.
- * The feed renders the thumbnail, so only the first image needs one.
+ * Encrypts each image, the first thumbnail, and the item that points at them, then
+ * writes all of it in one batch. The feed renders the thumbnail, so only the first
+ * image needs one. A failure before the batch leaves nothing behind, and the batch
+ * itself either lands completely or not at all.
  */
 export async function saveComposedItem(
   vault: UnlockedVault,
@@ -89,23 +99,24 @@ export async function saveComposedItem(
   media: ComposedMedia[],
   deps: { newId: () => string; now: Date },
 ): Promise<Item> {
-  const mediaIds: string[] = [];
+  const mediaRecords: EncryptedRecord[] = [];
   for (const entry of media) {
-    mediaIds.push(await vault.putRecord("media", entry.bytes));
+    mediaRecords.push(await vault.sealRecord("media", entry.bytes));
   }
   const first = media[0];
-  const thumbId = first ? await vault.putRecord("thumb", first.thumb) : null;
+  const thumbRecords = first ? [await vault.sealRecord("thumb", first.thumb)] : [];
 
   const item = ItemSchema.parse({
     id: deps.newId(),
     ...fields,
     createdAt: deps.now.toISOString(),
     likes: 0,
-    mediaIds,
-    thumbId,
+    mediaIds: mediaRecords.map((record) => record.id),
+    thumbId: thumbRecords[0]?.id ?? null,
     mediaMime: first?.mime ?? "image/webp",
     schemaVersion: 1,
   });
-  await vault.putItem(item);
+  const itemRecord = await vault.sealItem(item);
+  await vault.putRecords([...mediaRecords, ...thumbRecords, itemRecord]);
   return item;
 }

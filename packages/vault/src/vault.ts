@@ -1,5 +1,6 @@
 import {
   type Bytes,
+  type EncryptedRecord,
   type Item,
   ItemSchema,
   VaultCorruptError,
@@ -10,6 +11,7 @@ import {
   type RecordKind,
   type VaultKey,
   type VaultStore,
+  vaultGeneration,
 } from "@veil/core";
 import {
   createVaultMeta,
@@ -25,7 +27,11 @@ export interface VaultDeps {
 }
 
 export interface UnlockedVault {
-  putRecord(kind: RecordKind, plaintext: Bytes): Promise<string>;
+  /** Encrypts bytes into a record without writing it. */
+  sealRecord(kind: RecordKind, plaintext: Bytes): Promise<EncryptedRecord>;
+  sealItem(item: Item): Promise<EncryptedRecord>;
+  /** Writes all records in one transaction: either every one lands or none does. */
+  putRecords(records: EncryptedRecord[]): Promise<void>;
   getRecord(id: string): Promise<Bytes | null>;
   putItem(item: Item): Promise<void>;
   getItem(id: string): Promise<Item | null>;
@@ -39,7 +45,7 @@ export interface UnlockedVault {
 export async function createVault(deps: VaultDeps, passphrase: string): Promise<UnlockedVault> {
   const { meta, key } = await createVaultMeta(deps.crypto, passphrase, deps.now());
   await deps.store.initialize(meta, []);
-  return openSession(deps, key, meta.kdf.salt);
+  return openSession(deps, key, vaultGeneration(meta));
 }
 
 export async function unlockVault(deps: VaultDeps, passphrase: string): Promise<UnlockedVault> {
@@ -52,10 +58,10 @@ export async function unlockVault(deps: VaultDeps, passphrase: string): Promise<
     throw new VaultCorruptError("The stored vault header is unreadable.");
   }
   const key = await deriveVaultKey(deps.crypto, parsed.data, passphrase);
-  return openSession(deps, key, parsed.data.kdf.salt);
+  return openSession(deps, key, vaultGeneration(parsed.data));
 }
 
-function openSession(deps: VaultDeps, initialKey: VaultKey, expectedVaultSalt: Bytes): UnlockedVault {
+function openSession(deps: VaultDeps, initialKey: VaultKey, expectedGeneration: Bytes): UnlockedVault {
   const { store, crypto } = deps;
   let key: VaultKey | null = initialKey;
 
@@ -66,12 +72,22 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedVaultSalt: B
     return key;
   };
 
+  const sealItem = async (item: Item): Promise<EncryptedRecord> => {
+    const parsed = ItemSchema.parse(item);
+    const sealed = await sealBytes(crypto, activeKey(), encodeJson(parsed));
+    return { v: 1, id: parsed.id, kind: "item", iv: sealed.iv, ciphertext: sealed.ciphertext };
+  };
+
   return {
-    async putRecord(kind, plaintext) {
+    async sealRecord(kind, plaintext) {
       const sealed = await sealBytes(crypto, activeKey(), plaintext);
-      const id = newRecordId(crypto);
-      await store.putRecordForVault(expectedVaultSalt, { v: 1, id, kind, iv: sealed.iv, ciphertext: sealed.ciphertext });
-      return id;
+      return { v: 1, id: newRecordId(crypto), kind, iv: sealed.iv, ciphertext: sealed.ciphertext };
+    },
+
+    sealItem,
+
+    async putRecords(records) {
+      await store.putRecordsForVault(expectedGeneration, records);
     },
 
     async getRecord(id) {
@@ -84,15 +100,7 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedVaultSalt: B
     },
 
     async putItem(item) {
-      const parsed = ItemSchema.parse(item);
-      const sealed = await sealBytes(crypto, activeKey(), encodeJson(parsed));
-      await store.putRecordForVault(expectedVaultSalt, {
-        v: 1,
-        id: parsed.id,
-        kind: "item",
-        iv: sealed.iv,
-        ciphertext: sealed.ciphertext,
-      });
+      await store.putRecordsForVault(expectedGeneration, [await sealItem(item)]);
     },
 
     async getItem(id) {
@@ -120,7 +128,7 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedVaultSalt: B
 
     async wipe() {
       activeKey();
-      await deps.store.clearForVault(expectedVaultSalt);
+      await deps.store.clearForVault(expectedGeneration);
       key = null;
     },
   };

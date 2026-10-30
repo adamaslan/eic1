@@ -6,6 +6,7 @@ import {
   VaultMetaSchema,
   decodeBase64,
   encodeBase64,
+  type CryptoPort,
   type VaultStore,
 } from "@veil/core";
 
@@ -73,10 +74,15 @@ export async function exportBackup(store: VaultStore, now: Date): Promise<string
  * Restores a backup into an empty store. Refuses to overwrite an existing
  * vault: wipe it first. The store initializes the header and records atomically
  * so a failed restore cannot leave partial data or clear another tab's vault.
+ * The restored vault gets a new generation, so sessions opened before the
+ * restore are locked out rather than writing into it.
  */
-export async function importBackup(store: VaultStore, text: string): Promise<{ records: number }> {
+export async function importBackup(
+  deps: { store: VaultStore; crypto: CryptoPort },
+  text: string,
+): Promise<{ records: number }> {
   const { meta, records } = parseBackup(text);
-  await store.initialize(meta, records);
+  await deps.store.initialize({ ...meta, generation: deps.crypto.randomBytes(16) }, records);
   return { records: records.length };
 }
 

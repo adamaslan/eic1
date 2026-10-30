@@ -40,7 +40,7 @@ export function vaultExport(): Promise<string> {
 }
 
 export function vaultImport(text: string): Promise<{ records: number }> {
-  return importBackup(deps.store, text);
+  return importBackup(deps, text);
 }
 
 export function vaultWipe(vault: UnlockedVault): Promise<void> {

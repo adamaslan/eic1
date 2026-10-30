@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { VaultAlreadyExistsError, VaultCorruptError, WrongPassphraseError, decodeBase64, encodeBase64, type Item } from "@veil/core";
+import {
+  VaultAlreadyExistsError,
+  VaultCorruptError,
+  VaultLockedError,
+  WrongPassphraseError,
+  decodeBase64,
+  encodeBase64,
+  type Item,
+} from "@veil/core";
 import { SubtleCryptoPort } from "@veil/crypto";
 import { BACKUP_FORMAT, exportBackup, importBackup } from "./backup";
 import { MemoryStore } from "./memory-store";
@@ -26,6 +34,7 @@ const item: Item = {
 function depsFor(store: MemoryStore): VaultDeps {
   return { store, crypto: new SubtleCryptoPort(), now: () => NOW };
 }
+
 
 let source: MemoryStore;
 
@@ -62,7 +71,7 @@ beforeEach(async () => {
   source = new MemoryStore();
   const vault = await createVault(depsFor(source), PASSPHRASE);
   await vault.putItem(item);
-  await vault.putRecord("media", new Uint8Array([1, 2, 3, 250, 255]));
+  await vault.putRecords([await vault.sealRecord("media", new Uint8Array([1, 2, 3, 250, 255]))]);
 });
 
 describe("base64", () => {
@@ -99,16 +108,29 @@ describe("backup", () => {
     const text = await exportBackup(source, NOW);
     const target = new MemoryStore();
 
-    const result = await importBackup(target, text);
+    const result = await importBackup(depsFor(target), text);
 
     expect(result.records).toBe(2);
     const vault = await unlockVault(depsFor(target), PASSPHRASE);
     expect(await vault.listItems()).toEqual([item]);
   });
 
+  it("locks out a session that was open before a wipe and restore of the same vault", async () => {
+    const text = await exportBackup(source, NOW);
+    const target = new MemoryStore();
+    await importBackup(depsFor(target), text);
+    const stale = await unlockVault(depsFor(target), PASSPHRASE);
+    const other = await unlockVault(depsFor(target), PASSPHRASE);
+    await other.wipe();
+    await importBackup(depsFor(target), text);
+
+    await expect(stale.putItem(item)).rejects.toBeInstanceOf(VaultLockedError);
+    await expect(stale.wipe()).rejects.toBeInstanceOf(VaultLockedError);
+  });
+
   it("keeps the restored vault locked to the original passphrase", async () => {
     const target = new MemoryStore();
-    await importBackup(target, await exportBackup(source, NOW));
+    await importBackup(depsFor(target), await exportBackup(source, NOW));
 
     await expect(unlockVault(depsFor(target), "not the passphrase")).rejects.toBeInstanceOf(WrongPassphraseError);
   });
@@ -123,7 +145,7 @@ describe("backup", () => {
   it("refuses to overwrite an existing vault", async () => {
     const text = await exportBackup(source, NOW);
 
-    await expect(importBackup(source, text)).rejects.toBeInstanceOf(VaultAlreadyExistsError);
+    await expect(importBackup(depsFor(source), text)).rejects.toBeInstanceOf(VaultAlreadyExistsError);
   });
 
   it("keeps one complete vault when creation races with backup restore", async () => {
@@ -132,7 +154,7 @@ describe("backup", () => {
     const createPassphrase = "new vault passphrase";
     const results = await Promise.allSettled([
       createVault(depsFor(target), createPassphrase),
-      importBackup(target, text),
+      importBackup(depsFor(target), text),
     ]);
 
     const createWon = results[0]?.status === "fulfilled";
@@ -156,7 +178,7 @@ describe("backup", () => {
     async (text) => {
       const target = new MemoryStore();
 
-      await expect(importBackup(target, text)).rejects.toBeInstanceOf(VaultCorruptError);
+      await expect(importBackup(depsFor(target), text)).rejects.toBeInstanceOf(VaultCorruptError);
       expect(target.meta).toBeNull();
       expect(target.records.size).toBe(0);
     },
@@ -167,7 +189,7 @@ describe("backup", () => {
     mutate(broken);
     const target = new MemoryStore();
 
-    await expect(importBackup(target, JSON.stringify(broken))).rejects.toBeInstanceOf(VaultCorruptError);
+    await expect(importBackup(depsFor(target), JSON.stringify(broken))).rejects.toBeInstanceOf(VaultCorruptError);
     expect(target.meta).toBeNull();
     expect(target.records.size).toBe(0);
   });
@@ -177,7 +199,7 @@ describe("backup", () => {
     broken.records[1].ciphertext = "!!!!";
     const target = new MemoryStore();
 
-    await expect(importBackup(target, JSON.stringify(broken))).rejects.toBeInstanceOf(VaultCorruptError);
+    await expect(importBackup(depsFor(target), JSON.stringify(broken))).rejects.toBeInstanceOf(VaultCorruptError);
     expect(target.meta).toBeNull();
     expect(target.records.size).toBe(0);
   });
