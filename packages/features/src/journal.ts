@@ -1,9 +1,9 @@
 import { AppError, JOURNAL_ENTRY_MAX, JournalEntrySchema, type JournalEntry } from "@veil/core";
 import type { UnlockedVault } from "@veil/vault";
 
-/** Newest first. A record that fails validation is skipped so one bad entry never hides the rest. */
+/** Newest first. A record that fails validation or cannot be decrypted is skipped so one bad entry never hides the rest. */
 export async function listJournal(vault: UnlockedVault): Promise<JournalEntry[]> {
-  const raw = await vault.listJson("journal");
+  const raw = await vault.listJson("journal", { skipUndecryptable: true });
   const entries: JournalEntry[] = [];
   for (const value of raw) {
     const parsed = JournalEntrySchema.safeParse(value);
