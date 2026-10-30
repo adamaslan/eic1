@@ -48,7 +48,7 @@ export default function Connections() {
   function saveHandle(event: FormEvent) {
     event.preventDefault();
     void run(async () => {
-      if (!vault) return "";
+      if (!vault || !social.settingsReady) return "";
       const clean = handleValue.trim();
       if (!clean) throw new AppError("Enter a handle.");
       const withId = await ensureAuthorId(vault, settings, newItemId);
@@ -60,10 +60,10 @@ export default function Connections() {
 
   function exportFile() {
     void run(async () => {
-      if (!vault) return "";
-      const bundle = await buildShareBundle(vault, settings, allItems, new Date());
-      downloadTextFile(`eic-share-${new Date().toISOString().slice(0, 10)}.json`, bundle);
-      return `Share file downloaded with ${shareable} post${shareable === 1 ? "" : "s"}. Anyone who gets it can read them.`;
+      if (!vault || !social.settingsReady) return "";
+      const { text, postCount } = await buildShareBundle(vault, settings, allItems, new Date());
+      downloadTextFile(`eic-share-${new Date().toISOString().slice(0, 10)}.json`, text);
+      return `Share file downloaded with ${postCount} post${postCount === 1 ? "" : "s"}. Anyone who gets it can read them.`;
     });
   }
 
@@ -71,7 +71,7 @@ export default function Connections() {
     if (fileInput.current) fileInput.current.value = "";
     if (!file) return;
     void run(async () => {
-      if (!vault) return "";
+      if (!vault || !social.settingsReady) return "";
       if (file.size > MAX_SHARE_FILE_BYTES) throw new AppError("That file is too large to import.");
       const result = await importShareBundle(vault, await file.text(), { settings, newId: newItemId, now: new Date() });
       social.refresh();
@@ -86,7 +86,7 @@ export default function Connections() {
           <p>Connections see this name next to your posts and likes. It is not tied to your passphrase.</p>
           <div className="flex gap-1">
             <input className={inputClass} value={handleValue} maxLength={HANDLE_MAX} onChange={(e) => setHandle(e.target.value)} aria-label="Handle" />
-            <Button95 type="submit" disabled={busy}>Save</Button95>
+            <Button95 type="submit" disabled={busy || !social.settingsReady}>Save</Button95>
           </div>
         </form>
       </Window>
@@ -102,9 +102,9 @@ export default function Connections() {
             Private posts, notes, and settings are never included.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Button95 onClick={exportFile} disabled={busy || !settings.handle}>Export share file ({shareable} post{shareable === 1 ? "" : "s"})</Button95>
+            <Button95 onClick={exportFile} disabled={busy || !social.settingsReady || !settings.handle}>Export share file ({Math.min(shareable, 100)} post{Math.min(shareable, 100) === 1 ? "" : "s"})</Button95>
             <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(e) => importFile(e.target.files?.[0])} aria-label="Choose a share file" />
-            <Button95 onClick={() => fileInput.current?.click()} disabled={busy || !settings.handle}>Import a share file…</Button95>
+            <Button95 onClick={() => fileInput.current?.click()} disabled={busy || !social.settingsReady || !settings.handle}>Import a share file…</Button95>
           </div>
           {!settings.handle && <p className="text-[#404040]">Choose a handle first.</p>}
           {notice && <p role="status">{notice}</p>}

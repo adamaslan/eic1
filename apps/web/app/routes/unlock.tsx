@@ -74,7 +74,7 @@ export default function Unlock() {
     try {
       const opened = exists ? await vaultUnlock(passphrase) : await vaultCreate(passphrase);
       setVault(opened);
-      navigate("/feed", { replace: true });
+      navigate("/", { replace: true });
       setPassphrase("");
       setConfirm("");
     } catch (caught) {
@@ -85,7 +85,7 @@ export default function Unlock() {
   }
 
   if (vault) {
-    return <Navigate to="/feed" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return (

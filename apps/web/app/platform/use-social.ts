@@ -14,6 +14,7 @@ import type { UnlockedVault } from "@veil/vault";
 export interface Social {
   items: ItemsState;
   settings: Settings;
+  settingsReady: boolean;
   notes: Note[];
   connections: Connection[];
   /** Saves new settings and updates the screen. */
@@ -25,7 +26,7 @@ export interface Social {
 // Everything the landing dashboard and the connections screen read from the vault, kept in one place.
 export function useSocial(vault: UnlockedVault | null): Social {
   const { state: items, reload } = useVaultItems(vault);
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [loaded, setLoaded] = useState<{ vault: UnlockedVault; revision: number; settings: Settings } | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [revision, setRevision] = useState(0);
@@ -33,30 +34,35 @@ export function useSocial(vault: UnlockedVault | null): Social {
   useEffect(() => {
     if (!vault) return;
     let cancelled = false;
-    Promise.all([loadSettings(vault), listNotes(vault), listConnections(vault)])
-      .then(([loadedSettings, loadedNotes, loadedConnections]) => {
-        if (cancelled) return;
-        setSettings(loadedSettings);
-        setNotes(loadedNotes);
-        setConnections(loadedConnections);
-      })
-      .catch(() => undefined);
+    loadSettings(vault).then((settings) => {
+      if (!cancelled) setLoaded({ vault, revision, settings });
+    }).catch(() => undefined);
+    listNotes(vault).then((notes) => {
+      if (!cancelled) setNotes(notes);
+    }).catch(() => undefined);
+    listConnections(vault).then((connections) => {
+      if (!cancelled) setConnections(connections);
+    }).catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [vault, revision]);
 
+  const settingsReady = !!vault && loaded?.vault === vault && loaded.revision === revision;
+  const settings = loaded?.vault === vault ? loaded.settings : defaultSettings();
+
   const update = useCallback(
     async (next: Settings) => {
-      if (!vault) return;
-      setSettings(await saveSettings(vault, next));
+      if (!vault || !settingsReady) return;
+      const settings = await saveSettings(vault, next);
+      setLoaded({ vault, revision, settings });
     },
-    [vault],
+    [vault, revision, settingsReady],
   );
   const refresh = useCallback(() => {
     reload();
     setRevision((n) => n + 1);
   }, [reload]);
 
-  return { items, settings, notes, connections, update, refresh };
+  return { items, settings, settingsReady, notes, connections, update, refresh };
 }

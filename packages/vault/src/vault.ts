@@ -38,7 +38,7 @@ export interface UnlockedVault {
   putItem(item: Item): Promise<void>;
   getItem(id: string): Promise<Item | null>;
   listItems(): Promise<Item[]>;
-  /** Seals a JSON value as a settings, connection, or note record and writes it. Replaces any record with that id. */
+  /** Seals a JSON value as a settings, connection, or note record and writes it. Replaces only records of the same kind. */
   putJson(kind: JsonRecordKind, id: string, value: unknown): Promise<void>;
   getJson(id: string): Promise<unknown | null>;
   listJson(kind: JsonRecordKind): Promise<unknown[]>;
@@ -129,7 +129,12 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedGeneration: 
     },
 
     async putJson(kind, id, value) {
-      const sealed = await sealBytes(crypto, activeKey(), encodeJson(value));
+      const keyInUse = activeKey();
+      const existing = await store.getRecord(id);
+      if (existing && existing.kind !== kind) {
+        throw new VaultCorruptError("A record of a different kind already uses that id.");
+      }
+      const sealed = await sealBytes(crypto, keyInUse, encodeJson(value));
       await store.putRecordsForVault(expectedGeneration, [
         { v: 1, id, kind, iv: sealed.iv, ciphertext: sealed.ciphertext },
       ]);

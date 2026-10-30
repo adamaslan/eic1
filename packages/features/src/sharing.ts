@@ -44,7 +44,10 @@ const ShareBundleSchema = z.object({
   version: z.literal(SHARE_VERSION),
   exportedAt: z.iso.datetime(),
   author: z.object({ id: idField, handle: ConnectionSchema.shape.handle }),
-  posts: z.array(PostSchema).max(MAX_POSTS),
+  posts: z.array(PostSchema).max(MAX_POSTS).refine(
+    (posts) => new Set(posts.map((post) => post.id)).size === posts.length,
+    "Duplicate post ids are not allowed.",
+  ),
   // Posts by other people that the author liked: { ownerId, postId } as that owner knows them.
   likes: z.array(z.object({ ownerId: idField, postId: idField })).max(1000),
 });
@@ -57,7 +60,7 @@ const importedId = (authorId: string, postId: string) => `${authorId}:${postId}`
  * JSON on purpose: sharing a post means anyone holding the file can read it. Private posts,
  * notes, and settings never go in.
  */
-export async function buildShareBundle(vault: UnlockedVault, settings: Settings, items: Item[], now: Date): Promise<string> {
+export async function buildShareBundle(vault: UnlockedVault, settings: Settings, items: Item[], now: Date): Promise<{ text: string; postCount: number }> {
   if (!settings.authorId || !settings.handle) {
     throw new AppError("Choose a handle before sharing.");
   }
@@ -85,6 +88,7 @@ export async function buildShareBundle(vault: UnlockedVault, settings: Settings,
   }
   const likes = items
     .filter((item) => item.authorId !== null && item.likedByMe)
+    .slice(0, 1000)
     .map((item) => ({ ownerId: item.authorId as string, postId: item.id.slice(item.authorId!.length + 1) }));
 
   const bundle: ShareBundle = {
@@ -95,11 +99,15 @@ export async function buildShareBundle(vault: UnlockedVault, settings: Settings,
     posts,
     likes,
   };
-  return JSON.stringify(bundle);
+  const text = JSON.stringify(bundle);
+  if (new TextEncoder().encode(text).byteLength >= MAX_SHARE_FILE_BYTES) {
+    throw new AppError("That share file is too large. Make fewer posts shareable and try again.");
+  }
+  return { text, postCount: posts.length };
 }
 
 export function parseShareBundle(text: string): ShareBundle {
-  if (text.length > MAX_SHARE_FILE_BYTES * 1.4) {
+  if (new TextEncoder().encode(text).byteLength >= MAX_SHARE_FILE_BYTES) {
     throw new VaultCorruptError("That share file is too large.");
   }
   let json: unknown;
@@ -169,8 +177,9 @@ export async function importShareBundle(
       priceCents: post.priceCents,
       description: post.description,
       createdAt: post.createdAt,
-      // Their count plus my own like, which their file may not know about yet.
-      likes: post.likes + (existing?.likedByMe ? 1 : 0),
+      // The author's count is authoritative on import. Preserve my toggle separately;
+      // adding it here would double-count likes already acknowledged by the author.
+      likes: post.likes,
       mediaIds,
       thumbId,
       mediaMime,
@@ -191,14 +200,22 @@ export async function importShareBundle(
   let likesReceived = 0;
   const noteTexts: string[] = [];
   for (const post of myPosts) {
-    if (!liked.has(post.id) || post.likedBy.includes(author.id)) continue;
-    records.push(await vault.sealItem({ ...post, likedBy: [...post.likedBy, author.id], likes: post.likes + 1 }));
-    likesReceived += 1;
-    noteTexts.push(`@${author.handle} liked "${post.title}".`);
+    const wasLiked = post.likedBy.includes(author.id);
+    const isLiked = liked.has(post.id);
+    const likedBy = post.likedBy.filter((id) => id !== author.id);
+    if (isLiked) likedBy.push(author.id);
+    const likes = likedBy.length + (post.likedByMe ? 1 : 0);
+    if (wasLiked !== isLiked || post.likes !== likes) {
+      records.push(await vault.sealItem({ ...post, likedBy, likes }));
+    }
+    if (isLiked && !wasLiked) {
+      likesReceived += 1;
+      noteTexts.push(`@${author.handle} liked "${post.title}".`);
+    }
   }
 
   if (records.length > 0) await vault.putRecords(records);
-  await vault.putJson("connection", author.id, {
+  await vault.putJson("connection", `connection:${author.id}`, {
     id: author.id,
     handle: author.handle,
     addedAt: deps.now.toISOString(),

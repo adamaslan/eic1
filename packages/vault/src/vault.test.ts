@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   VaultAlreadyExistsError,
+  VaultCorruptError,
   VaultLockedError,
   VaultNotFoundError,
   WrongPassphraseError,
@@ -179,5 +180,24 @@ describe("newRecordId", () => {
     for (const id of ids) {
       expect(id).toMatch(/^[a-z2-7]{26}$/);
     }
+  });
+});
+
+
+describe("JSON record kind isolation", () => {
+  it.each(["settings", "note", "connection", "item", "media", "thumb"] as const)("refuses to replace a %s with another kind", async (kind) => {
+    const vault = await createVault(deps, PASSPHRASE);
+    const id = await putRecord(vault, kind, note("original"));
+    const before = store.records.get(id);
+    await expect(vault.putJson(kind === "connection" ? "note" : "connection", id, { changed: true })).rejects.toBeInstanceOf(VaultCorruptError);
+    expect(store.records.get(id)).toBe(before);
+    expect(await vault.getRecord(id)).toEqual(note("original"));
+  });
+
+  it("allows replacing JSON records of the same kind", async () => {
+    const vault = await createVault(deps, PASSPHRASE);
+    await vault.putJson("connection", "connection:alice", { handle: "alice" });
+    await vault.putJson("connection", "connection:alice", { handle: "new-alice" });
+    expect(await vault.getJson("connection:alice")).toEqual({ handle: "new-alice" });
   });
 });

@@ -104,6 +104,7 @@ export async function listNotes(vault: UnlockedVault): Promise<Note[]> {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/** Connection values keep the author id; their vault record keys are `connection:${authorId}`. */
 export async function listConnections(vault: UnlockedVault): Promise<Connection[]> {
   const raw = await vault.listJson("connection");
   return raw

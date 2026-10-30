@@ -5,6 +5,7 @@ import { Taskbar } from "~/ui95/Taskbar";
 import { useSessionStore } from "~/platform/session";
 
 const TABS = [
+  { id: "home", label: "Home" },
   { id: "feed", label: "Feed" },
   { id: "market", label: "Market" },
   { id: "compose", label: "+ Post" },
@@ -23,7 +24,7 @@ export default function DesktopLayout() {
     return <Navigate to="/unlock" replace />;
   }
 
-  const active = pathname.startsWith("/market") ? "market" : pathname.startsWith("/compose")
+  const active = pathname === "/" ? "home" : pathname.startsWith("/market") ? "market" : pathname.startsWith("/compose")
       ? "compose"
       : pathname.startsWith("/connections")
         ? "connections"
@@ -39,7 +40,7 @@ export default function DesktopLayout() {
           {TABS.map((tab) => (
             <Bevel key={tab.id} variant={tab.id === active ? "in" : "out"}>
               <Link
-                to={`/${tab.id}`}
+                to={tab.id === "home" ? "/" : `/${tab.id}`}
                 aria-current={tab.id === active ? "page" : undefined}
                 className={`block min-h-[44px] bg-[#c0c0c0] px-3 py-1 text-[12px] text-[#0a0a0a] sm:min-h-0 ${tab.id === active ? "translate-x-px translate-y-px" : ""}`}
               >

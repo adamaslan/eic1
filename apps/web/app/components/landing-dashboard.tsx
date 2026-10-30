@@ -29,6 +29,7 @@ export function LandingDashboard() {
   if (items.status === "error") return <p role="alert" className="text-[12px] text-white">{items.message}</p>;
 
   function swap(position: number, next: SlotId) {
+    if (!social.settingsReady) return;
     const slots = [...settings.slots] as Settings["slots"];
     const other = slots.indexOf(next);
     if (other !== -1 && other !== position) slots[other] = slots[position]!;
@@ -45,6 +46,7 @@ export function LandingDashboard() {
               <label className="flex items-center gap-1 text-[11px] text-[#404040]">
                 <span>{POSITION_NAMES[position]} shows</span>
                 <select
+                  disabled={!social.settingsReady}
                   value={slot}
                   onChange={(e) => swap(position, e.target.value as SlotId)}
                   className="bg-white px-1 py-0.5 text-[11px] text-[#0a0a0a]"
@@ -110,7 +112,7 @@ function PicksBox({ items, social, settings }: { items: Item[]; social: Social; 
   const hasPrefs = settings.categories.length > 0 || settings.keywords.length > 0;
   return (
     <>
-      {editing ? (
+      {editing && social.settingsReady ? (
         <PicksEditor settings={settings} onSave={async (next) => { await social.update(next); setEditing(false); }} onCancel={() => setEditing(false)} />
       ) : (
         <>
@@ -131,7 +133,7 @@ function PicksBox({ items, social, settings }: { items: Item[]; social: Social; 
             </ul>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button95 onClick={() => setEditing(true)}>Your picks…</Button95>
+            <Button95 disabled={!social.settingsReady} onClick={() => setEditing(true)}>Your picks…</Button95>
             <Link to="/market" className="self-center text-[#0000cc] underline">All listings</Link>
           </div>
         </>
