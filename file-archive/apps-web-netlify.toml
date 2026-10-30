@@ -1,0 +1,11 @@
+# ARCHIVED: 2026-10-29
+# REASON: Superseded by the repository-root netlify.toml after the monorepo build moved to root.
+[build]
+command = "react-router build"
+publish = "build/client"
+
+[build.environment]
+NODE_VERSION = "24"
+
+[dev]
+command = "react-router dev"

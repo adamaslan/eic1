@@ -1,0 +1,62 @@
+import { Link } from "react-router";
+import { formatPrice, timeAgo } from "@veil/core";
+import { useVaultItems } from "@veil/features";
+import type { Route } from "./+types/item";
+import { Window } from "~/ui95/Window";
+import { useMediaUri } from "~/platform/use-media-uri";
+import { useSessionStore } from "~/platform/session";
+
+export function meta(_args: Route.MetaArgs) {
+  return [{ title: "Item — Veil 95" }];
+}
+
+export default function ItemDetail({ params }: Route.ComponentProps) {
+  const vault = useSessionStore((state) => state.vault);
+  const { state } = useVaultItems(vault);
+
+  if (state.status === "loading") return <p className="text-[12px]">Opening…</p>;
+  if (state.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{state.message}</p>;
+
+  const item = state.items.find((candidate) => candidate.id === params.id);
+  if (!item) {
+    return (
+      <Window title="Not found">
+        <div className="flex flex-col gap-2 text-[12px]">
+          <p>That item is not in this vault.</p>
+          <BackLink type={null} />
+        </div>
+      </Window>
+    );
+  }
+
+  return (
+    <Window title={item.title}>
+      <div className="flex flex-col gap-2 text-[12px]">
+        {item.mediaIds.map((mediaId) => (
+          <ItemImage key={mediaId} mediaId={mediaId} mime={item.mediaMime} title={item.title} />
+        ))}
+        <p className="text-[#404040]">
+          {item.category} · {formatPrice(item.priceCents)} · {timeAgo(item.createdAt, new Date())} · ♥ {item.likes}
+        </p>
+        <p className="whitespace-pre-wrap">{item.description || "No description."}</p>
+        <BackLink type={item.type} />
+      </div>
+    </Window>
+  );
+}
+
+function BackLink({ type }: { type: "photo" | "listing" | null }) {
+  const to = type === "listing" ? "/market" : "/";
+  return (
+    <Link to={to} className="text-[#0000cc] underline">
+      {type === "listing" ? "Back to market" : "Back to feed"}
+    </Link>
+  );
+}
+
+function ItemImage({ mediaId, mime, title }: { mediaId: string | null; mime: string; title: string }) {
+  const vault = useSessionStore((state) => state.vault);
+  const uri = useMediaUri(vault, mediaId, mime);
+  if (!uri) return null;
+  return <img src={uri} alt={title} className="max-h-[60vh] w-full object-contain" />;
+}
