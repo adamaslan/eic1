@@ -2,9 +2,6 @@ import { openDB } from "idb";
 import type { VaultKey } from "@veil/core";
 
 /** How long an unlock survives a page reload. */
-import type { VaultKey } from "@veil/core";
-
-/** How long an unlock survives a page reload. */
 export const SESSION_MS = 60 * 60_000;
 
 const DB_NAME = "veil-session";
