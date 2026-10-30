@@ -46,11 +46,14 @@ export default function App() {
   // A reload drops the in-memory vault; reopen it from the session saved in the last hour, if any.
   useEffect(() => {
     let cancelled = false;
+    const startRevision = useSessionStore.getState().revision;
     vaultResume().then((resumed) => {
       if (cancelled) return;
-      const { setVault, doneResuming } = useSessionStore.getState();
-      if (resumed) setVault(resumed.vault, resumed.expiresAt);
-      else doneResuming();
+      const state = useSessionStore.getState();
+      // A manual unlock or lock while the resume was in flight wins; drop the stale result.
+      if (state.revision !== startRevision) return;
+      if (resumed) state.setVault(resumed.vault, resumed.expiresAt);
+      else state.doneResuming();
     });
     return () => {
       cancelled = true;
