@@ -24,11 +24,11 @@ const make = (overrides: Partial<Item>): Item => ({
 });
 
 const items: Item[] = [
-  make({ id: "old-photo", type: "photo", title: "Sunrise", category: "moments", priceCents: null, createdAt: "2026-10-20T10:00:00.000Z" }),
-  make({ id: "new-photo", type: "photo", title: "Cat", category: "moments", priceCents: null, createdAt: "2026-10-21T09:00:00.000Z" }),
+  make({ id: "old-photo", type: "photo", title: "Sunrise", category: "general", priceCents: null, createdAt: "2026-10-20T10:00:00.000Z" }),
+  make({ id: "new-photo", type: "photo", title: "Cat", category: "general", priceCents: null, createdAt: "2026-10-21T09:00:00.000Z" }),
   make({ id: "cheap", title: "Mug", priceCents: 500, category: "electronics" }),
   make({ id: "pricey", title: "Camera", priceCents: 41000, category: "cameras" }),
-  make({ id: "free", title: "Boxes", priceCents: null, category: "free" }),
+  make({ id: "free", title: "Boxes", priceCents: null, category: "tooling" }),
 ];
 
 describe("selectFeed", () => {

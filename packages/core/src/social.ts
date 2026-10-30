@@ -39,3 +39,13 @@ export const NoteSchema = z.object({
   schemaVersion: z.literal(1),
 });
 export type Note = z.infer<typeof NoteSchema>;
+
+export const JOURNAL_ENTRY_MAX = 5000;
+
+export const JournalEntrySchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1).max(JOURNAL_ENTRY_MAX),
+  createdAt: z.iso.datetime(),
+  schemaVersion: z.literal(1),
+});
+export type JournalEntry = z.infer<typeof JournalEntrySchema>;

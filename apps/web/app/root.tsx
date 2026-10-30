@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   isRouteErrorResponse,
   Links,
@@ -10,7 +11,8 @@ import {
 import type { Route } from "./+types/root";
 import stylesheet from "./app.css?url";
 import { useSessionStore } from "~/platform/session";
-import { useAutoLock } from "~/platform/use-auto-lock";
+import { useAutoLock, useSessionExpiry } from "~/platform/use-auto-lock";
+import { vaultResume } from "~/platform/vault-service";
 
 export const links: Route.LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
@@ -37,7 +39,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function App() {
   const vault = useSessionStore((state) => state.vault);
   const lock = useSessionStore((state) => state.lock);
+  const expiresAt = useSessionStore((state) => state.expiresAt);
   useAutoLock(vault !== null, lock);
+  useSessionExpiry(expiresAt, lock);
+
+  // A reload drops the in-memory vault; reopen it from the session saved in the last hour, if any.
+  useEffect(() => {
+    let cancelled = false;
+    vaultResume().then((resumed) => {
+      if (cancelled) return;
+      const { setVault, doneResuming } = useSessionStore.getState();
+      if (resumed) setVault(resumed.vault, resumed.expiresAt);
+      else doneResuming();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return <Outlet />;
 }

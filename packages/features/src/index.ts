@@ -5,3 +5,4 @@ export * from "./use-vault-items";
 export * from "./compose";
 export * from "./social";
 export * from "./sharing";
+export * from "./journal";

@@ -18,9 +18,10 @@ import {
   deriveVaultKey,
   openBytes,
   sealBytes,
+  verifyVaultKey,
 } from "@veil/crypto";
 
-export type JsonRecordKind = Extract<RecordKind, "settings" | "connection" | "note">;
+export type JsonRecordKind = Extract<RecordKind, "settings" | "connection" | "note" | "journal">;
 
 export interface VaultDeps {
   store: VaultStore;
@@ -49,12 +50,38 @@ export interface UnlockedVault {
 }
 
 export async function createVault(deps: VaultDeps, passphrase: string): Promise<UnlockedVault> {
-  const { meta, key } = await createVaultMeta(deps.crypto, passphrase, deps.now());
-  await deps.store.initialize(meta, []);
-  return openSession(deps, key, vaultGeneration(meta));
+  return (await createVaultKeyed(deps, passphrase)).vault;
 }
 
 export async function unlockVault(deps: VaultDeps, passphrase: string): Promise<UnlockedVault> {
+  return (await unlockVaultKeyed(deps, passphrase)).vault;
+}
+
+/** Like createVault, but also returns the key so the platform can keep it for a resumable session. */
+export async function createVaultKeyed(deps: VaultDeps, passphrase: string): Promise<{ vault: UnlockedVault; key: VaultKey }> {
+  const { meta, key } = await createVaultMeta(deps.crypto, passphrase, deps.now());
+  await deps.store.initialize(meta, []);
+  return { vault: openSession(deps, key, vaultGeneration(meta)), key };
+}
+
+/**
+ * Reopens the vault with a key kept from an earlier unlock. The key is checked against the
+ * stored verifier, so a key from a replaced, restored, or wiped vault is rejected.
+ */
+export async function resumeVault(deps: VaultDeps, key: VaultKey): Promise<UnlockedVault> {
+  const stored = await deps.store.getMeta();
+  if (!stored) {
+    throw new VaultNotFoundError("No vault on this device yet.");
+  }
+  const parsed = VaultMetaSchema.safeParse(stored);
+  if (!parsed.success) {
+    throw new VaultCorruptError("The stored vault header is unreadable.");
+  }
+  await verifyVaultKey(deps.crypto, parsed.data, key);
+  return openSession(deps, key, vaultGeneration(parsed.data));
+}
+
+export async function unlockVaultKeyed(deps: VaultDeps, passphrase: string): Promise<{ vault: UnlockedVault; key: VaultKey }> {
   const stored = await deps.store.getMeta();
   if (!stored) {
     throw new VaultNotFoundError("No vault on this device yet.");
@@ -64,7 +91,7 @@ export async function unlockVault(deps: VaultDeps, passphrase: string): Promise<
     throw new VaultCorruptError("The stored vault header is unreadable.");
   }
   const key = await deriveVaultKey(deps.crypto, parsed.data, passphrase);
-  return openSession(deps, key, vaultGeneration(parsed.data));
+  return { vault: openSession(deps, key, vaultGeneration(parsed.data)), key };
 }
 
 function openSession(deps: VaultDeps, initialKey: VaultKey, expectedGeneration: Bytes): UnlockedVault {

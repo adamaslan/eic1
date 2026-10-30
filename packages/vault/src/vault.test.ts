@@ -12,7 +12,7 @@ import {
 } from "@veil/core";
 import { SubtleCryptoPort } from "@veil/crypto";
 import { MemoryStore } from "./memory-store";
-import { createVault, newRecordId, unlockVault, type UnlockedVault, type VaultDeps } from "./vault";
+import { createVault, newRecordId, resumeVault, unlockVault, unlockVaultKeyed, type UnlockedVault, type VaultDeps } from "./vault";
 
 const NOW = new Date("2026-10-21T00:00:00Z");
 const PASSPHRASE = "correct horse battery";
@@ -150,7 +150,7 @@ describe("vault items", () => {
   it("lists every item, decrypted", async () => {
     const vault = await createVault(deps, PASSPHRASE);
     await vault.putItem(sampleItem({ id: "a" }));
-    await vault.putItem(sampleItem({ id: "b", type: "photo", category: "moments", priceCents: null }));
+    await vault.putItem(sampleItem({ id: "b", type: "photo", category: "general", priceCents: null }));
 
     const items = await vault.listItems();
 
@@ -234,5 +234,35 @@ describe("JSON record kind isolation", () => {
     await vault.putJson("connection", "connection:alice", { handle: "alice" });
     await vault.putJson("connection", "connection:alice", { handle: "new-alice" });
     expect(await vault.getJson("connection:alice")).toEqual({ handle: "new-alice" });
+  });
+});
+
+describe("resuming a session", () => {
+  it("reopens the vault from the key of an earlier unlock", async () => {
+    const created = await createVault(deps, PASSPHRASE);
+    const id = await putRecord(created, "item", note("kept"));
+    created.lock();
+
+    const { key } = await unlockVaultKeyed(deps, PASSPHRASE);
+    const resumed = await resumeVault(deps, key);
+
+    expect(await resumed.getRecord(id)).toEqual(note("kept"));
+  });
+
+  it("rejects a key from a different vault", async () => {
+    await createVault(deps, PASSPHRASE);
+    const { key } = await unlockVaultKeyed(deps, PASSPHRASE);
+    const other: VaultDeps = { ...deps, store: new MemoryStore() };
+    await createVault(other, PASSPHRASE);
+
+    await expect(resumeVault(other, key)).rejects.toBeInstanceOf(WrongPassphraseError);
+  });
+
+  it("reports a missing vault", async () => {
+    const { key } = await (async () => {
+      await createVault(deps, PASSPHRASE);
+      return unlockVaultKeyed(deps, PASSPHRASE);
+    })();
+    await expect(resumeVault({ ...deps, store: new MemoryStore() }, key)).rejects.toBeInstanceOf(VaultNotFoundError);
   });
 });

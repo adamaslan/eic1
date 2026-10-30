@@ -62,19 +62,30 @@ const importedId = (authorId: string, postId: string) => `post:${authorId}:${pos
  * JSON on purpose: sharing a post means anyone holding the file can read it. Private posts,
  * notes, and settings never go in.
  */
-export async function buildShareBundle(vault: UnlockedVault, settings: Settings, items: Item[], now: Date): Promise<{ text: string; postCount: number }> {
+export async function buildShareBundle(
+  vault: UnlockedVault,
+  settings: Settings,
+  items: Item[],
+  now: Date,
+  options: { onlyPostId?: string } = {},
+): Promise<{ text: string; postCount: number }> {
   if (!settings.authorId || !settings.handle) {
     throw new AppError("Choose a handle before sharing.");
   }
+  const single = options.onlyPostId !== undefined;
   const likedPosts = items.filter((item) => {
-    if (item.authorId === null || !item.likedByMe) return false;
+    if (single || item.authorId === null || !item.likedByMe) return false;
     const prefix = `post:${item.authorId}:`;
     return item.id.startsWith(prefix) && item.id.length > prefix.length;
   });
   if (likedPosts.length > MAX_LIKES) {
     throw new AppError(`Too many liked posts to share. The limit is ${MAX_LIKES}.`);
   }
-  const mine = items.filter((item) => item.authorId === null && item.visibility === "shareable");
+  // Pressing Share on one post is the consent, so a private post can go out that way. Imported posts never do.
+  const mine = single
+    ? items.filter((item) => item.authorId === null && item.id === options.onlyPostId)
+    : items.filter((item) => item.authorId === null && item.visibility === "shareable");
+  if (single && mine.length === 0) throw new AppError("Only your own posts can be shared.");
   const posts: ShareBundle["posts"] = [];
   for (const item of mine.slice(0, MAX_POSTS)) {
     const media: ShareBundle["posts"][number]["media"] = [];

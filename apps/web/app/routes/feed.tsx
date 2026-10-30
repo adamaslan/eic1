@@ -14,7 +14,7 @@ export default function Feed() {
   const { state, reload } = useVaultItems(vault);
   const [query, setQuery] = useState("");
 
-  if (state.status === "loading") return <p className="text-[12px]">Loading moments…</p>;
+  if (state.status === "loading") return <p className="text-[12px]">Loading posts…</p>;
   if (state.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{state.message}</p>;
 
   const photos = selectFeed(state.items, query);
@@ -26,12 +26,12 @@ export default function Feed() {
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search moments"
+        placeholder="Search posts"
         className="w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px]"
       />
       {photos.length === 0 && (
         <div className="flex flex-col items-start gap-2 text-[12px] text-[#0a0a0a]">
-          <p>{query ? "No moments match that search." : "No moments yet."}</p>
+          <p>{query ? "No posts match that search." : "No posts yet."}</p>
           {!query && <DemoSeed onSeeded={reload} />}
         </div>
       )}

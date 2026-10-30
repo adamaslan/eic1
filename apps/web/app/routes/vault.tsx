@@ -63,7 +63,7 @@ export default function VaultScreen() {
           <dt>Key derivation</dt>
           <dd className="font-mono">PBKDF2 · SHA-256</dd>
           <dt>Auto-lock</dt>
-          <dd>after {AUTO_LOCK_MS / 60_000} minutes idle</dd>
+          <dd>after {AUTO_LOCK_MS / 60_000} minutes idle, or one hour after unlocking (a reload within that hour stays unlocked)</dd>
         </dl>
 
         {notice && <p role="status">{notice}</p>}

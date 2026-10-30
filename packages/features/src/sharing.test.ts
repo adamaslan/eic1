@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AppError, VaultCorruptError, type Item, type Settings } from "@veil/core";
+import { AppError, ItemSchema, VaultCorruptError, type Item, type Settings } from "@veil/core";
 import { SubtleCryptoPort } from "@veil/crypto";
 import { createVault, newRecordId, type UnlockedVault } from "@veil/vault";
 import { MemoryStore } from "../../vault/src/memory-store";
@@ -348,5 +348,32 @@ describe("share regression cases", () => {
     const writeJson = vi.spyOn(vault, "putJson");
     await expect(importShareBundle(vault, duplicate, { settings: settingsFor("bob", "bob"), newId, now: NOW })).rejects.toThrow(VaultCorruptError);
     for (const spy of [seal, sealMedia, write, writeJson]) expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("sharing one post", () => {
+  it("exports just that post, even when it is private, with no likes", async () => {
+    const vault = await open();
+    await postWithPhoto(vault, "secret-one", "private");
+    await postWithPhoto(vault, "other", "shareable");
+    const items = await vault.listItems();
+
+    const { text, postCount } = await buildShareBundle(vault, settingsFor("alice-id", "alice"), items, NOW, { onlyPostId: "secret-one" });
+    const bundle = parseShareBundle(text);
+
+    expect(postCount).toBe(1);
+    expect(bundle.posts.map((post) => post.id)).toEqual(["secret-one"]);
+    expect(bundle.likes).toEqual([]);
+  });
+
+  it("refuses to share an imported post", async () => {
+    const vault = await open();
+    await expect(buildShareBundle(vault, settingsFor("alice-id", "alice"), [], NOW, { onlyPostId: "post:bob:x" })).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("still reads share files and items that use the removed moments and free categories", () => {
+    const legacy = { ...getSampleItems(NOW)[0]!, category: "moments" };
+    expect(ItemSchema.parse(legacy).category).toBe("general");
+    expect(ItemSchema.parse({ ...legacy, category: "free" }).category).toBe("general");
   });
 });

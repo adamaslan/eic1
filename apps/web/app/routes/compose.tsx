@@ -97,7 +97,7 @@ export default function Compose() {
                   setErrors((current) => ({ ...current, media: undefined, price: undefined }));
                 }}
               />
-              {option === "photo" ? "Photo moment" : "Marketplace listing"}
+              {option === "photo" ? "Photo post" : "Marketplace listing"}
             </label>
           ))}
         </fieldset>

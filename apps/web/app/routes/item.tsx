@@ -1,11 +1,14 @@
+import { useState } from "react";
 import { Link } from "react-router";
-import { formatPrice, timeAgo } from "@veil/core";
-import { toggleLike, useVaultItems } from "@veil/features";
+import { AppError, formatPrice, timeAgo, type Item } from "@veil/core";
+import { buildShareBundle, toggleLike, useVaultItems } from "@veil/features";
 import type { Route } from "./+types/item";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
 import { useMediaUri } from "~/platform/use-media-uri";
 import { useSessionStore } from "~/platform/session";
+import { sharePostFile } from "~/platform/share";
+import { useSocial } from "~/platform/use-social";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Item — Everybody is Cool" }];
@@ -14,6 +17,22 @@ export function meta(_args: Route.MetaArgs) {
 export default function ItemDetail({ params }: Route.ComponentProps) {
   const vault = useSessionStore((state) => state.vault);
   const { state, reload } = useVaultItems(vault);
+  const social = useSocial(vault);
+  const [shareNote, setShareNote] = useState<string | null>(null);
+
+  async function share(item: Item, allItems: Item[]) {
+    if (!vault) return;
+    setShareNote(null);
+    try {
+      const { text } = await buildShareBundle(vault, social.settings, allItems, new Date(), { onlyPostId: item.id });
+      const outcome = await sharePostFile(`eic-post-${item.id}.json`, item.title, text);
+      if (outcome === "shared") setShareNote("Shared.");
+      else if (outcome === "copied") setShareNote("Copied. Paste it into a message; your friend can paste it into Connections to import it.");
+      else if (outcome === "downloaded") setShareNote("Downloaded as a file. Send it to your friend to import in Connections.");
+    } catch (caught) {
+      setShareNote(caught instanceof AppError ? caught.message : "That could not be shared. Please try again.");
+    }
+  }
 
   if (state.status === "loading") return <p className="text-[12px]">Opening…</p>;
   if (state.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{state.message}</p>;
@@ -54,6 +73,11 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
             {item.likedByMe ? "♥ Liked" : "♡ Like"}
           </Button95>
           {item.authorId === null && (
+            <Button95 onClick={() => share(item, state.items)} disabled={!social.settingsReady}>
+              ↗ Share
+            </Button95>
+          )}
+          {item.authorId === null && (
             <Button95
               pressed={item.visibility === "shareable"}
               onClick={async () => {
@@ -66,6 +90,12 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
             </Button95>
           )}
         </div>
+        {shareNote && <p role="status" className="text-[11px]">{shareNote}</p>}
+        {item.authorId === null && !social.settings.handle && (
+          <p className="text-[11px] text-[#404040]">
+            To share, <Link to="/connections" className="text-[#0000cc] underline">choose a handle</Link> first.
+          </p>
+        )}
         {item.authorId === null && item.visibility === "shareable" && (
           <p className="text-[11px] text-[#404040]">This post goes into the share file you export from Connections.</p>
         )}

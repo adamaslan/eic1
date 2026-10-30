@@ -1,12 +1,19 @@
 import { z } from "zod";
 
 export const ITEM_TYPES = ["photo", "listing"] as const;
-export const CATEGORIES = ["moments", "electronics", "bikes", "cameras", "free"] as const;
+// "general" is internal: photo posts and old "moments"/"free" listings use it, and the UI never offers it.
+export const CATEGORIES = ["general", "electronics", "bikes", "cameras", "tooling"] as const;
+export const GENERAL_CATEGORY = "general";
+const LEGACY_CATEGORIES: Record<string, (typeof CATEGORIES)[number]> = { moments: "general", free: "general" };
 
 export const ItemTypeSchema = z.enum(ITEM_TYPES);
 export type ItemType = z.infer<typeof ItemTypeSchema>;
 
-export const CategorySchema = z.enum(CATEGORIES);
+// Vaults and share files written before "moments" and "free" were removed still hold those values.
+export const CategorySchema = z.preprocess(
+  (value) => (typeof value === "string" ? (LEGACY_CATEGORIES[value] ?? value) : value),
+  z.enum(CATEGORIES),
+);
 export type Category = z.infer<typeof CategorySchema>;
 
 export const ItemSchema = z.object({

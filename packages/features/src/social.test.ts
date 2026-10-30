@@ -30,7 +30,7 @@ describe("selectPicks", () => {
   const items = [
     listing("a", { category: "bikes", title: "Road bike", createdAt: "2026-10-29T10:00:00.000Z" }),
     listing("b", { category: "cameras", title: "Film camera", createdAt: "2026-10-29T11:00:00.000Z" }),
-    listing("c", { category: "free", title: "Boxes", createdAt: "2026-10-29T09:00:00.000Z" }),
+    listing("c", { category: "tooling", title: "Boxes", createdAt: "2026-10-29T09:00:00.000Z" }),
     listing("d", { category: "electronics", title: "Keyboard", description: "mechanical", createdAt: "2026-10-28T09:00:00.000Z" }),
     getSampleItems(NOW)[0]!,
   ];
