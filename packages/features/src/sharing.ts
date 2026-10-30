@@ -52,6 +52,9 @@ const ShareBundleSchema = z.object({
   ),
   // Posts by other people that the author liked: { ownerId, postId } as that owner knows them.
   likes: z.array(z.object({ ownerId: idField, postId: idField })).max(MAX_LIKES),
+  // False when the bundle is one post shared on its own: then `likes` is not the author's full
+  // like snapshot, and the importer must not reconcile (it would strip the author's other likes).
+  likesComplete: z.boolean().optional(),
 });
 export type ShareBundle = z.infer<typeof ShareBundleSchema>;
 
@@ -120,6 +123,7 @@ export async function buildShareBundle(
     author: { id: settings.authorId, handle: settings.handle },
     posts,
     likes,
+    likesComplete: !single,
   };
   const text = JSON.stringify(bundle);
   if (new TextEncoder().encode(text).byteLength >= MAX_SHARE_FILE_BYTES) {
@@ -218,7 +222,10 @@ export async function importShareBundle(
     else added += 1;
   }
 
-  const myPosts = (await vault.listItems()).filter((item) => item.authorId === null);
+  // A single-post share carries no like snapshot; reconciling against it would erase this
+  // author's existing likes on my posts. Only full bundles (or pre-flag files) reconcile.
+  const reconcileLikes = bundle.likesComplete !== false;
+  const myPosts = reconcileLikes ? (await vault.listItems()).filter((item) => item.authorId === null) : [];
   const liked = new Set(bundle.likes.filter((like) => like.ownerId === deps.settings.authorId).map((like) => like.postId));
   let likesReceived = 0;
   const noteTexts: string[] = [];
