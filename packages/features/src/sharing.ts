@@ -19,9 +19,10 @@ export const SHARE_FORMAT = "eic-share";
 const SHARE_VERSION = 1;
 export const MAX_SHARE_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_POSTS = 100;
+const MAX_LIKES = 5000;
 const MAX_MEDIA_BYTES = 5 * 1024 * 1024;
 const ALLOWED_MIME = ["image/webp", "image/jpeg", "image/png"] as const;
-// Ids end up inside record ids and are split on the first ":", so they must not contain one.
+// Components of namespaced record ids must not contain the separator.
 const idField = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 
 const MediaSchema = z.object({ mime: z.enum(ALLOWED_MIME), data: z.string() });
@@ -35,6 +36,7 @@ const PostSchema = z.object({
   description: z.string().max(2000),
   createdAt: z.iso.datetime(),
   likes: z.number().int().nonnegative(),
+  likedBy: z.array(idField),
   media: z.array(MediaSchema).max(MAX_MEDIA_PER_ITEM),
   thumb: MediaSchema.nullable(),
 });
@@ -49,11 +51,11 @@ const ShareBundleSchema = z.object({
     "Duplicate post ids are not allowed.",
   ),
   // Posts by other people that the author liked: { ownerId, postId } as that owner knows them.
-  likes: z.array(z.object({ ownerId: idField, postId: idField })).max(1000),
+  likes: z.array(z.object({ ownerId: idField, postId: idField })).max(MAX_LIKES),
 });
 export type ShareBundle = z.infer<typeof ShareBundleSchema>;
 
-const importedId = (authorId: string, postId: string) => `${authorId}:${postId}`;
+const importedId = (authorId: string, postId: string) => `post:${authorId}:${postId}`;
 
 /**
  * Builds a share file from my shareable posts and the likes I have given. The file is plain
@@ -63,6 +65,10 @@ const importedId = (authorId: string, postId: string) => `${authorId}:${postId}`
 export async function buildShareBundle(vault: UnlockedVault, settings: Settings, items: Item[], now: Date): Promise<{ text: string; postCount: number }> {
   if (!settings.authorId || !settings.handle) {
     throw new AppError("Choose a handle before sharing.");
+  }
+  const likedPosts = items.filter((item) => item.authorId !== null && item.likedByMe);
+  if (likedPosts.length > MAX_LIKES) {
+    throw new AppError(`Too many liked posts to share. The limit is ${MAX_LIKES}.`);
   }
   const mine = items.filter((item) => item.authorId === null && item.visibility === "shareable");
   const posts: ShareBundle["posts"] = [];
@@ -82,14 +88,15 @@ export async function buildShareBundle(vault: UnlockedVault, settings: Settings,
       description: item.description,
       createdAt: item.createdAt,
       likes: item.likes,
+      likedBy: item.likedBy,
       media,
       thumb: thumbBytes ? { mime: toMime(item.mediaMime), data: encodeBase64(thumbBytes) } : null,
     });
   }
-  const likes = items
-    .filter((item) => item.authorId !== null && item.likedByMe)
-    .slice(0, 1000)
-    .map((item) => ({ ownerId: item.authorId as string, postId: item.id.slice(item.authorId!.length + 1) }));
+  const likes = likedPosts.map((item) => ({
+    ownerId: item.authorId as string,
+    postId: item.id.slice(`post:${item.authorId}:`.length),
+  }));
 
   const bundle: ShareBundle = {
     format: SHARE_FORMAT,
@@ -177,9 +184,8 @@ export async function importShareBundle(
       priceCents: post.priceCents,
       description: post.description,
       createdAt: post.createdAt,
-      // The author's count is authoritative on import. Preserve my toggle separately;
-      // adding it here would double-count likes already acknowledged by the author.
-      likes: post.likes,
+      // Add my pending like only until the owner acknowledges it in their membership list.
+      likes: post.likes + (!post.likedBy.includes(deps.settings.authorId) && existing?.likedByMe ? 1 : 0),
       mediaIds,
       thumbId,
       mediaMime,
@@ -202,10 +208,10 @@ export async function importShareBundle(
   for (const post of myPosts) {
     const wasLiked = post.likedBy.includes(author.id);
     const isLiked = liked.has(post.id);
-    const likedBy = post.likedBy.filter((id) => id !== author.id);
-    if (isLiked) likedBy.push(author.id);
-    const likes = likedBy.length + (post.likedByMe ? 1 : 0);
-    if (wasLiked !== isLiked || post.likes !== likes) {
+    if (wasLiked !== isLiked) {
+      const likedBy = post.likedBy.filter((id) => id !== author.id);
+      if (isLiked) likedBy.push(author.id);
+      const likes = Math.max(0, post.likes + (isLiked ? 1 : -1));
       records.push(await vault.sealItem({ ...post, likedBy, likes }));
     }
     if (isLiked && !wasLiked) {

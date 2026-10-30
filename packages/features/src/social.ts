@@ -107,10 +107,15 @@ export async function listNotes(vault: UnlockedVault): Promise<Note[]> {
 /** Connection values keep the author id; their vault record keys are `connection:${authorId}`. */
 export async function listConnections(vault: UnlockedVault): Promise<Connection[]> {
   const raw = await vault.listJson("connection");
-  return raw
-    .flatMap((value) => {
-      const parsed = ConnectionSchema.safeParse(value);
-      return parsed.success ? [parsed.data] : [];
-    })
-    .sort((a, b) => a.handle.localeCompare(b.handle));
+  const byId = new Map<string, Connection>();
+  for (const value of raw) {
+    const parsed = ConnectionSchema.safeParse(value);
+    if (!parsed.success) continue;
+    const connection = parsed.data;
+    const existing = byId.get(connection.id);
+    if (!existing || Date.parse(connection.addedAt) > Date.parse(existing.addedAt)) {
+      byId.set(connection.id, connection);
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.handle.localeCompare(b.handle));
 }

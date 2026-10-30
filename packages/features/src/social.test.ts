@@ -8,6 +8,7 @@ import {
   defaultSettings,
   ensureAuthorId,
   listNotes,
+  listConnections,
   loadSettings,
   normalizeKeywords,
   saveSettings,
@@ -96,5 +97,19 @@ describe("settings, likes, and notes in the vault", () => {
     await addNote(vault, "first", { newId: () => `n${n++}`, now: new Date("2026-10-29T10:00:00Z") });
     await addNote(vault, "second", { newId: () => `n${n++}`, now: new Date("2026-10-29T11:00:00Z") });
     expect((await listNotes(vault)).map((note) => note.text)).toEqual(["second", "first"]);
+  });
+});
+
+describe("connection deduplication", () => {
+  it("keeps the latest addedAt per id regardless of record order and sorts by handle", async () => {
+    const vault = await open();
+    const connection = (id: string, handle: string, addedAt: string) => ({ id, handle, addedAt, schemaVersion: 1 });
+    await vault.putJson("connection", "old-alice", connection("alice", "old", "2026-10-28T12:00:00Z"));
+    await vault.putJson("connection", "connection:alice", connection("alice", "alice", "2026-10-29T12:00:00Z"));
+    await vault.putJson("connection", "connection:bob", connection("bob", "bob", "2026-10-29T12:00:00Z"));
+    await vault.putJson("connection", "old-bob", connection("bob", "stale", "2026-10-28T12:00:00Z"));
+    expect((await listConnections(vault)).map(({ id, handle }) => ({ id, handle }))).toEqual([
+      { id: "alice", handle: "alice" }, { id: "bob", handle: "bob" },
+    ]);
   });
 });

@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import {
   VaultAlreadyExistsError,
+  VaultCorruptError,
   VaultLockedError,
   type Bytes,
   type EncryptedRecord,
@@ -84,7 +85,7 @@ export class IndexedDbVaultStore implements VaultStore {
     }
   }
 
-  async putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[]): Promise<void> {
+  async putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[], options?: { requireSameKind?: boolean }): Promise<void> {
     const db = await this.db();
     const tx = db.transaction(["meta", "records"], "readwrite");
     const metaStore = tx.objectStore("meta");
@@ -94,7 +95,16 @@ export class IndexedDbVaultStore implements VaultStore {
         throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
       }
       const recordStore = tx.objectStore("records");
-      await Promise.all([...records.map((record) => recordStore.put(record)), tx.done]);
+      for (const record of records) {
+        if (options?.requireSameKind) {
+          const existing = await recordStore.get(record.id);
+          if (existing && existing.kind !== record.kind) {
+            throw new VaultCorruptError("A record of a different kind already uses that id.");
+          }
+        }
+        await recordStore.put(record);
+      }
+      await tx.done;
     } catch (error) {
       try {
         tx.abort();

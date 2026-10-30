@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { VaultCorruptError, type Item, type Settings } from "@veil/core";
+import { AppError, VaultCorruptError, type Item, type Settings } from "@veil/core";
 import { SubtleCryptoPort } from "@veil/crypto";
-import { createVault, type UnlockedVault } from "@veil/vault";
+import { createVault, newRecordId, type UnlockedVault } from "@veil/vault";
 import { MemoryStore } from "../../vault/src/memory-store";
 import { getSampleItems } from "./demo-items";
 import { buildShareBundle, importShareBundle, parseShareBundle, MAX_SHARE_FILE_BYTES } from "./sharing";
-import { defaultSettings, listConnections, listNotes, saveSettings, loadSettings, toggleLike } from "./social";
+import { addNote, defaultSettings, listConnections, listNotes, saveSettings, loadSettings, toggleLike } from "./social";
 
 const NOW = new Date("2026-10-29T12:00:00Z");
 const open = () => createVault({ store: new MemoryStore(), crypto: new SubtleCryptoPort(), now: () => NOW }, "pass phrase 1");
@@ -54,7 +54,7 @@ describe("share files", () => {
     const result = await importShareBundle(bob, file, { settings: settingsFor("bob-id", "bob"), newId, now: NOW });
 
     expect(result).toMatchObject({ handle: "alice", added: 1, updated: 0 });
-    const imported = await bob.getItem("alice-id:p1");
+    const imported = await bob.getItem("post:alice-id:p1");
     expect(imported).toMatchObject({ authorId: "alice-id", authorHandle: "alice", visibility: "private" });
     expect(await bob.getRecord(imported!.mediaIds[0]!)).toEqual(new Uint8Array([1, 2, 3, 4]));
     expect((await listConnections(bob)).map((c) => c.handle)).toEqual(["alice"]);
@@ -72,7 +72,7 @@ describe("share files", () => {
     const again = await importShareBundle(bob, file, deps);
 
     expect(again).toMatchObject({ added: 0, updated: 1 });
-    const imported = await bob.getItem("alice-id:p1");
+    const imported = await bob.getItem("post:alice-id:p1");
     expect(imported!.mediaIds).toHaveLength(1);
     const bobFile = parseShareBundle((await buildShareBundle(bob, settingsFor("bob-id", "bob"), await bob.listItems(), NOW)).text);
     expect(bobFile.posts).toHaveLength(0);
@@ -89,7 +89,7 @@ describe("share files", () => {
       (await buildShareBundle(alice, aliceSettings, await alice.listItems(), NOW)).text,
       { settings: bobSettings, newId, now: NOW },
     );
-    const copy = (await bob.getItem("alice-id:p1"))!;
+    const copy = (await bob.getItem("post:alice-id:p1"))!;
     await bob.putItem({ ...copy, likedByMe: true });
     const { text: bobFile } = await buildShareBundle(bob, bobSettings, await bob.listItems(), NOW);
 
@@ -99,7 +99,7 @@ describe("share files", () => {
     expect(first.likesReceived).toBe(1);
     expect(second.likesReceived).toBe(0);
     const liked = (await alice.getItem("p1"))!;
-    expect(liked.likes).toBe(1);
+    expect(liked.likes).toBe(24);
     expect(liked.likedBy).toEqual(["bob-id"]);
   });
 
@@ -117,13 +117,23 @@ describe("share files", () => {
 
 
 describe("share regression cases", () => {
+  it("keeps own item, media, thumbnail, and note ids random and colon-free", async () => {
+    const vault = await open();
+    const crypto = new SubtleCryptoPort();
+    const randomId = () => newRecordId(crypto);
+    const item = await postWithPhoto(vault, randomId(), "private");
+    const note = await addNote(vault, "A private note", { newId: randomId, now: NOW });
+    for (const id of [item.id, ...item.mediaIds, item.thumbId!, note.id]) {
+      expect(id).toMatch(/^[a-z2-7]{26}$/);
+      expect(id).not.toContain(":");
+    }
+  });
+
   it("namespaces connections without changing settings, item, media, or note records", async () => {
     const vault = await open();
     const settings = settingsFor("bob", "bob");
     await saveSettings(vault, settings);
     const item = await postWithPhoto(vault, "existing-item", "private");
-    // Keep the own-post count consistent with its membership.
-    await vault.putItem({ ...item, likes: 0 });
     await vault.putJson("note", "existing-note", { text: "keep me" });
     const ids = ["settings", item.id, item.mediaIds[0]!, "existing-note"];
     const before = await Promise.all(ids.map((id) => vault.getRecord(id)));
@@ -149,43 +159,125 @@ describe("share regression cases", () => {
       return importShareBundle(to, text, { settings: receiver, newId, now: NOW });
     };
     await send(alice, bob, aliceSettings, bobSettings);
-    await toggleLike(bob, (await bob.getItem("alice:p1"))!);
+    await toggleLike(bob, (await bob.getItem("post:alice:p1"))!);
     expect((await send(bob, alice, bobSettings, aliceSettings)).likesReceived).toBe(1);
     expect(await alice.getItem("p1")).toMatchObject({ likes: 2, likedBy: ["bob"], likedByMe: true });
     await send(alice, bob, aliceSettings, bobSettings);
     await send(alice, bob, aliceSettings, bobSettings);
-    expect(await bob.getItem("alice:p1")).toMatchObject({ likes: 2, likedByMe: true });
-    await toggleLike(bob, (await bob.getItem("alice:p1"))!);
+    expect(await bob.getItem("post:alice:p1")).toMatchObject({ likes: 2, likedByMe: true });
+    await toggleLike(bob, (await bob.getItem("post:alice:p1"))!);
     await send(bob, alice, bobSettings, aliceSettings);
     await send(bob, alice, bobSettings, aliceSettings);
     expect(await alice.getItem("p1")).toMatchObject({ likes: 1, likedBy: [], likedByMe: true });
     await send(alice, bob, aliceSettings, bobSettings);
-    expect(await bob.getItem("alice:p1")).toMatchObject({ likes: 1, likedByMe: false });
+    expect(await bob.getItem("post:alice:p1")).toMatchObject({ likes: 1, likedByMe: false });
   });
 
-  it("uses the author's reported count even before a local like is acknowledged", async () => {
-    const vault = await open();
-    const settings = settingsFor("bob", "bob");
-    const post = { ...getSampleItems(NOW)[0]!, id: "alice:p1", authorId: "alice", authorHandle: "alice", likedByMe: true, likes: 5 };
-    await vault.putItem(post);
-    const { text } = await buildShareBundle(vault, settingsFor("alice", "alice"), [
-      { ...post, id: "p1", authorId: null, visibility: "shareable", likes: 4 },
-    ], NOW);
-    await importShareBundle(vault, text, { settings, newId, now: NOW });
-    expect(await vault.getItem("alice:p1")).toMatchObject({ likes: 4, likedByMe: true });
+  it("preserves pending likes before sending and acknowledges the round trip", async () => {
+    const owner = await open();
+    const reader = await open();
+    const ownerSettings = settingsFor("alice", "alice");
+    const readerSettings = settingsFor("bob", "bob");
+    const original = await postWithPhoto(owner, "p1", "shareable");
+    await owner.putItem({ ...original, likes: 4 });
+    const send = async (from: UnlockedVault, to: UnlockedVault, sender: Settings, receiver: Settings) => {
+      const { text } = await buildShareBundle(from, sender, await from.listItems(), NOW);
+      return importShareBundle(to, text, { settings: receiver, newId, now: NOW });
+    };
+    const copy = async () => (await reader.listItems()).find((item) => item.authorId === "alice");
+    await send(owner, reader, ownerSettings, readerSettings);
+    expect((await copy())!.likes).toBe(4);
+    await toggleLike(reader, (await copy())!);
+    expect((await copy())!.likes).toBe(5);
+    await send(owner, reader, ownerSettings, readerSettings);
+    expect((await copy())!.likes).toBe(5);
+    await toggleLike(reader, (await copy())!);
+    expect((await copy())!.likes).toBe(4);
+    await send(owner, reader, ownerSettings, readerSettings);
+    expect((await copy())!.likes).toBe(4);
+    await toggleLike(reader, (await copy())!);
+    await send(reader, owner, readerSettings, ownerSettings);
+    expect(await owner.getItem("p1")).toMatchObject({ likes: 5, likedBy: ["bob"] });
+    const acknowledged = parseShareBundle((await buildShareBundle(owner, ownerSettings, await owner.listItems(), NOW)).text);
+    expect(acknowledged.posts[0]!.likedBy).toEqual(["bob"]);
+    await send(owner, reader, ownerSettings, readerSettings);
+    await send(owner, reader, ownerSettings, readerSettings);
+    expect(await copy()).toMatchObject({ likes: 5, likedByMe: true });
+    await toggleLike(reader, (await copy())!);
+    expect((await copy())!.likes).toBe(4);
+    await send(reader, owner, readerSettings, ownerSettings);
+    await send(owner, reader, ownerSettings, readerSettings);
+    expect(await copy()).toMatchObject({ likes: 4, likedByMe: false });
   });
 
-  it("caps exports at 100 posts and 1000 likes and reports the real post count", async () => {
+  it("exports up to 5000 likes without truncation and keeps the 100-post cap", async () => {
     const vault = await open();
     const base = getSampleItems(NOW)[0]!;
     const posts = Array.from({ length: 101 }, (_, i) => ({ ...base, id: `p${i}`, visibility: "shareable" as const }));
-    const likes = Array.from({ length: 1001 }, (_, i) => ({ ...base, id: `alice:p${i}`, authorId: "alice", likedByMe: true }));
+    const likes = Array.from({ length: 5000 }, (_, i) => ({ ...base, id: `post:alice:p${i}`, authorId: "alice", likedByMe: true }));
     const result = await buildShareBundle(vault, settingsFor("bob", "bob"), [...posts, ...likes], NOW);
     const bundle = parseShareBundle(result.text);
     expect(result.postCount).toBe(100);
     expect(bundle.posts).toHaveLength(100);
-    expect(bundle.likes).toHaveLength(1000);
-    expect(new TextEncoder().encode(result.text).byteLength).toBeLessThan(MAX_SHARE_FILE_BYTES);
+    expect(bundle.likes).toHaveLength(5000);
+    expect(bundle.likes[4999]).toEqual({ ownerId: "alice", postId: "p4999" });
+    const overflow = { ...likes[0]!, id: "post:alice:overflow" };
+    await expect(buildShareBundle(vault, settingsFor("bob", "bob"), [...likes, overflow], NOW)).rejects.toBeInstanceOf(AppError);
+    expect(() => parseShareBundle(JSON.stringify({ ...bundle, likes: [...bundle.likes, { ownerId: "alice", postId: "overflow" }] }))).toThrow(VaultCorruptError);
+  });
+
+  it("throws AppError rather than silently dropping likes above the limit", async () => {
+    const vault = await open();
+    const likes = Array.from({ length: 5001 }, (_, i) => ({
+      ...getSampleItems(NOW)[0]!, id: `post:alice:p${i}`, authorId: "alice", likedByMe: true,
+    }));
+    await expect(buildShareBundle(vault, settingsFor("bob", "bob"), likes, NOW)).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("keeps connections and settings intact for reserved-looking author and post ids", async () => {
+    const vault = await open();
+    const settings = settingsFor("bob", "bob");
+    await saveSettings(vault, settings);
+    const send = async (authorId: string, postId?: string) => {
+      const posts = postId ? [{ ...getSampleItems(NOW)[0]!, id: postId, visibility: "shareable" as const }] : [];
+      const { text } = await buildShareBundle(vault, settingsFor(authorId, authorId), posts, NOW);
+      return importShareBundle(vault, text, { settings, newId, now: NOW });
+    };
+    await send("alice");
+    const connectionBefore = await vault.getRecord("connection:alice");
+    const settingsBefore = await vault.getRecord("settings");
+    await send("connection", "alice");
+    expect(await vault.getRecord("connection:alice")).toEqual(connectionBefore);
+    expect(await vault.getItem("post:connection:alice")).toMatchObject({ authorId: "connection" });
+    await send("settings", "settings");
+    expect(await vault.getRecord("settings")).toEqual(settingsBefore);
+    expect(await loadSettings(vault)).toEqual(settings);
+    expect((await listConnections(vault)).map((c) => c.id).sort()).toEqual(["alice", "connection", "settings"]);
+  });
+
+  it("leaves unrelated counts intact and only applies membership deltas, floored at zero", async () => {
+    const vault = await open();
+    const settings = settingsFor("bob", "bob");
+    const post = await postWithPhoto(vault, "p1", "shareable");
+    expect(post).toMatchObject({ likes: 23, likedBy: [] });
+    const send = async (likes: { ownerId: string; postId: string }[]) => {
+      const bundle = JSON.parse((await buildShareBundle(vault, settingsFor("alice", "alice"), [], NOW)).text);
+      bundle.likes = likes;
+      return importShareBundle(vault, JSON.stringify(bundle), { settings, newId, now: NOW });
+    };
+    const before = await vault.getRecord(post.id);
+    await send([]);
+    expect(await vault.getRecord(post.id)).toEqual(before);
+    expect((await vault.getItem(post.id))!.likes).toBe(23);
+    await send([{ ownerId: "bob", postId: post.id }]);
+    await send([{ ownerId: "bob", postId: post.id }]);
+    expect(await vault.getItem(post.id)).toMatchObject({ likes: 24, likedBy: ["alice"] });
+    await send([]);
+    await send([]);
+    expect(await vault.getItem(post.id)).toMatchObject({ likes: 23, likedBy: [] });
+    await vault.putItem({ ...post, likes: 0, likedBy: ["alice"] });
+    await send([]);
+    expect(await vault.getItem(post.id)).toMatchObject({ likes: 0, likedBy: [] });
   });
 
   it("refuses an aggregate export too large to import", async () => {

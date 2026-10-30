@@ -130,14 +130,10 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedGeneration: 
 
     async putJson(kind, id, value) {
       const keyInUse = activeKey();
-      const existing = await store.getRecord(id);
-      if (existing && existing.kind !== kind) {
-        throw new VaultCorruptError("A record of a different kind already uses that id.");
-      }
       const sealed = await sealBytes(crypto, keyInUse, encodeJson(value));
       await store.putRecordsForVault(expectedGeneration, [
         { v: 1, id, kind, iv: sealed.iv, ciphertext: sealed.ciphertext },
-      ]);
+      ], { requireSameKind: true });
     },
 
     async getJson(id) {

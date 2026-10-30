@@ -1,5 +1,6 @@
 import {
   VaultAlreadyExistsError,
+  VaultCorruptError,
   VaultLockedError,
   type Bytes,
   type EncryptedRecord,
@@ -29,9 +30,20 @@ export class MemoryStore implements VaultStore {
       this.records.set(record.id, record);
     }
   }
-  async putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[]) {
+  async putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[], options?: { requireSameKind?: boolean }) {
     if (!this.meta || !sameBytes(vaultGeneration(this.meta), expectedGeneration)) {
       throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
+    }
+    // Validate the entire batch before mutating; no awaits may separate this check and write.
+    if (options?.requireSameKind) {
+      const kinds = new Map<string, RecordKind>();
+      for (const record of records) {
+        const kind = kinds.get(record.id) ?? this.records.get(record.id)?.kind;
+        if (kind !== undefined && kind !== record.kind) {
+          throw new VaultCorruptError("A record of a different kind already uses that id.");
+        }
+        kinds.set(record.id, record.kind);
+      }
     }
     for (const record of records) {
       this.records.set(record.id, record);

@@ -21,8 +21,10 @@ export interface VaultStore {
   getBackupSnapshot(): Promise<{ meta: VaultMeta | null; records: EncryptedRecord[] }>;
   /** Atomically initializes an empty store with a vault header and its records. */
   initialize(meta: VaultMeta, records: EncryptedRecord[]): Promise<void>;
-  /** Writes every record in one transaction, only if the vault's generation still matches. */
-  putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[]): Promise<void>;
+  /** Writes every record in one transaction, only if the vault's generation still matches.
+   * With requireSameKind, atomically rejects ids already used by a different kind.
+   */
+  putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[], options?: { requireSameKind?: boolean }): Promise<void>;
   /** Removes the vault only if its current generation matches the session. */
   clearForVault(expectedGeneration: Bytes): Promise<void>;
   putMeta(meta: VaultMeta): Promise<void>;
