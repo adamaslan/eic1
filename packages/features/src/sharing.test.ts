@@ -103,6 +103,36 @@ describe("share files", () => {
     expect(liked.likedBy).toEqual(["bob-id"]);
   });
 
+  it("a single-post share does not strip the sender's likes on my posts", async () => {
+    const alice = await open();
+    const bob = await open();
+    const aliceSettings = settingsFor("alice", "alice");
+    const bobSettings = settingsFor("bob", "bob");
+    await postWithPhoto(bob, "b1", "shareable");
+    await postWithPhoto(alice, "a1", "private");
+    const send = async (from: UnlockedVault, to: UnlockedVault, sender: Settings, receiver: Settings) => {
+      const { text } = await buildShareBundle(from, sender, await from.listItems(), NOW);
+      return importShareBundle(to, text, { settings: receiver, newId, now: NOW });
+    };
+    // Round trip: bob's b1 lands with alice, alice likes it, full share carries the like home.
+    await send(bob, alice, bobSettings, aliceSettings);
+    await toggleLike(alice, (await alice.getItem("post:bob:b1"))!);
+    await send(alice, bob, aliceSettings, bobSettings);
+    const before = (await bob.getItem("b1"))!;
+    expect(before.likedBy).toEqual(["alice"]);
+
+    // Alice shares ONE post on its own: that file is not her like snapshot...
+    const singleText = (await buildShareBundle(alice, aliceSettings, await alice.listItems(), NOW, { onlyPostId: "a1" })).text;
+    expect(parseShareBundle(singleText).likesComplete).toBe(false);
+    const result = await importShareBundle(bob, singleText, { settings: bobSettings, newId, now: NOW });
+
+    // ...so importing it adds the post but must not reconcile (which would erase alice's like on b1).
+    expect(result).toMatchObject({ added: 1, likesReceived: 0 });
+    expect(await bob.getItem("b1")).toMatchObject({ likes: before.likes, likedBy: ["alice"] });
+    // Full exports still declare a complete snapshot.
+    expect(parseShareBundle((await buildShareBundle(alice, aliceSettings, await alice.listItems(), NOW)).text).likesComplete).toBe(true);
+  });
+
   it("rejects my own file, junk, and unsafe ids", async () => {
     const alice = await open();
     const settings = settingsFor("alice-id", "alice");
