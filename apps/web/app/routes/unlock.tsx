@@ -74,7 +74,7 @@ export default function Unlock() {
     try {
       const opened = exists ? await vaultUnlock(passphrase) : await vaultCreate(passphrase);
       setVault(opened);
-      navigate("/", { replace: true });
+      navigate("/feed", { replace: true });
       setPassphrase("");
       setConfirm("");
     } catch (caught) {
@@ -85,7 +85,7 @@ export default function Unlock() {
   }
 
   if (vault) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/feed" replace />;
   }
 
   return (
@@ -148,7 +148,7 @@ export default function Unlock() {
 
         <p className="mt-3">
           <Link to="/" className="text-[#0000cc] underline">
-            Back to desktop
+            Back to home
           </Link>
         </p>
       </Window>

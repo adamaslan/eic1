@@ -46,7 +46,7 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
 }
 
 function BackLink({ type }: { type: "photo" | "listing" | null }) {
-  const to = type === "listing" ? "/market" : "/";
+  const to = type === "listing" ? "/market" : "/feed";
   return (
     <Link to={to} className="text-[#0000cc] underline">
       {type === "listing" ? "Back to market" : "Back to feed"}

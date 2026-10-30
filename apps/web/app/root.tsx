@@ -9,6 +9,8 @@ import {
 
 import type { Route } from "./+types/root";
 import stylesheet from "./app.css?url";
+import { useSessionStore } from "~/platform/session";
+import { useAutoLock } from "~/platform/use-auto-lock";
 
 export const links: Route.LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
@@ -33,6 +35,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const vault = useSessionStore((state) => state.vault);
+  const lock = useSessionStore((state) => state.lock);
+  useAutoLock(vault !== null, lock);
+
   return <Outlet />;
 }
 

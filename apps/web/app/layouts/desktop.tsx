@@ -3,7 +3,6 @@ import { useClock } from "@veil/features";
 import { Bevel } from "~/ui95/Bevel";
 import { Taskbar } from "~/ui95/Taskbar";
 import { useSessionStore } from "~/platform/session";
-import { useAutoLock } from "~/platform/use-auto-lock";
 
 const TABS = [
   { id: "feed", label: "Feed" },
@@ -18,7 +17,6 @@ export default function DesktopLayout() {
   const lock = useSessionStore((state) => state.lock);
   const { pathname } = useLocation();
   const now = useClock();
-  useAutoLock(vault !== null, lock);
 
   if (!vault) {
     return <Navigate to="/unlock" replace />;
@@ -38,7 +36,7 @@ export default function DesktopLayout() {
           {TABS.map((tab) => (
             <Bevel key={tab.id} variant={tab.id === active ? "in" : "out"}>
               <Link
-                to={tab.id === "feed" ? "/" : `/${tab.id}`}
+                to={`/${tab.id}`}
                 aria-current={tab.id === active ? "page" : undefined}
                 className={`block min-h-[44px] bg-[#c0c0c0] px-3 py-1 text-[12px] text-[#0a0a0a] sm:min-h-0 ${tab.id === active ? "translate-x-px translate-y-px" : ""}`}
               >
