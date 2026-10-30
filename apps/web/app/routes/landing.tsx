@@ -18,7 +18,7 @@ export function meta(_args: Route.MetaArgs) {
 const FEATURES = [
   {
     title: "Encrypted before it is saved",
-    body: "Every post and photo is sealed with AES-256-GCM using a key derived from your passphrase. What sits on disk is ciphertext.",
+    body: "Every post and photo is sealed with AES-256-GCM using a key derived from your passphrase. The contents of posts and photos sit on disk as ciphertext. Record IDs, record types, and the vault creation time are not encrypted.",
   },
   {
     title: "Photos and listings",
@@ -26,7 +26,7 @@ const FEATURES = [
   },
   {
     title: "A backup you own",
-    body: "Export one encrypted file and restore it in another browser. It still needs your passphrase, so the file is safe to store anywhere.",
+    body: "Export one encrypted file and restore it in another browser. It still needs your passphrase, but anyone holding the file can try guesses offline, so use a strong, unique passphrase and keep the file somewhere only you can reach.",
   },
 ];
 
