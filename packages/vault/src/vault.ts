@@ -20,6 +20,8 @@ import {
   sealBytes,
 } from "@veil/crypto";
 
+export type JsonRecordKind = Extract<RecordKind, "settings" | "connection" | "note">;
+
 export interface VaultDeps {
   store: VaultStore;
   crypto: CryptoPort;
@@ -36,6 +38,10 @@ export interface UnlockedVault {
   putItem(item: Item): Promise<void>;
   getItem(id: string): Promise<Item | null>;
   listItems(): Promise<Item[]>;
+  /** Seals a JSON value as a settings, connection, or note record and writes it. Replaces any record with that id. */
+  putJson(kind: JsonRecordKind, id: string, value: unknown): Promise<void>;
+  getJson(id: string): Promise<unknown | null>;
+  listJson(kind: JsonRecordKind): Promise<unknown[]>;
   /** Wipes this vault only while its original header is still current. */
   wipe(): Promise<void>;
   /** Drops the key reference. Every later call throws VaultLockedError. */
@@ -122,6 +128,32 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedGeneration: 
       );
     },
 
+    async putJson(kind, id, value) {
+      const sealed = await sealBytes(crypto, activeKey(), encodeJson(value));
+      await store.putRecordsForVault(expectedGeneration, [
+        { v: 1, id, kind, iv: sealed.iv, ciphertext: sealed.ciphertext },
+      ]);
+    },
+
+    async getJson(id) {
+      const keyInUse = activeKey();
+      const record = await store.getRecord(id);
+      if (!record || record.kind === "item" || record.kind === "media" || record.kind === "thumb") {
+        return null;
+      }
+      return decodeJson(await openBytes(crypto, keyInUse, { iv: record.iv, ciphertext: record.ciphertext }));
+    },
+
+    async listJson(kind) {
+      const keyInUse = activeKey();
+      const records = await store.listRecords(kind);
+      return Promise.all(
+        records.map(async (record) =>
+          decodeJson(await openBytes(crypto, keyInUse, { iv: record.iv, ciphertext: record.ciphertext })),
+        ),
+      );
+    },
+
     lock() {
       key = null;
     },
@@ -136,6 +168,14 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedGeneration: 
 
 function encodeJson(value: unknown): Bytes {
   return new TextEncoder().encode(JSON.stringify(value));
+}
+
+function decodeJson(bytes: Bytes): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new VaultCorruptError("A stored record could not be read.");
+  }
 }
 
 function decodeItem(bytes: Bytes): Item {

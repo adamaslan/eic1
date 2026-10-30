@@ -4,3 +4,4 @@ export * from "./format";
 export * from "./item";
 export * from "./model";
 export * from "./ports";
+export * from "./social";

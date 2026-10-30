@@ -6,6 +6,7 @@ import {
   type EncryptedRecord,
   type Item,
   type ItemType,
+  type Visibility,
 } from "@veil/core";
 import type { UnlockedVault } from "@veil/vault";
 import { MAX_MEDIA_PER_ITEM } from "@veil/media";
@@ -22,6 +23,8 @@ export interface ComposeInput {
   /** Raw text from the price field, e.g. "340" or "12.50". Blank means free. */
   price: string;
   description: string;
+  /** Defaults to private. Only "shareable" posts can go into a share file. */
+  visibility?: Visibility;
 }
 
 export interface ComposedFields {
@@ -30,6 +33,7 @@ export interface ComposedFields {
   category: Category;
   priceCents: number | null;
   description: string;
+  visibility: Visibility;
 }
 
 export type ComposeErrors = Partial<Record<"title" | "price" | "description" | "media", string>>;
@@ -76,6 +80,7 @@ export function validateCompose(input: ComposeInput, mediaCount: number): Compos
       category: input.type === "photo" ? MOMENT_CATEGORY : input.category,
       priceCents,
       description,
+      visibility: input.visibility ?? "private",
     },
   };
 }

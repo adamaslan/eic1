@@ -1,14 +1,13 @@
 import { useState } from "react";
-import { Link } from "react-router";
-import { CATEGORIES, formatPrice, timeAgo, type Category, type Item } from "@veil/core";
+import { CATEGORIES, type Category } from "@veil/core";
 import { selectMarket, useVaultItems, type MarketSort } from "@veil/features";
 import type { Route } from "./+types/market";
-import { Card95 } from "~/ui95/Card95";
+import { ListingRow } from "~/components/cards";
 import { DemoSeed } from "~/components/demo-seed";
 import { useSessionStore } from "~/platform/session";
 
 export function meta(_args: Route.MetaArgs) {
-  return [{ title: "Market — Veil 95" }];
+  return [{ title: "Market — Everybody is Cool" }];
 }
 
 const SORTS: { value: MarketSort; label: string }[] = [
@@ -75,22 +74,5 @@ export default function Market() {
         ))}
       </ul>
     </div>
-  );
-}
-
-function ListingRow({ item, now }: { item: Item; now: Date }) {
-  return (
-    <Link to={`/item/${item.id}`} className="block">
-      <Card95>
-        <div className="flex items-baseline gap-2 px-1 py-0.5">
-          <span className="min-w-0 flex-1 truncate font-bold text-[#0000cc]">{item.title}</span>
-          <span className="shrink-0 font-mono">{formatPrice(item.priceCents)}</span>
-        </div>
-        <div className="flex gap-2 px-1 pb-0.5 text-[11px] text-[#404040]">
-          <span>{item.category}</span>
-          <span>· {timeAgo(item.createdAt, now)}</span>
-        </div>
-      </Card95>
-    </Link>
   );
 }

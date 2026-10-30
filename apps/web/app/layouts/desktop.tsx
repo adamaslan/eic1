@@ -8,6 +8,7 @@ const TABS = [
   { id: "feed", label: "Feed" },
   { id: "market", label: "Market" },
   { id: "compose", label: "+ Post" },
+  { id: "connections", label: "Connections" },
   { id: "vault", label: "Vault" },
 ];
 
@@ -24,9 +25,11 @@ export default function DesktopLayout() {
 
   const active = pathname.startsWith("/market") ? "market" : pathname.startsWith("/compose")
       ? "compose"
-      : pathname.startsWith("/vault")
-        ? "vault"
-        : "feed";
+      : pathname.startsWith("/connections")
+        ? "connections"
+        : pathname.startsWith("/vault")
+          ? "vault"
+          : "feed";
   const clock = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   return (
@@ -50,7 +53,7 @@ export default function DesktopLayout() {
         <Outlet />
       </main>
       <Taskbar startLabel="Lock" onStart={lock} clock={clock}>
-        <span className="self-center truncate text-[12px] text-[#0a0a0a]">Veil 95</span>
+        <span className="self-center truncate text-[12px] text-[#0a0a0a]">Everybody is Cool</span>
       </Taskbar>
     </div>
   );

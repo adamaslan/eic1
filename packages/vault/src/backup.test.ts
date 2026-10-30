@@ -28,6 +28,11 @@ const item: Item = {
   mediaIds: [],
   thumbId: null,
   mediaMime: "image/webp",
+  visibility: "private",
+  authorId: null,
+  authorHandle: null,
+  likedByMe: false,
+  likedBy: [],
   schemaVersion: 1,
 };
 

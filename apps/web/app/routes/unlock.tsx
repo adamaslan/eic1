@@ -8,7 +8,7 @@ import { vaultCreate, vaultExists, vaultImport, vaultUnlock } from "~/platform/v
 import { useSessionStore } from "~/platform/session";
 
 export function meta(_args: Route.MetaArgs) {
-  return [{ title: "Vault — Veil 95" }];
+  return [{ title: "Vault — Everybody is Cool" }];
 }
 
 const MIN_PASSPHRASE_LENGTH = 8;

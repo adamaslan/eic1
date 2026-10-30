@@ -23,6 +23,15 @@ export const ItemSchema = z.object({
   thumbId: z.string().nullable().default(null),
   // Encoding of both the media and thumb records (the web picks WebP or JPEG per browser).
   mediaMime: z.string().default("image/webp"),
+  // "shareable" posts may be put in a share file; "private" ones never leave the vault.
+  visibility: z.enum(["private", "shareable"]).default("private"),
+  // null means the post is mine. Otherwise it was imported from a connection's share file.
+  authorId: z.string().nullable().default(null),
+  authorHandle: z.string().nullable().default(null),
+  likedByMe: z.boolean().default(false),
+  // Connection ids that liked this post, learned from their share files. Only meaningful on my posts.
+  likedBy: z.array(z.string()).default([]),
   schemaVersion: z.literal(1),
 });
 export type Item = z.infer<typeof ItemSchema>;
+export type Visibility = Item["visibility"];

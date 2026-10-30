@@ -16,7 +16,7 @@ import { useSessionStore } from "~/platform/session";
 import { newItemId } from "~/platform/vault-service";
 
 export function meta(_args: Route.MetaArgs) {
-  return [{ title: "New post — Veil 95" }];
+  return [{ title: "New post — Everybody is Cool" }];
 }
 
 const FIELD = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
@@ -32,6 +32,7 @@ export default function Compose() {
   const [category, setCategory] = useState<Category>(LISTING_CATEGORIES[0] ?? "electronics");
   const [price, setPrice] = useState("");
   const [description, setDescription] = useState("");
+  const [shareable, setShareable] = useState(false);
   const [images, setImages] = useState<CompressedImage[]>([]);
   const [progress, setProgress] = useState<{ label: string; percent: number } | null>(null);
   const [errors, setErrors] = useState<ComposeErrors>({});
@@ -64,7 +65,7 @@ export default function Compose() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!vault || saving) return;
-    const result = validateCompose({ type, title, category, price, description }, images.length);
+    const result = validateCompose({ type, title, category, price, description, visibility: shareable ? "shareable" : "private" }, images.length);
     setErrors(result.ok ? {} : result.errors);
     if (!result.ok) return;
 
@@ -151,6 +152,14 @@ export default function Compose() {
             }}
           />
         </Field>
+
+        <label className="flex items-start gap-1">
+          <input type="checkbox" checked={shareable} onChange={(e) => setShareable(e.target.checked)} className="mt-0.5" />
+          <span>
+            <b>Allow sharing this post.</b> It stays encrypted in your vault. It only leaves this device, readable by
+            anyone who gets the file, if you export a share file from Connections.
+          </span>
+        </label>
 
         <div className="flex flex-col gap-1">
           <span className="font-bold">Photos</span>

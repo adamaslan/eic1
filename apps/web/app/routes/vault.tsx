@@ -11,7 +11,7 @@ import { AUTO_LOCK_MS } from "~/platform/use-auto-lock";
 import { vaultExport, vaultWipe } from "~/platform/vault-service";
 
 export function meta(_args: Route.MetaArgs) {
-  return [{ title: "Vault — Veil 95" }];
+  return [{ title: "Vault — Everybody is Cool" }];
 }
 
 const WIPE_PHRASE = "WIPE";
@@ -31,7 +31,7 @@ export default function VaultScreen() {
     setError(null);
     try {
       const day = new Date().toISOString().slice(0, 10);
-      downloadTextFile(`veil95-${day}.vault`, await vaultExport());
+      downloadTextFile(`eic-${day}.vault`, await vaultExport());
       setNotice("Backup downloaded. It is encrypted; you still need your passphrase to open it.");
     } catch (caught) {
       setError(caught instanceof AppError ? caught.message : "The backup could not be created.");
