@@ -23,6 +23,19 @@ describe("journal", () => {
     await expect(addJournalEntry(vault, "x".repeat(5001), { newId, now: new Date() })).rejects.toBeInstanceOf(AppError);
   });
 
+  it("skips a journal record that cannot be decrypted, while plain listJson still fails loudly", async () => {
+    const store = new MemoryStore();
+    const vault = await createVault({ store, crypto: new SubtleCryptoPort(), now: () => new Date() }, "pass phrase 1");
+    await addJournalEntry(vault, "healthy", { newId, now: new Date("2026-10-30T09:00:00Z") });
+    await addJournalEntry(vault, "doomed", { newId, now: new Date("2026-10-30T10:00:00Z") });
+    const records = await store.listRecords("journal");
+    // Corrupt the second entry's ciphertext in place (MemoryStore keeps insertion order).
+    await store.putRecord({ ...records[1]!, ciphertext: new Uint8Array([1, 2, 3]) });
+
+    expect((await listJournal(vault)).map((entry) => entry.text)).toEqual(["healthy"]);
+    await expect(vault.listJson("journal")).rejects.toThrow();
+  });
+
   it("keeps journal entries out of the notes list", async () => {
     const vault = await open();
     await addJournalEntry(vault, "private thought", { newId, now: new Date() });
