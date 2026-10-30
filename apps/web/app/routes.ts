@@ -6,6 +6,7 @@ export default [
     route("feed", "routes/feed.tsx"),
     route("market", "routes/market.tsx"),
     route("compose", "routes/compose.tsx"),
+    route("connections", "routes/connections.tsx"),
     route("vault", "routes/vault.tsx"),
     route("item/:id", "routes/item.tsx"),
   ]),

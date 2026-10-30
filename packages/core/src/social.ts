@@ -1,0 +1,41 @@
+import { z } from "zod";
+import { CategorySchema } from "./item";
+
+export const SLOT_IDS = ["feed", "picks", "messages", "more-feed"] as const;
+export const SlotIdSchema = z.enum(SLOT_IDS);
+export type SlotId = z.infer<typeof SlotIdSchema>;
+
+export const MAX_KEYWORDS = 5;
+export const HANDLE_MAX = 30;
+export const DEFAULT_SLOTS: SlotId[] = ["feed", "picks", "messages"];
+
+export const SettingsSchema = z.object({
+  // What the marketplace picks box favours.
+  categories: z.array(CategorySchema).default([]),
+  keywords: z.array(z.string().min(1).max(40)).max(MAX_KEYWORDS).default([]),
+  // Which box sits in each of the three landing positions: main, top side, bottom side.
+  slots: z.tuple([SlotIdSchema, SlotIdSchema, SlotIdSchema]).default(["feed", "picks", "messages"]),
+  // How other people see me in a share file. authorId is random and never derived from the passphrase.
+  handle: z.string().trim().min(1).max(HANDLE_MAX).nullable().default(null),
+  authorId: z.string().min(1).nullable().default(null),
+  schemaVersion: z.literal(1),
+});
+export type Settings = z.infer<typeof SettingsSchema>;
+
+export const SETTINGS_RECORD_ID = "settings";
+
+export const ConnectionSchema = z.object({
+  id: z.string().min(1),
+  handle: z.string().min(1).max(HANDLE_MAX),
+  addedAt: z.iso.datetime(),
+  schemaVersion: z.literal(1),
+});
+export type Connection = z.infer<typeof ConnectionSchema>;
+
+export const NoteSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1).max(500),
+  createdAt: z.iso.datetime(),
+  schemaVersion: z.literal(1),
+});
+export type Note = z.infer<typeof NoteSchema>;

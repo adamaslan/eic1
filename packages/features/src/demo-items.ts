@@ -24,24 +24,34 @@ const DEMO_ITEMS: DemoItem[] = [
   { id: "demo-l4", type: "listing", title: "Yashica T4 point & shoot", category: "cameras", priceCents: 41000, description: "Tested, light seals replaced. Comes with strap.", ageMinutes: 480, likes: 33 },
 ];
 
+/** Builds the prototype items without touching a vault. The landing preview shows these as labelled samples. */
+export function getSampleItems(now: Date): Item[] {
+  return DEMO_ITEMS.map((demo) => ({
+    id: demo.id,
+    type: demo.type,
+    title: demo.title,
+    category: demo.category,
+    priceCents: demo.priceCents,
+    description: demo.description,
+    createdAt: new Date(now.getTime() - demo.ageMinutes * 60_000).toISOString(),
+    likes: demo.likes,
+    mediaIds: [],
+    thumbId: null,
+    mediaMime: "image/webp",
+    visibility: "private",
+    authorId: null,
+    authorHandle: null,
+    likedByMe: false,
+    likedBy: [],
+    schemaVersion: 1,
+  }));
+}
+
 /** Dev-only: writes the prototype items as encrypted records. Safe to run twice. */
 export async function seedDemoItems(vault: UnlockedVault, now: Date): Promise<number> {
-  for (const demo of DEMO_ITEMS) {
-    const item: Item = {
-      id: demo.id,
-      type: demo.type,
-      title: demo.title,
-      category: demo.category,
-      priceCents: demo.priceCents,
-      description: demo.description,
-      createdAt: new Date(now.getTime() - demo.ageMinutes * 60_000).toISOString(),
-      likes: demo.likes,
-      mediaIds: [],
-      thumbId: null,
-      mediaMime: "image/webp",
-      schemaVersion: 1,
-    };
+  const items = getSampleItems(now);
+  for (const item of items) {
     await vault.putItem(item);
   }
-  return DEMO_ITEMS.length;
+  return items.length;
 }

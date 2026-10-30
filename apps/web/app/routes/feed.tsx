@@ -1,15 +1,12 @@
 import { useState } from "react";
-import { Link } from "react-router";
-import { hueFor, timeAgo, type Item } from "@veil/core";
 import { selectFeed, useVaultItems } from "@veil/features";
 import type { Route } from "./+types/feed";
-import { Card95 } from "~/ui95/Card95";
+import { PhotoCard } from "~/components/cards";
 import { DemoSeed } from "~/components/demo-seed";
-import { useMediaUri } from "~/platform/use-media-uri";
 import { useSessionStore } from "~/platform/session";
 
 export function meta(_args: Route.MetaArgs) {
-  return [{ title: "Feed — Veil 95" }];
+  return [{ title: "Feed — Everybody is Cool" }];
 }
 
 export default function Feed() {
@@ -46,32 +43,5 @@ export default function Feed() {
         ))}
       </ul>
     </div>
-  );
-}
-
-function PhotoCard({ item, now }: { item: Item; now: Date }) {
-  const vault = useSessionStore((state) => state.vault);
-  const thumbUri = useMediaUri(vault, item.thumbId, item.mediaMime);
-  const hue = hueFor(item.id);
-  return (
-    <Link to={`/item/${item.id}`} className="block">
-      <Card95>
-        {thumbUri ? (
-          <img src={thumbUri} alt={item.title} className="h-[160px] w-full object-cover" />
-        ) : (
-          <div
-            className="h-[160px] w-full"
-            style={{ background: `linear-gradient(135deg, hsl(${hue} 70% 60%), hsl(${(hue + 40) % 360} 70% 35%))` }}
-            aria-hidden="true"
-          />
-        )}
-        <div className="flex items-center justify-between gap-2 px-1 py-1">
-          <span className="truncate font-bold">{item.title}</span>
-          <span className="shrink-0 text-[#0000cc]">
-            {timeAgo(item.createdAt, now)} · ♥ {item.likes}
-          </span>
-        </div>
-      </Card95>
-    </Link>
   );
 }

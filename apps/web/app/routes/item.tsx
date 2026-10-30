@@ -1,18 +1,19 @@
 import { Link } from "react-router";
 import { formatPrice, timeAgo } from "@veil/core";
-import { useVaultItems } from "@veil/features";
+import { toggleLike, useVaultItems } from "@veil/features";
 import type { Route } from "./+types/item";
+import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
 import { useMediaUri } from "~/platform/use-media-uri";
 import { useSessionStore } from "~/platform/session";
 
 export function meta(_args: Route.MetaArgs) {
-  return [{ title: "Item — Veil 95" }];
+  return [{ title: "Item — Everybody is Cool" }];
 }
 
 export default function ItemDetail({ params }: Route.ComponentProps) {
   const vault = useSessionStore((state) => state.vault);
-  const { state } = useVaultItems(vault);
+  const { state, reload } = useVaultItems(vault);
 
   if (state.status === "loading") return <p className="text-[12px]">Opening…</p>;
   if (state.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{state.message}</p>;
@@ -37,8 +38,37 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
         ))}
         <p className="text-[#404040]">
           {item.category} · {formatPrice(item.priceCents)} · {timeAgo(item.createdAt, new Date())} · ♥ {item.likes}
+          {item.authorHandle ? ` · from @${item.authorHandle}` : ""}
         </p>
+        {item.likedBy.length > 0 && <p className="text-[#404040]">Liked by {item.likedBy.length} of your connections.</p>}
         <p className="whitespace-pre-wrap">{item.description || "No description."}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button95
+            pressed={item.likedByMe}
+            onClick={async () => {
+              if (!vault) return;
+              await toggleLike(vault, item);
+              reload();
+            }}
+          >
+            {item.likedByMe ? "♥ Liked" : "♡ Like"}
+          </Button95>
+          {item.authorId === null && (
+            <Button95
+              pressed={item.visibility === "shareable"}
+              onClick={async () => {
+                if (!vault) return;
+                await vault.putItem({ ...item, visibility: item.visibility === "shareable" ? "private" : "shareable" });
+                reload();
+              }}
+            >
+              {item.visibility === "shareable" ? "Sharing allowed" : "Private"}
+            </Button95>
+          )}
+        </div>
+        {item.authorId === null && item.visibility === "shareable" && (
+          <p className="text-[11px] text-[#404040]">This post goes into the share file you export from Connections.</p>
+        )}
         <BackLink type={item.type} />
       </div>
     </Window>

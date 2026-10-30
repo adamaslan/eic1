@@ -8,7 +8,7 @@ import { vaultCreate, vaultExists, vaultImport, vaultUnlock } from "~/platform/v
 import { useSessionStore } from "~/platform/session";
 
 export function meta(_args: Route.MetaArgs) {
-  return [{ title: "Vault — Veil 95" }];
+  return [{ title: "Vault — Everybody is Cool" }];
 }
 
 const MIN_PASSPHRASE_LENGTH = 8;
@@ -74,7 +74,7 @@ export default function Unlock() {
     try {
       const opened = exists ? await vaultUnlock(passphrase) : await vaultCreate(passphrase);
       setVault(opened);
-      navigate("/feed", { replace: true });
+      navigate("/", { replace: true });
       setPassphrase("");
       setConfirm("");
     } catch (caught) {
@@ -85,7 +85,7 @@ export default function Unlock() {
   }
 
   if (vault) {
-    return <Navigate to="/feed" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return (

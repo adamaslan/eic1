@@ -40,8 +40,12 @@ describe("validateCompose", () => {
     const result = validateCompose(listing, 0);
     expect(result).toEqual({
       ok: true,
-      fields: { type: "listing", title: "Peugeot road bike", category: "bikes", priceCents: 12000, description: "Needs tires." },
+      fields: { type: "listing", title: "Peugeot road bike", category: "bikes", priceCents: 12000, description: "Needs tires.", visibility: "private" },
     });
+  });
+
+  it("keeps the shareable choice", () => {
+    expect(validateCompose({ ...listing, visibility: "shareable" }, 0)).toMatchObject({ ok: true, fields: { visibility: "shareable" } });
   });
 
   it("forces the moments category and no price on photos", () => {
@@ -86,7 +90,7 @@ describe("saveComposedItem", () => {
     return { vault, records, written };
   }
 
-  const fields = { type: "photo" as const, title: "Fog", category: "moments" as const, priceCents: null, description: "" };
+  const fields = { type: "photo" as const, title: "Fog", category: "moments" as const, priceCents: null, description: "", visibility: "private" as const };
 
   it("stores media, the first thumb, then an item pointing at them", async () => {
     const { vault, records, written } = fakeVault();

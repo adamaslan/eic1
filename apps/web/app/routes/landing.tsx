@@ -3,10 +3,12 @@ import type { Route } from "./+types/landing";
 import { Window } from "~/ui95/Window";
 import { Bevel } from "~/ui95/Bevel";
 import { useSessionStore } from "~/platform/session";
+import { LandingDashboard } from "~/components/landing-dashboard";
+import { LandingPreview } from "~/components/landing-preview";
 
 export function meta(_args: Route.MetaArgs) {
   return [
-    { title: "Veil 95 — a private marketplace that lives on your device" },
+    { title: "Everybody is Cool — a private marketplace that lives on your device" },
     {
       name: "description",
       content:
@@ -41,23 +43,24 @@ const linkClass = "text-[#0000cc] underline";
 
 export default function Landing() {
   const unlocked = useSessionStore((state) => state.vault !== null);
-  const ctaTarget = unlocked ? "/feed" : "/unlock";
+
+  if (unlocked) return <UnlockedLanding />;
 
   return (
     <main className="min-h-screen bg-[#008080] p-3 pb-10">
       <div className="mx-auto flex max-w-3xl flex-col gap-3">
-        <Window title="Veil 95">
+        <Window title="Everybody is Cool">
           <div className="flex flex-col gap-3 text-[12px]">
             <h1 className="text-[20px] font-bold leading-tight">A private marketplace that lives on your device.</h1>
             <p className="max-w-prose">
-              Veil 95 is a feed and a classifieds board in one. Everything you post is encrypted with a passphrase only
+              Everybody is Cool is a feed and a classifieds board in one. Everything you post is encrypted with a passphrase only
               you know, and it never leaves this browser unless you export it.
             </p>
             <div className="flex flex-wrap items-center gap-3">
-              <Link to={ctaTarget} className="inline-block min-h-[44px] sm:min-h-0">
+              <Link to="/unlock" className="inline-block min-h-[44px] sm:min-h-0">
                 <Bevel variant="out" className="bg-[#c0c0c0]">
                   <span className="block px-4 py-2 text-[13px] font-bold text-[#0a0a0a]">
-                    {unlocked ? "Open your desktop" : "Create or open your vault"}
+                    Create or open your vault
                   </span>
                 </Bevel>
               </Link>
@@ -65,6 +68,8 @@ export default function Landing() {
             </div>
           </div>
         </Window>
+
+        <LandingPreview />
 
         <section aria-label="Features" className="grid gap-3 sm:grid-cols-3">
           {FEATURES.map((feature) => (
@@ -98,6 +103,35 @@ export default function Landing() {
             UI kit
           </Link>
         </p>
+      </div>
+    </main>
+  );
+}
+
+const NAV = [
+  ["/feed", "Feed"],
+  ["/market", "Market"],
+  ["/compose", "+ Post"],
+  ["/connections", "Connections"],
+  ["/vault", "Vault"],
+];
+
+function UnlockedLanding() {
+  const lock = useSessionStore((state) => state.lock);
+  return (
+    <main className="min-h-screen bg-[#008080] p-3 pb-10">
+      <div className="mx-auto flex max-w-5xl flex-col gap-3">
+        <nav aria-label="Main navigation" className="flex flex-wrap items-center gap-1">
+          {NAV.map(([to, label]) => (
+            <Link key={to} to={to} className="block min-h-[44px] bg-[#c0c0c0] px-3 py-1 text-[12px] text-[#0a0a0a] [border:2px_outset_#fff] sm:min-h-0">
+              {label}
+            </Link>
+          ))}
+          <button type="button" onClick={lock} className="ml-auto min-h-[44px] cursor-pointer bg-[#c0c0c0] px-3 py-1 text-[12px] text-[#0a0a0a] [border:2px_outset_#fff] sm:min-h-0">
+            Lock
+          </button>
+        </nav>
+        <LandingDashboard />
       </div>
     </main>
   );

@@ -1,12 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   VaultAlreadyExistsError,
+  VaultCorruptError,
   VaultLockedError,
   VaultNotFoundError,
   WrongPassphraseError,
   type Bytes,
   type Item,
   type RecordKind,
+  vaultGeneration,
 } from "@veil/core";
 import { SubtleCryptoPort } from "@veil/crypto";
 import { MemoryStore } from "./memory-store";
@@ -125,6 +127,11 @@ const sampleItem = (overrides: Partial<Item> = {}): Item => ({
   mediaIds: [],
   thumbId: null,
   mediaMime: "image/webp",
+  visibility: "private",
+  authorId: null,
+  authorHandle: null,
+  likedByMe: false,
+  likedBy: [],
   schemaVersion: 1,
   ...overrides,
 });
@@ -173,6 +180,59 @@ describe("newRecordId", () => {
     expect(ids.size).toBe(200);
     for (const id of ids) {
       expect(id).toMatch(/^[a-z2-7]{26}$/);
+      expect(id).not.toContain(":");
     }
+  });
+});
+
+
+describe("JSON record kind isolation", () => {
+  it.each([undefined, () => undefined])("rejects non-JSON values before encryption or writing (%s)", async (value) => {
+    const vault = await createVault(deps, PASSPHRASE);
+    const encrypt = vi.spyOn(deps.crypto, "encrypt");
+    await expect(vault.putJson("note", "invalid", value)).rejects.toBeInstanceOf(VaultCorruptError);
+    expect(encrypt).not.toHaveBeenCalled();
+    expect(await store.listAllRecords()).toEqual([]);
+  });
+
+  it("allows exactly one concurrent writer when JSON kinds share an id", async () => {
+    const vault = await createVault(deps, PASSPHRASE);
+    const otherSession = await unlockVault(deps, PASSPHRASE);
+    const results = await Promise.allSettled([
+      vault.putJson("connection", "shared-id", { winner: "connection" }),
+      otherSession.putJson("note", "shared-id", { winner: "note" }),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const failures = results.filter((result) => result.status === "rejected");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.reason).toBeInstanceOf(VaultCorruptError);
+    const winner = results[0]!.status === "fulfilled" ? "connection" : "note";
+    expect(store.records.get("shared-id")!.kind).toBe(winner);
+    expect(await vault.getJson("shared-id")).toEqual({ winner });
+  });
+
+  it("rejects a guarded batch completely when an id changes kind within the batch", async () => {
+    const vault = await createVault(deps, PASSPHRASE);
+    const first = await vault.sealRecord("note", note("first"));
+    const second = { ...await vault.sealRecord("connection", note("second")), id: first.id };
+    await expect(store.putRecordsForVault(vaultGeneration(store.meta!), [first, second], { requireSameKind: true }))
+      .rejects.toBeInstanceOf(VaultCorruptError);
+    expect(await store.listAllRecords()).toEqual([]);
+  });
+
+  it.each(["settings", "note", "connection", "item", "media", "thumb"] as const)("refuses to replace a %s with another kind", async (kind) => {
+    const vault = await createVault(deps, PASSPHRASE);
+    const id = await putRecord(vault, kind, note("original"));
+    const before = store.records.get(id);
+    await expect(vault.putJson(kind === "connection" ? "note" : "connection", id, { changed: true })).rejects.toBeInstanceOf(VaultCorruptError);
+    expect(store.records.get(id)).toBe(before);
+    expect(await vault.getRecord(id)).toEqual(note("original"));
+  });
+
+  it("allows replacing JSON records of the same kind", async () => {
+    const vault = await createVault(deps, PASSPHRASE);
+    await vault.putJson("connection", "connection:alice", { handle: "alice" });
+    await vault.putJson("connection", "connection:alice", { handle: "new-alice" });
+    expect(await vault.getJson("connection:alice")).toEqual({ handle: "new-alice" });
   });
 });

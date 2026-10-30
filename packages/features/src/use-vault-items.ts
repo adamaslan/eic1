@@ -13,22 +13,27 @@ export interface VaultItems {
 }
 
 export function useVaultItems(vault: UnlockedVault | null): VaultItems {
-  const [state, setState] = useState<ItemsState>({ status: "loading" });
+  const [loaded, setLoaded] = useState<{ vault: UnlockedVault | null; state: ItemsState }>({
+    vault: null, state: { status: "loading" },
+  });
+  const state: ItemsState = loaded.vault === vault ? loaded.state : { status: "loading" };
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     if (!vault) return;
     let cancelled = false;
-    setState({ status: "loading" });
+    setLoaded((current) => current.vault === vault && current.state.status === "ready"
+      ? current
+      : { vault, state: { status: "loading" } });
     vault
       .listItems()
       .then((items) => {
-        if (!cancelled) setState({ status: "ready", items });
+        if (!cancelled) setLoaded({ vault, state: { status: "ready", items } });
       })
       .catch((caught: unknown) => {
         if (cancelled) return;
         const message = caught instanceof AppError ? caught.message : "This vault could not be read.";
-        setState({ status: "error", message });
+        setLoaded({ vault, state: { status: "error", message } });
       });
     return () => {
       cancelled = true;

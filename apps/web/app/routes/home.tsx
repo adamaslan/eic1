@@ -6,7 +6,7 @@ import { Taskbar } from "~/ui95/Taskbar";
 import { Link } from "react-router";
 
 export function meta(_args: Route.MetaArgs) {
-  return [{ title: "Veil 95" }];
+  return [{ title: "Everybody is Cool" }];
 }
 
 const TABS = [
@@ -21,7 +21,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#008080] p-3 pb-16">
-      <Window title="Veil 95 — primitives">
+      <Window title="Everybody is Cool — primitives">
         <div className="flex flex-col gap-3">
           <div role="group" aria-label="Active view" className="flex flex-wrap gap-1">
             {TABS.map((tab) => (
@@ -40,7 +40,7 @@ export default function Home() {
         </div>
       </Window>
       <Taskbar clock="12:00" onStart={() => undefined}>
-        <span className="truncate self-center text-[12px]">Veil 95</span>
+        <span className="truncate self-center text-[12px]">Everybody is Cool</span>
       </Taskbar>
     </main>
   );
