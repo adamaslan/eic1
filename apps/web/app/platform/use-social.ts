@@ -55,7 +55,9 @@ export function useSocial(vault: UnlockedVault | null): Social {
     async (next: Settings) => {
       if (!vault || !settingsReady) return;
       const settings = await saveSettings(vault, next);
-      setLoaded({ vault, revision, settings });
+      setLoaded((current) => current?.vault === vault && current.revision > revision
+        ? current
+        : { vault, revision, settings });
     },
     [vault, revision, settingsReady],
   );

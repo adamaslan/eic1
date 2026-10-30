@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   VaultAlreadyExistsError,
   VaultCorruptError,
@@ -187,6 +187,14 @@ describe("newRecordId", () => {
 
 
 describe("JSON record kind isolation", () => {
+  it.each([undefined, () => undefined])("rejects non-JSON values before encryption or writing (%s)", async (value) => {
+    const vault = await createVault(deps, PASSPHRASE);
+    const encrypt = vi.spyOn(deps.crypto, "encrypt");
+    await expect(vault.putJson("note", "invalid", value)).rejects.toBeInstanceOf(VaultCorruptError);
+    expect(encrypt).not.toHaveBeenCalled();
+    expect(await store.listAllRecords()).toEqual([]);
+  });
+
   it("allows exactly one concurrent writer when JSON kinds share an id", async () => {
     const vault = await createVault(deps, PASSPHRASE);
     const otherSession = await unlockVault(deps, PASSPHRASE);

@@ -3,19 +3,25 @@ import { Children, isValidElement, type FormEvent, type ReactElement, type React
 import type { UnlockedVault } from "@veil/vault";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { defaultSettings } from "@veil/features";
+import { addNote, defaultSettings } from "@veil/features";
 import type { Social } from "./platform/use-social";
 
-const mocks = vi.hoisted(() => ({ social: {} as Social, vault: {} as UnlockedVault | null, states: null as unknown[] | null, navigate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ social: {} as Social, vault: {} as UnlockedVault | null, states: null as unknown[] | null, setters: [] as ReturnType<typeof vi.fn>[], navigate: vi.fn() }));
 vi.mock("react", async (original) => {
   const react = await original<typeof import("react")>();
   return {
     ...react,
-    useState: (initial: unknown) => mocks.states ? [mocks.states.shift(), vi.fn()] : react.useState(initial),
+    useState: (initial: unknown) => {
+      if (!mocks.states) return react.useState(initial);
+      const setter = vi.fn();
+      mocks.setters.push(setter);
+      return [mocks.states.shift(), setter];
+    },
     useEffect: (...args: Parameters<typeof react.useEffect>) => { if (!mocks.states) react.useEffect(...args); },
   };
 });
 vi.mock("~/platform/use-social", () => ({ useSocial: () => mocks.social }));
+vi.mock("@veil/features", async (original) => ({ ...await original<typeof import("@veil/features")>(), addNote: vi.fn() }));
 vi.mock("~/platform/session", () => ({ useSessionStore: (select: (s: unknown) => unknown) => select({ vault: mocks.vault, lock: vi.fn(), setVault: vi.fn() }) }));
 vi.mock("~/platform/vault-service", () => ({ newItemId: vi.fn(), vaultExists: vi.fn(), vaultUnlock: vi.fn(), vaultCreate: vi.fn(), vaultImport: vi.fn() }));
 vi.mock("react-router", async (original) => ({
@@ -34,8 +40,71 @@ const render = (element: React.ReactNode, path = "/") => renderToStaticMarkup(<M
 beforeEach(() => {
   mocks.vault = {} as UnlockedVault;
   mocks.states = null;
+  mocks.setters = [];
   mocks.navigate.mockClear();
   mocks.social = { items: { status: "ready", items: [] }, settings: defaultSettings(), settingsReady: false, notes: [], connections: [], update: vi.fn(), refresh: vi.fn() };
+});
+
+// Inspect the dashboard's small component tree to exercise async event handlers in node.
+type TestElement = ReactElement<{ children?: ReactNode; [key: string]: unknown }>;
+function findNode(node: ReactNode, match: (element: TestElement) => boolean): TestElement | undefined {
+  for (const child of Children.toArray(node)) {
+    if (!isValidElement<TestElement["props"]>(child)) continue;
+    if (match(child)) return child;
+    const found = findNode(child.props.children, match);
+    if (found) return found;
+  }
+}
+
+describe("dashboard write failures", () => {
+  beforeEach(() => {
+    mocks.social.settingsReady = true;
+    vi.mocked(mocks.social.update).mockRejectedValue(new Error("save failed"));
+    vi.mocked(addNote).mockRejectedValue(new Error("write failed"));
+  });
+
+  it("catches a failed box swap and displays an alert", async () => {
+    mocks.states = [null];
+    const select = findNode(LandingDashboard(), (node) => node.type === "select")!;
+    await expect((select.props.onChange as (event: unknown) => Promise<void>)({ target: { value: "messages" } })).resolves.toBeUndefined();
+    const message = mocks.setters[0]!.mock.calls.at(-1)![0];
+    mocks.states = [message];
+    expect(findNode(LandingDashboard(), (node) => node.props.role === "alert")?.props.children).toBe(message);
+  });
+
+  it("keeps the picks editor open and shows an alert after a failed save", async () => {
+    // Open the picks component with its editing state enabled.
+    mocks.states = [null];
+    const box = findNode(LandingDashboard(), (node) => typeof node.type === "function" && node.type.name === "Box" && node.props.slot === "picks")!;
+    const picks = (box.type as (props: unknown) => TestElement)(box.props);
+    mocks.states = [true];
+    const editor = findNode((picks.type as (props: unknown) => ReactNode)(picks.props), (node) => typeof node.type === "function" && node.type.name === "PicksEditor")!;
+    const editingSetter = mocks.setters.at(-1)!;
+    mocks.states = [[], "bike", false, null];
+    const form = (editor.type as (props: unknown) => ReactNode)(editor.props);
+    await expect(findForm(form)!.props.onSubmit({ preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>)).resolves.toBeUndefined();
+    expect(editingSetter).not.toHaveBeenCalled();
+    const message = mocks.setters.at(-1)!.mock.calls.at(-1)![0];
+    mocks.states = [[], "bike", false, message];
+    const failed = (editor.type as (props: unknown) => ReactNode)(editor.props);
+    expect(findForm(failed)).toBeDefined();
+    expect(findNode(failed, (node) => node.props.role === "alert")?.props.children).toBe(message);
+  });
+
+  it("catches a failed note write, keeps the text, and displays an alert", async () => {
+    mocks.states = [null];
+    const box = findNode(LandingDashboard(), (node) => typeof node.type === "function" && node.type.name === "Box" && node.props.slot === "messages")!;
+    const messages = (box.type as (props: unknown) => TestElement)(box.props);
+    mocks.states = ["keep this note", false, null];
+    const form = (messages.type as (props: unknown) => ReactNode)(messages.props);
+    const textSetter = mocks.setters.at(-3)!;
+    await expect(findForm(form)!.props.onSubmit({ preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>)).resolves.toBeUndefined();
+    expect(textSetter).not.toHaveBeenCalled();
+    expect(mocks.social.refresh).not.toHaveBeenCalled();
+    const message = mocks.setters.at(-1)!.mock.calls.at(-1)![0];
+    mocks.states = ["keep this note", false, message];
+    expect(findNode((messages.type as (props: unknown) => ReactNode)(messages.props), (node) => node.props.role === "alert")?.props.children).toBe(message);
+  });
 });
 
 describe("settings UI readiness", () => {

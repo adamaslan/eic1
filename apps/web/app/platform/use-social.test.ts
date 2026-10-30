@@ -53,6 +53,25 @@ beforeEach(() => {
 });
 
 describe("settings readiness", () => {
+  it("keeps the newer refreshed revision when an earlier save finishes late", async () => {
+    render();
+    await flush();
+    const social = render();
+    let resolve!: (settings: Settings) => void;
+    vi.mocked(saveSettings).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const saving = social.update({ ...settings, keywords: ["old save"] });
+    const refreshed = { ...settings, keywords: ["refreshed"] };
+    vi.mocked(loadSettings).mockResolvedValueOnce(refreshed);
+    social.refresh();
+    render();
+    await flush();
+    expect(render().settingsReady).toBe(true);
+    resolve({ ...settings, keywords: ["old save"] });
+    await saving;
+    expect(render().settingsReady).toBe(true);
+    expect(render().settings).toEqual(refreshed);
+  });
+
   it("blocks updates until settings have loaded, preserving identity", async () => {
     let resolve!: (settings: Settings) => void;
     vi.mocked(loadSettings).mockReturnValue(new Promise((done) => { resolve = done; }));

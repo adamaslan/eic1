@@ -168,7 +168,11 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedGeneration: 
 }
 
 function encodeJson(value: unknown): Bytes {
-  return new TextEncoder().encode(JSON.stringify(value));
+  const json = JSON.stringify(value);
+  if (typeof json !== "string") {
+    throw new VaultCorruptError("This value could not be encoded as JSON.");
+  }
+  return new TextEncoder().encode(json);
 }
 
 function decodeJson(bytes: Bytes): unknown {

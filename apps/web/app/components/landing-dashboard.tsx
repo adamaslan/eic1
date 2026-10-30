@@ -24,21 +24,28 @@ export function LandingDashboard() {
   const vault = useSessionStore((state) => state.vault);
   const social = useSocial(vault);
   const { items, settings, update } = social;
+  const [error, setError] = useState<string | null>(null);
 
   if (items.status === "loading") return <p className="text-[12px] text-white">Opening your desktop…</p>;
   if (items.status === "error") return <p role="alert" className="text-[12px] text-white">{items.message}</p>;
 
-  function swap(position: number, next: SlotId) {
+  async function swap(position: number, next: SlotId) {
     if (!social.settingsReady) return;
     const slots = [...settings.slots] as Settings["slots"];
     const other = slots.indexOf(next);
     if (other !== -1 && other !== position) slots[other] = slots[position]!;
     slots[position] = next;
-    void update({ ...settings, slots });
+    setError(null);
+    try {
+      await update({ ...settings, slots });
+    } catch {
+      setError("Could not change this box. Please try again.");
+    }
   }
 
   return (
     <div className="grid gap-3 md:grid-cols-3">
+      {error && <p role="alert">{error}</p>}
       {settings.slots.map((slot, position) => (
         <div key={position} className={position === 0 ? "md:col-span-2 md:row-span-2" : ""}>
           <Window title={SLOT_LABELS[slot]}>
@@ -146,12 +153,16 @@ function PicksEditor({ settings, onSave, onCancel }: { settings: Settings; onSav
   const [categories, setCategories] = useState<Category[]>(settings.categories);
   const [keywords, setKeywords] = useState(settings.keywords.join(", "));
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
+    setError(null);
     try {
       await onSave({ ...settings, categories, keywords: keywords.split(",") });
+    } catch {
+      setError("Could not save your picks. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -159,6 +170,7 @@ function PicksEditor({ settings, onSave, onCancel }: { settings: Settings; onSav
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-2">
+      {error && <p role="alert">{error}</p>}
       <fieldset className="flex flex-wrap gap-x-3 gap-y-1">
         <legend className="mb-1 font-bold">Categories you like</legend>
         {PICK_CATEGORIES.map((category) => (
@@ -190,16 +202,20 @@ function MessagesBox({ social }: { social: Social }) {
   const vault = useSessionStore((state) => state.vault);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const now = new Date();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!vault || !text.trim() || busy) return;
     setBusy(true);
+    setError(null);
     try {
       await addNote(vault, text, { newId: newItemId, now: new Date() });
       setText("");
       social.refresh();
+    } catch {
+      setError("Could not add your note. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -212,6 +228,7 @@ function MessagesBox({ social }: { social: Social }) {
         <input className={inputClass} value={text} maxLength={500} onChange={(e) => setText(e.target.value)} placeholder="Write a note" aria-label="New note" />
         <Button95 type="submit" disabled={busy || !text.trim()}>Add</Button95>
       </form>
+      {error && <p role="alert">{error}</p>}
       {social.notes.length === 0 ? (
         <p>No messages yet.</p>
       ) : (
