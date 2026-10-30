@@ -2,6 +2,9 @@ import { openDB } from "idb";
 import type { VaultKey } from "@veil/core";
 
 /** How long an unlock survives a page reload. */
+import type { VaultKey } from "@veil/core";
+
+/** How long an unlock survives a page reload. */
 export const SESSION_MS = 60 * 60_000;
 
 const DB_NAME = "veil-session";
@@ -39,9 +42,13 @@ export async function loadSession(now: number): Promise<PersistedSession | null>
 }
 
 export async function clearSession(): Promise<void> {
+  let database: Awaited<ReturnType<typeof db>>;
   try {
-    await (await db()).delete(STORE, KEY);
+    database = await db();
   } catch {
-    // Storage may be unavailable; there is nothing left to clear.
+    // Storage may be unavailable; then there is nothing saved to clear.
+    return;
   }
+  // A failed delete means the key is still on disk - callers must hear about it.
+  await database.delete(STORE, KEY);
 }
