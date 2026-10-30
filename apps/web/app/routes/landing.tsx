@@ -22,7 +22,7 @@ const FEATURES = [
   },
   {
     title: "Photos and listings",
-    body: "Share moments in a feed, or list something for sale or free. Photos are compressed on your device first, so backups stay small.",
+    body: "Keep moments in a private feed, or draft local listings for things you would sell or give away. Nothing is visible to anyone else. Photos are compressed on your device first, so backups stay small.",
   },
   {
     title: "A backup you own",
