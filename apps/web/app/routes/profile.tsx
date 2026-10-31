@@ -57,7 +57,7 @@ export function ProfileView({
   nickname,
   isOwn,
   verified,
-  asOf,
+  importedAt,
   now,
 }: {
   profile: Profile;
@@ -65,7 +65,7 @@ export function ProfileView({
   nickname: string | null;
   isOwn: boolean;
   verified: boolean | null;
-  asOf: Date | null;
+  importedAt: string | null;
   now: Date;
 }) {
   const sorted = [...profile.decorations].sort((a, b) => a.position.z - b.position.z);
@@ -96,8 +96,9 @@ export function ProfileView({
           {handle && <p className="text-[12px]">@{handle}</p>}
           {isOwn === false && (
             <p className="text-[12px]">
-              {verified ? `Verified from @${handle}` : "Unsigned - trust the sender"}
-              {asOf && <span className="text-[#404040]"> · as of {timeAgo(asOf, now)} ago</span>}
+              {verified ? `Signature verified from @${handle}` : "Unsigned - trust the sender"}
+              <span className="text-[#404040]"> · profile claims updated {timeAgo(profile.updatedAt, now)} ago</span>
+              {importedAt && <span className="text-[#404040]"> · received {timeAgo(importedAt, now)} ago</span>}
             </p>
           )}
           {profile.bio && <p className="whitespace-pre-wrap text-[12px]">{profile.bio}</p>}
@@ -158,7 +159,7 @@ export default function ProfileRoute() {
       nickname={connection?.nickname ?? null}
       isOwn={isOwn}
       verified={isOwn ? null : Boolean(connection?.pubkey)}
-      asOf={connection?.lastImportAt ? new Date(connection.lastImportAt) : null}
+      importedAt={connection?.lastImportAt ?? null}
       now={new Date()}
     />
   );
