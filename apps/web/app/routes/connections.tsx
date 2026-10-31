@@ -1,6 +1,7 @@
-import { useRef, useState, type FormEvent } from "react";
-import { AppError, HANDLE_MAX, timeAgo } from "@veil/core";
-import { MAX_SHARE_FILE_BYTES, buildShareBundle, ensureAuthorId, importShareBundle } from "@veil/features";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Link } from "react-router";
+import { AppError, HANDLE_MAX, timeAgo, type Connection } from "@veil/core";
+import { MAX_SHARE_FILE_BYTES, buildShareBundle, ensureAuthorId, importShareBundle, unreadCounts } from "@veil/features";
 import type { Route } from "./+types/connections";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
@@ -15,6 +16,45 @@ export function meta(_args: Route.MetaArgs) {
 
 const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
 
+
+// Pure presentational half, exported for render tests: connection rows with chat links + unread badges.
+export function ConnectionsList({
+  connections,
+  unread,
+  now,
+}: {
+  connections: Connection[];
+  unread: Record<string, number>;
+  now: Date;
+}) {
+  if (connections.length === 0) {
+    return <p className="text-[12px]">No connections yet. Import a friend's share file to add one.</p>;
+  }
+  return (
+    <ul className="flex flex-col gap-1 text-[12px]">
+      {connections.map((connection) => {
+        const count = unread[connection.id] ?? 0;
+        return (
+          <li key={connection.id} className="flex items-center justify-between bg-white px-1.5 py-1">
+            <span className="font-bold">@{connection.handle}</span>
+            <span className="flex items-center gap-2">
+              {count > 0 && (
+                <span className="bg-[#000080] px-1 font-bold text-white" aria-label={`${count} unread message${count === 1 ? "" : "s"}`}>
+                  {count} new
+                </span>
+              )}
+              <Link to={`/chat/${connection.id}`} className="underline">
+                Chat
+              </Link>
+              <span className="text-[#404040]">connected {timeAgo(connection.addedAt, now)} ago</span>
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export default function Connections() {
   const vault = useSessionStore((state) => state.vault);
   const social = useSocial(vault);
@@ -25,6 +65,19 @@ export default function Connections() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pasted, setPasted] = useState("");
+  const [unread, setUnread] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let live = true;
+    if (vault) {
+      void unreadCounts(vault).then((counts) => {
+        if (live) setUnread(counts);
+      });
+    }
+    return () => {
+      live = false;
+    };
+  }, [vault]);
 
   if (items.status === "loading") return <p className="text-[12px]">Loading…</p>;
   if (items.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{items.message}</p>;
@@ -158,18 +211,7 @@ export default function Connections() {
       </Window>
 
       <Window title={`Connections (${connections.length})`}>
-        {connections.length === 0 ? (
-          <p className="text-[12px]">No connections yet. Import a friend's share file to add one.</p>
-        ) : (
-          <ul className="flex flex-col gap-1 text-[12px]">
-            {connections.map((connection) => (
-              <li key={connection.id} className="flex justify-between bg-white px-1.5 py-1">
-                <span className="font-bold">@{connection.handle}</span>
-                <span className="text-[#404040]">connected {timeAgo(connection.addedAt, new Date())} ago</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ConnectionsList connections={connections} unread={unread} now={new Date()} />
       </Window>
     </div>
   );
