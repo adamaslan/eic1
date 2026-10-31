@@ -19,7 +19,7 @@ import { downloadTextFile } from "~/platform/download";
 import { useSessionStore } from "~/platform/session";
 import { useSocial } from "~/platform/use-social";
 import { newItemId } from "~/platform/vault-service";
-import { httpSyncFetcher } from "~/platform/sync-fetcher";
+import { detectSyncNetwork, httpSyncFetcher } from "~/platform/sync-fetcher";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Connections — Everybody is Cool" }];
@@ -186,7 +186,7 @@ export default function Connections() {
       if (!vault || !social.settingsReady) return "";
       const results = await syncAllConnections(vault, {
         fetch: httpSyncFetcher,
-        network: "wifi",
+        network: detectSyncNetwork(),
         newId: newItemId,
         now: new Date(),
       });
