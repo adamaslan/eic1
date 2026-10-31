@@ -21,7 +21,7 @@ import {
   verifyVaultKey,
 } from "@veil/crypto";
 
-export type JsonRecordKind = Extract<RecordKind, "settings" | "connection" | "note" | "journal" | "identity">;
+export type JsonRecordKind = Extract<RecordKind, "settings" | "connection" | "note" | "journal" | "identity" | "chat">;
 
 export interface VaultDeps {
   store: VaultStore;
