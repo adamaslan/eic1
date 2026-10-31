@@ -41,10 +41,11 @@ export interface SyncDeps {
 }
 
 export interface SyncResult {
-  status: "applied" | "unchanged" | "deferred" | "no-feed";
+  status: "applied" | "unchanged" | "deferred" | "no-feed" | "failed";
   appliedPosts: number;
   appliedChat: number;
   pendingChunks: string[];
+  error?: string;
 }
 
 export async function syncConnection(vault: UnlockedVault, connection: Connection, deps: SyncDeps): Promise<SyncResult> {
@@ -56,14 +57,20 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     return { status: "deferred", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
   }
 
-  const head = await deps.fetch(manifestUrl(connection.feedUrl), connection.syncEtag);
+  // Pending chunks from a cellular-deferred pull must be retried: skip the etag shortcut and
+  // re-apply the same manifest (chunk application is idempotent), so delivery does not depend
+  // on the sender republishing.
+  const head = await deps.fetch(manifestUrl(connection.feedUrl), connection.syncPending ? null : connection.syncEtag);
   if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
   if (head.status !== 200 || head.text === null) {
     throw new VaultCorruptError(`The feed could not be fetched (status ${head.status}).`);
   }
   const manifest = parseFeedManifest(head.text);
   await verifyFeedManifest(manifest, connection.id, connection.pubkey);
-  if (manifest.seq <= connection.syncSeq) {
+  if (manifest.seq < connection.syncSeq) {
+    throw new VaultCorruptError("That feed moved backward. Ask the connection for a fresh publish.");
+  }
+  if (manifest.seq === connection.syncSeq && !connection.syncPending) {
     await setConnectionSyncState(vault, connection.id, {
       seq: connection.syncSeq,
       etag: head.etag ?? connection.syncEtag,
@@ -120,7 +127,18 @@ export async function syncAllConnections(vault: UnlockedVault, deps: SyncDeps): 
   const results = new Map<string, SyncResult>();
   for (const connection of await listConnections(vault)) {
     if (connection.hidden) continue;
-    results.set(connection.id, await syncConnection(vault, connection, deps));
+    try {
+      results.set(connection.id, await syncConnection(vault, connection, deps));
+    } catch (error) {
+      // One corrupt or unreachable feed must not abort the remaining peers.
+      results.set(connection.id, {
+        status: "failed",
+        appliedPosts: 0,
+        appliedChat: 0,
+        pendingChunks: [],
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
   return results;
 }
