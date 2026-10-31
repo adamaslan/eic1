@@ -28,6 +28,10 @@ export const ConnectionSchema = z.object({
   id: z.string().min(1),
   handle: z.string().min(1).max(HANDLE_MAX),
   addedAt: z.iso.datetime(),
+  // Local-only, never shared: your nickname for them, whether you hid them, and when you last imported their file.
+  nickname: z.string().min(1).max(HANDLE_MAX).nullable().default(null),
+  hidden: z.boolean().default(false),
+  lastImportAt: z.iso.datetime().nullable().default(null),
   // From the author's eic-share v2 bundle: their Ed25519 public key and (once sync lands) the
   // feed URL their vault publishes to. Null for legacy v1 (unsigned) imports.
   pubkey: z.string().min(1).nullable().default(null),
