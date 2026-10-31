@@ -25,9 +25,9 @@ describe("httpSyncFetcher", () => {
 describe("detectSyncNetwork", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("treats unknown connectivity as cellular (wi-fi-only default)", () => {
+  it("reports unknown connectivity as unknown (never mislabels it cellular; the engine still defers)", () => {
     vi.stubGlobal("navigator", {});
-    expect(detectSyncNetwork()).toBe("cellular");
+    expect(detectSyncNetwork()).toBe("unknown");
   });
 
   it("reports wifi only for explicit wifi/ethernet transport", () => {
@@ -43,6 +43,6 @@ describe("detectSyncNetwork", () => {
 
   it("never treats effectiveType (speed estimate) as wifi", () => {
     vi.stubGlobal("navigator", { connection: { effectiveType: "4g" } });
-    expect(detectSyncNetwork()).toBe("cellular");
+    expect(detectSyncNetwork()).toBe("unknown");
   });
 });
