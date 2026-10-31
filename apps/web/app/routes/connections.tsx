@@ -10,6 +10,7 @@ import {
   setConnectionHidden,
   setConnectionNickname,
   syncAllConnections,
+  syncConnection,
   unreadCounts,
 } from "@veil/features";
 import type { Route } from "./+types/connections";
@@ -184,16 +185,32 @@ export default function Connections() {
   const visible = connections.filter((connection) => !connection.hidden);
   const hiddenConns = connections.filter((connection) => connection.hidden);
 
+  function retryFailedChunks(connection: Connection) {
+    void run(async () => {
+      if (!vault || !social.settingsReady) return "";
+      // Explicitly labeled user retry, scoped to this connection: re-pulls its feed and
+      // re-attempts chunks whose fetch retries were exhausted. Signature verification and
+      // rollback protection still apply; only this feed's fetch retry budget restarts.
+      const result = await syncConnection(vault, connection, {
+        fetch: httpSyncFetcher,
+        network: detectSyncNetwork(),
+        retryFailed: true,
+        newId: newItemId,
+        now: new Date(),
+      });
+      social.refresh();
+      return `Retry for @${connection.handle}: ${result.status}${result.rejectedChunks.length > 0 ? ` (still unreachable: ${result.rejectedChunks.length})` : ""}.`;
+    });
+  }
+
   function syncNow() {
     void run(async () => {
       if (!vault || !social.settingsReady) return "";
+      // Normal sync honors settled cursors (conditional fetch) and accumulated fetch
+      // retries; only the explicitly labeled per-connection retry below passes retryFailed.
       const results = await syncAllConnections(vault, {
         fetch: httpSyncFetcher,
         network: detectSyncNetwork(),
-        // Pressing the button is an explicit user retry: re-pull feeds and re-attempt
-        // chunks whose fetch retries were exhausted. Integrity and rollback checks still
-        // apply - only the fetch retry budget restarts.
-        retryFailed: true,
         newId: newItemId,
         now: new Date(),
       });
@@ -263,6 +280,9 @@ export default function Connections() {
         <div className="flex flex-wrap gap-1">
           <Link to={`/profile/${connection.id}`} className="underline">Profile</Link>
           <Link to={`/chat/${connection.id}`} className="underline">Chat</Link>
+          {connection.syncDetail.includes("unreachable after") && (
+            <Button95 onClick={() => retryFailedChunks(connection)} disabled={busy}>Retry failed chunks</Button95>
+          )}
           <Button95 onClick={() => { setRenamingId(connection.id); setNicknameDraft(connection.nickname ?? ""); setRemovingId(null); }} disabled={busy}>Rename</Button95>
           <Button95 onClick={() => toggleHidden(connection)} disabled={busy}>{connection.hidden ? "Unhide" : "Hide"}</Button95>
           <Button95 onClick={() => { setRemovingId(connection.id); setRenamingId(null); }} disabled={busy}>Remove…</Button95>
