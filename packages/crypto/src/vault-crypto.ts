@@ -61,6 +61,14 @@ export async function deriveVaultKey(
   return key;
 }
 
+/** Checks a key that was derived earlier against the verifier. Throws WrongPassphraseError if it does not open this vault. */
+export async function verifyVaultKey(crypto: CryptoPort, meta: VaultMeta, key: VaultKey): Promise<void> {
+  const opened = await openVerifier(crypto, key, meta).catch(() => null);
+  if (!opened || !bytesEqual(opened, VERIFIER_PLAINTEXT)) {
+    throw new WrongPassphraseError("That session key does not open this vault.");
+  }
+}
+
 export async function sealBytes(
   crypto: CryptoPort,
   key: VaultKey,

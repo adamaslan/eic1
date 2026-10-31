@@ -48,12 +48,12 @@ describe("validateCompose", () => {
     expect(validateCompose({ ...listing, visibility: "shareable" }, 0)).toMatchObject({ ok: true, fields: { visibility: "shareable" } });
   });
 
-  it("forces the moments category and no price on photos", () => {
+  it("forces the general category and no price on photos", () => {
     const result = validateCompose({ ...listing, type: "photo", category: "bikes", price: "99" }, 1);
-    expect(result).toMatchObject({ ok: true, fields: { category: "moments", priceCents: null } });
+    expect(result).toMatchObject({ ok: true, fields: { category: "general", priceCents: null } });
   });
 
-  it("requires a title, a valid price, and a photo for moments", () => {
+  it("requires a title, a valid price, and a photo for photo posts", () => {
     expect(validateCompose({ ...listing, title: " ", price: "x" }, 0)).toEqual({
       ok: false,
       errors: { title: expect.any(String), price: expect.any(String) },
@@ -90,7 +90,7 @@ describe("saveComposedItem", () => {
     return { vault, records, written };
   }
 
-  const fields = { type: "photo" as const, title: "Fog", category: "moments" as const, priceCents: null, description: "", visibility: "private" as const };
+  const fields = { type: "photo" as const, title: "Fog", category: "general" as const, priceCents: null, description: "", visibility: "private" as const };
 
   it("stores media, the first thumb, then an item pointing at them", async () => {
     const { vault, records, written } = fakeVault();

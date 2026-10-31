@@ -7,6 +7,8 @@ export default [
     route("market", "routes/market.tsx"),
     route("compose", "routes/compose.tsx"),
     route("connections", "routes/connections.tsx"),
+    route("tools", "routes/tools.tsx"),
+    route("tools/journal", "routes/journal.tsx"),
     route("vault", "routes/vault.tsx"),
     route("item/:id", "routes/item.tsx"),
   ]),

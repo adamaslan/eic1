@@ -14,13 +14,13 @@ interface DemoItem {
 
 // Prototype items from the Win95 example, with stable ids so re-seeding overwrites instead of duplicating.
 const DEMO_ITEMS: DemoItem[] = [
-  { id: "demo-p1", type: "photo", title: "Fog on 5th Street bridge", category: "moments", priceCents: null, description: "Shot at 6:12am. No filter, just cold air and a borrowed coat.", ageMinutes: 14, likes: 23 },
+  { id: "demo-p1", type: "photo", title: "Fog on 5th Street bridge", category: "general", priceCents: null, description: "Shot at 6:12am. No filter, just cold air and a borrowed coat.", ageMinutes: 14, likes: 23 },
   { id: "demo-l1", type: "listing", title: "ThinkPad 701C — butterfly keyboard", category: "electronics", priceCents: 34000, description: "Works. Keys all present. Cash only, meet at the library steps.", ageMinutes: 120, likes: 41 },
-  { id: "demo-p2", type: "photo", title: "Cat asleep on the radiator", category: "moments", priceCents: null, description: "She has been here for four hours. Do not disturb.", ageMinutes: 38, likes: 118 },
+  { id: "demo-p2", type: "photo", title: "Cat asleep on the radiator", category: "general", priceCents: null, description: "She has been here for four hours. Do not disturb.", ageMinutes: 38, likes: 118 },
   { id: "demo-l2", type: "listing", title: "Peugeot road bike, 1987", category: "bikes", priceCents: 12000, description: "Needs new tires. Frame is straight. No lowballs please.", ageMinutes: 300, likes: 12 },
-  { id: "demo-p3", type: "photo", title: "Laundromat at midnight", category: "moments", priceCents: null, description: "Fluorescent green everywhere. Nobody else around.", ageMinutes: 60, likes: 67 },
-  { id: "demo-l3", type: "listing", title: "Free moving boxes (about 20)", category: "free", priceCents: null, description: "Porch pickup on Ash Street. Take all or some.", ageMinutes: 20, likes: 5 },
-  { id: "demo-p4", type: "photo", title: "Rooftop, first warm day", category: "moments", priceCents: null, description: "Everyone in the building came up at once.", ageMinutes: 180, likes: 94 },
+  { id: "demo-p3", type: "photo", title: "Laundromat at midnight", category: "general", priceCents: null, description: "Fluorescent green everywhere. Nobody else around.", ageMinutes: 60, likes: 67 },
+  { id: "demo-l3", type: "listing", title: "Free moving boxes (about 20)", category: "general", priceCents: null, description: "Porch pickup on Ash Street. Take all or some.", ageMinutes: 20, likes: 5 },
+  { id: "demo-p4", type: "photo", title: "Rooftop, first warm day", category: "general", priceCents: null, description: "Everyone in the building came up at once.", ageMinutes: 180, likes: 94 },
   { id: "demo-l4", type: "listing", title: "Yashica T4 point & shoot", category: "cameras", priceCents: 41000, description: "Tested, light seals replaced. Comes with strap.", ageMinutes: 480, likes: 33 },
 ];
 

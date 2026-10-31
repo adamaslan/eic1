@@ -24,7 +24,7 @@ const FEATURES = [
   },
   {
     title: "Photos and listings",
-    body: "Keep moments in a private feed, or draft local listings for things you would sell or give away. Nothing is visible to anyone else. Photos are compressed on your device first, so backups stay small.",
+    body: "Keep photos in a private feed, draft local listings, and write in a private journal. Nothing is visible to anyone else. Photos are compressed on your device first, so backups stay small.",
   },
   {
     title: "A backup you own",
@@ -36,7 +36,7 @@ const FACTS = [
   ["Accounts", "none"],
   ["Servers", "none"],
   ["Tracking", "none"],
-  ["Lock", "auto, after 5 idle minutes"],
+  ["Lock", "auto, after 60 idle minutes"],
 ];
 
 const linkClass = "text-[#0000cc] underline";
@@ -112,6 +112,7 @@ const NAV = [
   ["/feed", "Feed"],
   ["/market", "Market"],
   ["/compose", "+ Post"],
+  ["/tools", "Tools"],
   ["/connections", "Connections"],
   ["/vault", "Vault"],
 ];

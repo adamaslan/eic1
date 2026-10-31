@@ -52,6 +52,9 @@ const ShareBundleSchema = z.object({
   ),
   // Posts by other people that the author liked: { ownerId, postId } as that owner knows them.
   likes: z.array(z.object({ ownerId: idField, postId: idField })).max(MAX_LIKES),
+  // False when the bundle is one post shared on its own: then `likes` is not the author's full
+  // like snapshot, and the importer must not reconcile (it would strip the author's other likes).
+  likesComplete: z.boolean().optional(),
 });
 export type ShareBundle = z.infer<typeof ShareBundleSchema>;
 
@@ -62,19 +65,30 @@ const importedId = (authorId: string, postId: string) => `post:${authorId}:${pos
  * JSON on purpose: sharing a post means anyone holding the file can read it. Private posts,
  * notes, and settings never go in.
  */
-export async function buildShareBundle(vault: UnlockedVault, settings: Settings, items: Item[], now: Date): Promise<{ text: string; postCount: number }> {
+export async function buildShareBundle(
+  vault: UnlockedVault,
+  settings: Settings,
+  items: Item[],
+  now: Date,
+  options: { onlyPostId?: string } = {},
+): Promise<{ text: string; postCount: number }> {
   if (!settings.authorId || !settings.handle) {
     throw new AppError("Choose a handle before sharing.");
   }
+  const single = options.onlyPostId !== undefined;
   const likedPosts = items.filter((item) => {
-    if (item.authorId === null || !item.likedByMe) return false;
+    if (single || item.authorId === null || !item.likedByMe) return false;
     const prefix = `post:${item.authorId}:`;
     return item.id.startsWith(prefix) && item.id.length > prefix.length;
   });
   if (likedPosts.length > MAX_LIKES) {
     throw new AppError(`Too many liked posts to share. The limit is ${MAX_LIKES}.`);
   }
-  const mine = items.filter((item) => item.authorId === null && item.visibility === "shareable");
+  // Pressing Share on one post is the consent, so a private post can go out that way. Imported posts never do.
+  const mine = single
+    ? items.filter((item) => item.authorId === null && item.id === options.onlyPostId)
+    : items.filter((item) => item.authorId === null && item.visibility === "shareable");
+  if (single && mine.length === 0) throw new AppError("Only your own posts can be shared.");
   const posts: ShareBundle["posts"] = [];
   for (const item of mine.slice(0, MAX_POSTS)) {
     const media: ShareBundle["posts"][number]["media"] = [];
@@ -109,6 +123,7 @@ export async function buildShareBundle(vault: UnlockedVault, settings: Settings,
     author: { id: settings.authorId, handle: settings.handle },
     posts,
     likes,
+    likesComplete: !single,
   };
   const text = JSON.stringify(bundle);
   if (new TextEncoder().encode(text).byteLength >= MAX_SHARE_FILE_BYTES) {
@@ -207,7 +222,10 @@ export async function importShareBundle(
     else added += 1;
   }
 
-  const myPosts = (await vault.listItems()).filter((item) => item.authorId === null);
+  // A single-post share carries no like snapshot; reconciling against it would erase this
+  // author's existing likes on my posts. Only full bundles (or pre-flag files) reconcile.
+  const reconcileLikes = bundle.likesComplete !== false;
+  const myPosts = reconcileLikes ? (await vault.listItems()).filter((item) => item.authorId === null) : [];
   const liked = new Set(bundle.likes.filter((like) => like.ownerId === deps.settings.authorId).map((like) => like.postId));
   let likesReceived = 0;
   const noteTexts: string[] = [];

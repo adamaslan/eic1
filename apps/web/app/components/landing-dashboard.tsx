@@ -16,7 +16,8 @@ const SLOT_LABELS: Record<SlotId, string> = {
   "more-feed": "More feed",
 };
 const POSITION_NAMES = ["Main box", "Top right box", "Bottom right box"];
-const PICK_CATEGORIES = CATEGORIES.filter((category) => category !== "moments");
+// Includes general so a pick preference migrated from a retired category stays visible and can be cleared.
+const PICK_CATEGORIES = CATEGORIES;
 const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
 
 // The signed-in landing: the feed up front, three picks from the user's preferences, and boxes that can trade places.
@@ -93,7 +94,7 @@ function FeedBox({ items, count, large }: { items: Item[]; count: number; large:
   if (photos.length === 0) {
     return (
       <p>
-        No moments yet. <Link to="/compose" className="text-[#0000cc] underline">Post one</Link>, or{" "}
+        No posts yet. <Link to="/compose" className="text-[#0000cc] underline">Post one</Link>, or{" "}
         <Link to="/connections" className="text-[#0000cc] underline">import a friend's share file</Link>.
       </p>
     );

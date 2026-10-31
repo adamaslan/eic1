@@ -9,6 +9,7 @@ const TABS = [
   { id: "feed", label: "Feed" },
   { id: "market", label: "Market" },
   { id: "compose", label: "+ Post" },
+  { id: "tools", label: "Tools" },
   { id: "connections", label: "Connections" },
   { id: "vault", label: "Vault" },
 ];
@@ -17,15 +18,21 @@ const TABS = [
 export default function DesktopLayout() {
   const vault = useSessionStore((state) => state.vault);
   const lock = useSessionStore((state) => state.lock);
+  const resuming = useSessionStore((state) => state.resuming);
   const { pathname } = useLocation();
   const now = useClock();
 
+  if (!vault && resuming) {
+    return <p className="p-2 text-[12px] text-white">Opening your desktop…</p>;
+  }
   if (!vault) {
     return <Navigate to="/unlock" replace />;
   }
 
   const active = pathname === "/" ? "home" : pathname.startsWith("/market") ? "market" : pathname.startsWith("/compose")
       ? "compose"
+      : pathname.startsWith("/tools")
+        ? "tools"
       : pathname.startsWith("/connections")
         ? "connections"
         : pathname.startsWith("/vault")

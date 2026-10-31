@@ -1,5 +1,6 @@
 import {
   CATEGORIES,
+  GENERAL_CATEGORY,
   ItemSchema,
   type Bytes,
   type Category,
@@ -13,8 +14,8 @@ import { MAX_MEDIA_PER_ITEM } from "@veil/media";
 
 export const TITLE_MAX = 120;
 export const DESCRIPTION_MAX = 2000;
-export const MOMENT_CATEGORY: Category = "moments";
-export const LISTING_CATEGORIES = CATEGORIES.filter((category) => category !== MOMENT_CATEGORY);
+export const PHOTO_CATEGORY: Category = GENERAL_CATEGORY;
+export const LISTING_CATEGORIES = CATEGORIES.filter((category) => category !== GENERAL_CATEGORY);
 
 export interface ComposeInput {
   type: ItemType;
@@ -67,7 +68,7 @@ export function validateCompose(input: ComposeInput, mediaCount: number): Compos
   const priceCents = input.type === "listing" ? parsePriceToCents(input.price) : null;
   if (Number.isNaN(priceCents)) errors.price = "Enter a price like 25 or 12.50, or leave it blank for free.";
 
-  if (input.type === "photo" && mediaCount === 0) errors.media = "A photo moment needs at least one photo.";
+  if (input.type === "photo" && mediaCount === 0) errors.media = "A photo post needs at least one photo.";
   if (mediaCount > MAX_MEDIA_PER_ITEM) errors.media = `Add at most ${MAX_MEDIA_PER_ITEM} photos.`;
 
   if (Object.keys(errors).length > 0) return { ok: false, errors };
@@ -77,7 +78,7 @@ export function validateCompose(input: ComposeInput, mediaCount: number): Compos
     fields: {
       type: input.type,
       title,
-      category: input.type === "photo" ? MOMENT_CATEGORY : input.category,
+      category: input.type === "photo" ? PHOTO_CATEGORY : input.category,
       priceCents,
       description,
       visibility: input.visibility ?? "private",
