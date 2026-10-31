@@ -44,7 +44,7 @@ describe("ProfileView", () => {
     expect(html).toContain("Bestie&#x27;s profile");
     expect(html).toContain("Signature verified from @friend");
     expect(html).toContain("profile claims updated");
-    expect(html).toContain("received");
+    expect(html).toContain("bundle imported");
   });
 
   it("flags an unsigned connection profile", () => {
