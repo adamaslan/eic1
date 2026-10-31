@@ -2,8 +2,8 @@ import { z } from "zod";
 import { AppError, VaultCorruptError, decodeBase64, encodeBase64, type Item, type Settings } from "@veil/core";
 import { signPayload, verifySignature, type SyncEnvelope } from "@veil/crypto";
 import type { UnlockedVault } from "@veil/vault";
-import { buildShareBundle, loadOrCreateShareIdentity } from "./sharing";
 import { getProfile, signProfile } from "./profile";
+import { buildShareBundle, loadOrCreateShareIdentity } from "./sharing";
 import { listOutboundChatEnvelopes } from "./chat";
 
 // eic-feed v1 (spec section 3): a signed manifest plus chunk files, published by each vault to a
@@ -114,13 +114,6 @@ export async function buildFeedSnapshot(
     sha256: await sha256Base64(posts.text),
   });
 
-  const ownProfile = await getProfile(vault, settings.authorId);
-  if (ownProfile) {
-    const text = JSON.stringify(await signProfile(vault, ownProfile));
-    files.push({ path: "chunks/profile.json", text });
-    chunks.push({ id: "profile.json", kind: "profile", bytes: new TextEncoder().encode(text).byteLength, sha256: await sha256Base64(text) });
-  }
-
   const outbound = await listOutboundChatEnvelopes(vault);
   for (const [recipientId, envelopes] of [...outbound.entries()].sort()) {
     const chunk = {
@@ -133,6 +126,13 @@ export async function buildFeedSnapshot(
     const text = JSON.stringify(chunk);
     files.push({ path: `chunks/${id}`, text });
     chunks.push({ id, kind: "chat", bytes: new TextEncoder().encode(text).byteLength, sha256: await sha256Base64(text) });
+  }
+
+  const ownProfile = await getProfile(vault, settings.authorId);
+  if (ownProfile) {
+    const text = JSON.stringify(await signProfile(vault, ownProfile));
+    files.push({ path: "chunks/profile.json", text });
+    chunks.push({ id: "profile.json", kind: "profile", bytes: new TextEncoder().encode(text).byteLength, sha256: await sha256Base64(text) });
   }
 
   const unsigned = {
