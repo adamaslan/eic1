@@ -3,6 +3,7 @@ import type { UnlockedVault } from "@veil/vault";
 import { applyInboundChatEnvelope } from "./chat";
 import {
   chunkUrl,
+  isValidFeedUrl,
   manifestUrl,
   parseFeedChatChunk,
   parseFeedManifest,
@@ -42,30 +43,40 @@ export interface SyncDeps {
 }
 
 export interface SyncResult {
-  status: "applied" | "unchanged" | "deferred" | "no-feed";
+  status: "applied" | "unchanged" | "deferred" | "no-feed" | "failed";
   appliedPosts: number;
   appliedChat: number;
   appliedProfile: boolean;
   pendingChunks: string[];
+  error?: string;
 }
 
 export async function syncConnection(vault: UnlockedVault, connection: Connection, deps: SyncDeps): Promise<SyncResult> {
   const settings = await loadSettings(vault);
   if (!settings.authorId) throw new AppError("Choose a handle before syncing.");
   if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
+  if (!isValidFeedUrl(connection.feedUrl)) throw new AppError("That connection's feed URL must be an https URL (http is allowed only for localhost).");
   if (!connection.pubkey) throw new AppError("This connection has no verified key.");
   if (deps.network === "cellular" && !settings.syncOnCellular) {
     return { status: "deferred", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
   }
 
-  const head = await deps.fetch(manifestUrl(connection.feedUrl), connection.syncEtag);
+  // Pending chunks from a cellular-deferred pull must be retried: skip the etag shortcut and
+  // re-apply the same manifest (chunk application is idempotent), so delivery does not depend
+  // on the sender republishing.
+  const head = await deps.fetch(manifestUrl(connection.feedUrl), connection.syncPending ? null : connection.syncEtag);
   if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
   if (head.status !== 200 || head.text === null) {
     throw new VaultCorruptError(`The feed could not be fetched (status ${head.status}).`);
   }
   const manifest = parseFeedManifest(head.text);
   await verifyFeedManifest(manifest, connection.id, connection.pubkey);
-  if (manifest.seq <= connection.syncSeq) {
+  // Same-key re-publish at a lower seq means the author restored older state (or rebuilt their
+  // vault and re-shared the same identity). Chunk application is idempotent, so accept it as a
+  // reset and continue from this seq instead of failing the connection forever. Authenticity is
+  // unchanged: the manifest still has to verify against the connection's pinned key.
+  
+  if (manifest.seq === connection.syncSeq && !connection.syncPending) {
     await setConnectionSyncState(vault, connection.id, {
       seq: connection.syncSeq,
       etag: head.etag ?? connection.syncEtag,
@@ -88,11 +99,21 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
       throw new VaultCorruptError(`A feed chunk could not be fetched (status ${res.status}).`);
     }
     await verifyFeedChunk(ref, res.text);
+    if (ref.kind !== "chat" && ref.kind !== "posts" && ref.kind !== "likes" && ref.kind !== "profile") {
+      // Unknown chunk kind from a newer feed version: skip it, keep everything else moving.
+      continue;
+    }
     if (ref.kind === "profile") {
-      // Fail closed: an unverifiable profile never partially applies.
-      const signed = parseSignedProfile(res.text);
-      await verifySignedProfile(signed, connection.id, connection.pubkey);
-      appliedProfile = (await applyProfile(vault, signed.profile)).applied || appliedProfile;
+      // Fail closed per chunk: an unverifiable or over-cap profile never applies, and never
+      // aborts posts/chat - it is retried on the next pull (pending stays set).
+      try {
+        const signed = parseSignedProfile(res.text);
+        await verifySignedProfile(signed, connection.id, connection.pubkey);
+        appliedProfile = (await applyProfile(vault, signed.profile)).applied || appliedProfile;
+      } catch {
+        pendingChunks.push(ref.id);
+        continue;
+      }
     } else if (ref.kind === "chat") {
       for (const envelope of parseFeedChatChunk(res.text)) {
         const e = envelope as { recipientAuthorId?: unknown } | null;
@@ -129,7 +150,18 @@ export async function syncAllConnections(vault: UnlockedVault, deps: SyncDeps): 
   const results = new Map<string, SyncResult>();
   for (const connection of await listConnections(vault)) {
     if (connection.hidden) continue;
-    results.set(connection.id, await syncConnection(vault, connection, deps));
+    try {
+      results.set(connection.id, await syncConnection(vault, connection, deps));
+    } catch (error) {
+      // One corrupt or unreachable feed must not abort the remaining peers.
+      results.set(connection.id, {
+        status: "failed",
+        appliedPosts: 0,
+        appliedChat: 0,
+        pendingChunks: [],
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
   return results;
 }
