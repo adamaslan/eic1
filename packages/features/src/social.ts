@@ -180,3 +180,30 @@ export async function removeConnection(
   await vault.deleteRecords(ids);
   return { droppedPosts };
 }
+
+export interface ConnectionSyncState {
+  seq: number;
+  etag: string | null;
+  pending: boolean;
+  // Durable user-visible outcome of the last pull ("applied" | "unchanged" | "deferred" |
+  // "partial" | "failed" | "no-feed") plus a short reason. Optional so cursor-only writes
+  // (etag refresh on an unchanged manifest) do not clobber the recorded outcome.
+  status?: string;
+  detail?: string;
+}
+
+/** Records pull-sync cursors on a connection after a feed pull. Local-only, never shared. */
+export async function setConnectionSyncState(
+  vault: UnlockedVault,
+  connectionId: string,
+  state: ConnectionSyncState,
+): Promise<Connection> {
+  return updateConnection(vault, connectionId, (connection) => ({
+    ...connection,
+    syncSeq: state.seq,
+    syncEtag: state.etag,
+    syncPending: state.pending,
+    syncStatus: state.status ?? connection.syncStatus,
+    syncDetail: state.detail ?? connection.syncDetail,
+  }));
+}

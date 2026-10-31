@@ -18,6 +18,12 @@ export const SettingsSchema = z.object({
   // How other people see me in a share file. authorId is random and never derived from the passphrase.
   handle: z.string().trim().min(1).max(HANDLE_MAX).nullable().default(null),
   authorId: z.string().min(1).nullable().default(null),
+  // Pull-sync policy (spec section 3): sync runs on wifi unless you opt into cellular.
+  syncOnCellular: z.boolean().default(false),
+  // Where this vault publishes its eic-feed (set once the publish target is chosen) and the
+  // last manifest sequence number published there.
+  feedUrl: z.string().min(1).nullable().default(null),
+  feedSeq: z.number().int().nonnegative().default(0),
   schemaVersion: z.literal(1),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -36,6 +42,14 @@ export const ConnectionSchema = z.object({
   // feed URL their vault publishes to. Null for legacy v1 (unsigned) imports.
   pubkey: z.string().min(1).nullable().default(null),
   feedUrl: z.string().min(1).nullable().default(null),
+  // Pull-sync cursors: last applied manifest sequence and HTTP etag, plus whether a chunk is
+  // waiting on the cellular byte budget. Local-only, never shared.
+  syncSeq: z.number().int().nonnegative().default(0),
+  syncEtag: z.string().nullable().default(null),
+  syncPending: z.boolean().default(false),
+  // Last pull outcome and a short reason, for honest user-visible sync status. Local-only.
+  syncStatus: z.string().default(""),
+  syncDetail: z.string().default(""),
   schemaVersion: z.literal(1),
 });
 export type Connection = z.infer<typeof ConnectionSchema>;
