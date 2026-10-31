@@ -31,6 +31,7 @@ vi.mock("react", () => ({
 }));
 
 import { useVaultItems } from "./use-vault-items";
+// eslint-disable-next-line react-hooks/rules-of-hooks -- test harness drives the hook through a mocked React, not a component
 const render = (vault: UnlockedVault | null) => { hooks.render(); return useVaultItems(vault); };
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 beforeEach(() => hooks.reset());
