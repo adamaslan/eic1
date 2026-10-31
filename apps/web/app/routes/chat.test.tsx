@@ -34,6 +34,7 @@ const connection = (over: Partial<Connection>): Connection => ({
   syncEtag: null,
   syncPending: false,
   syncRetry: 0,
+  syncExhausted: false,
   syncStatus: "",
   syncDetail: "",
   schemaVersion: 1,
