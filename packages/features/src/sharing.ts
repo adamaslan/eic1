@@ -174,7 +174,12 @@ export async function buildShareBundle(
     format: SHARE_FORMAT,
     version: SHARE_VERSION_V2,
     exportedAt: now.toISOString(),
-    author: { id: settings.authorId, handle: settings.handle, pubkey: encodeBase64(identity.publicKey) },
+    author: {
+      id: settings.authorId,
+      handle: settings.handle,
+      pubkey: encodeBase64(identity.publicKey),
+      ...(settings.feedUrl ? { feedUrl: settings.feedUrl } : {}),
+    },
     posts,
     likes,
     likesComplete: !single,
