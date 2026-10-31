@@ -385,9 +385,86 @@ it("terminally rejects an unreachable chunk after MAX_CHUNK_FETCH_RETRIES instea
   expect(onlyManifest.requests.filter((u) => u !== manifestUrl(feedUrl)).length).toBe(chunkRequestsAfter);
   expect((await listChatThread(bob, "alice-id")).map((m) => m.body)).toHaveLength(0);
 
-  // A later, healthy manifest still applies.
-  const fixed = await aliceFeed(alice, [shareable("itm-ok", "arrives later")], 2, feedUrl);
-  const after = await syncAllConnections(bob, { fetch: fixed.host.fetch, network: "wifi", newId: deps.newId, now: NOW });
-  expect(after.get("alice-id")!.status).toBe("applied");
-  expect((await listChatThread(bob, "alice-id")).map((m) => m.body)).toHaveLength(0);
+  // Explicit user retry: the author repaired the chunk under the same seq; a manual retry
+  // re-pulls (bypassing the etag shortcut) and applies it - signature and rollback checks intact.
+  const repaired = hostFor(snapshot.files, feedUrl, "etag-1");
+  const retriedRepaired = await syncAllConnections(bob, { fetch: repaired.fetch, network: "wifi", retryFailed: true, newId: deps.newId, now: NOW });
+  expect(retriedRepaired.get("alice-id")!.status).toBe("applied");
+  expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncDetail).toBe("");
+
+  // A later, healthy manifest still applies, and the retry budget restarts per manifest:
+  // a first failure on the new seq defers instead of exhausting on the old counter.
+  const broken2 = await aliceFeed(alice, [shareable("itm-b2", "later loss")], 2, feedUrl);
+  const onlyManifest2 = hostFor(broken2.snapshot.files.filter((f) => f.path === "feed.json"), feedUrl, "etag-2");
+  const seq2first = await syncAllConnections(bob, { fetch: onlyManifest2.fetch, network: "wifi", newId: deps.newId, now: NOW });
+  expect(seq2first.get("alice-id")!.status).toBe("deferred");
+  expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncRetry).toBe(1);
+
+  // Rollback protection still holds under an explicit retry: replaying the older seq fails.
+  const replayed = await syncAllConnections(bob, { fetch: repaired.fetch, network: "wifi", retryFailed: true, newId: deps.newId, now: NOW });
+  expect(replayed.get("alice-id")!.status).toBe("failed");
+  expect(replayed.get("alice-id")!.error).toContain("older sequence");
+});
+
+it("keeps budget-deferred chunks pending when fetch retries exhaust on another chunk", async () => {
+  const feedUrl = "https://f.example/alice";
+  const alice = await open();
+  const bob = await open();
+  await saveSettings(alice, settingsFor("alice-id", "alice"));
+  await saveSettings(bob, { ...settingsFor("bob-id", "bob"), syncOnCellular: true });
+  await importShareBundle(alice, (await buildShareBundle(bob, settingsFor("bob-id", "bob"), [], NOW)).text, { settings: settingsFor("alice-id", "alice"), newId: deps.newId, now: NOW });
+  await importShareBundle(bob, (await buildShareBundle(alice, { ...settingsFor("alice-id", "alice"), feedUrl }, [], NOW)).text, { settings: settingsFor("bob-id", "bob"), newId: deps.newId, now: NOW });
+  const bobOnAlice = (await listConnections(alice)).find((c) => c.id === "bob-id")!;
+  await sendChatMessage(alice, bobOnAlice, "chat for the small chunk", deps);
+  const { snapshot } = await aliceFeed(alice, [shareable("itm-big", "big post")], 1, feedUrl);
+  const manifest = parseFeedManifest(snapshot.files.find((f) => f.path === "feed.json")!.text);
+  const small = manifest.chunks.find((c) => c.kind === "chat")!;
+  const big = manifest.chunks.find((c) => c.kind === "posts")!;
+  expect(big.bytes).toBeGreaterThan(small.bytes);
+  // Host serves the manifest and every chunk except the small one; the budget only fits the small one.
+  const served = snapshot.files.filter((f) => f.path !== `chunks/${small.id}`);
+  const host = hostFor(served, feedUrl, "etag-1");
+  const depsMetered = { fetch: host.fetch, network: "cellular" as const, chunkBudgetBytes: small.bytes, newId: deps.newId, now: NOW };
+
+  for (let i = 0; i < MAX_CHUNK_FETCH_RETRIES; i++) await syncAllConnections(bob, depsMetered);
+
+  const conn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
+  // The 404ing chunk is terminally rejected; the over-budget chunk stays pending, not rejected.
+  expect(conn.syncDetail).toContain(`rejected: ${small.id}`);
+  expect(conn.syncDetail).toContain(`pending: ${big.id}`);
+  expect(conn.syncPending).toBe(true);
+  expect(conn.syncStatus).toBe("deferred");
+
+  // On wi-fi the manifest is re-processed because the budget-deferred chunk is still pending:
+  // both it and the previously fetch-failed chunk are re-fetched, verify, and apply - the
+  // budget deferral was never lost behind the cursor, and the fetch failure heals on a healthy host.
+  const fixed = hostFor(snapshot.files, feedUrl, "etag-1");
+  const onWifi = await syncAllConnections(bob, { fetch: fixed.fetch, network: "wifi", newId: deps.newId, now: NOW });
+  expect(onWifi.get("alice-id")!.status).toBe("applied");
+  expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncDetail).toBe("");
+  expect((await listChatThread(bob, "alice-id")).map((m) => m.body)).toEqual(["chat for the small chunk"]);
+});
+
+it("defers truthfully on unknown connectivity instead of claiming cellular", async () => {
+  const { bob } = await pairedVaults();
+  const feedUrl = "https://f.example/alice";
+  const alice = await open();
+  await saveSettings(alice, settingsFor("alice-id", "alice"));
+  const { host } = await aliceFeed(alice, [shareable("itm-u", "held back")], 1, feedUrl);
+  await importShareBundle(bob, (await buildShareBundle(alice, { ...settingsFor("alice-id", "alice"), feedUrl }, [], NOW)).text, { settings: settingsFor("bob-id", "bob"), newId: deps.newId, now: NOW });
+
+  // Browser cannot report a transport: sync defers without fetching anything, and the
+  // persisted status says the connection type is unknown - it never claims "cellular".
+  const deferred = await syncAllConnections(bob, { fetch: host.fetch, network: "unknown", newId: deps.newId, now: NOW });
+  expect(deferred.get("alice-id")!.status).toBe("deferred");
+  expect(host.requests).toHaveLength(0);
+  const conn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
+  expect(conn.syncStatus).toBe("deferred");
+  expect(conn.syncDetail).toContain("unknown");
+  expect(conn.syncDetail).not.toContain("cellular sync is off");
+
+  // Explicit opt-in (settings.syncOnCellular) is the honest path through the budget.
+  await saveSettings(bob, { ...settingsFor("bob-id", "bob"), syncOnCellular: true });
+  const applied = await syncAllConnections(bob, { fetch: host.fetch, network: "unknown", newId: deps.newId, now: NOW });
+  expect(applied.get("alice-id")!.status).toBe("applied");
 });
