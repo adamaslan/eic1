@@ -86,6 +86,24 @@ export default function Draw() {
     }
   };
 
+  const downloadImage = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    try {
+      const bytes = await encodeCanvas(canvas, mimeFor(format), format === "jpeg" ? JPEG_QUALITY : undefined);
+      const blob = new Blob([new Uint8Array(bytes)], { type: mimeFor(format) });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const base = (title.trim() || "drawing").replace(/[^a-z0-9-_]+/gi, "-").toLowerCase();
+      anchor.href = url;
+      anchor.download = `${base}.${format === "jpeg" ? "jpg" : "png"}`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setNotice("This browser could not encode the drawing.");
+    }
+  };
+
   const startStroke = (event: PointerEvent<HTMLCanvasElement>) => {
     if (saving) return;
     drawing.current = true;
@@ -260,6 +278,9 @@ export default function Draw() {
         <div className="flex gap-2">
           <Button95 type="submit" disabled={saving}>
             {saving ? "Encrypting…" : "🔒 Encrypt & save"}
+          </Button95>
+          <Button95 type="button" disabled={saving} onClick={() => void downloadImage()}>
+            Download {format === "jpeg" ? "JPG" : "PNG"}
           </Button95>
           <Link to="/compose">
             <Button95 disabled={saving}>Cancel</Button95>
