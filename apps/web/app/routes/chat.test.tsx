@@ -30,6 +30,9 @@ const connection = (over: Partial<Connection>): Connection => ({
   lastImportAt: null,
   pubkey: "pk",
   feedUrl: null,
+  syncSeq: 0,
+  syncEtag: null,
+  syncPending: false,
   schemaVersion: 1,
   ...over,
 });
