@@ -10,3 +10,4 @@ export * from "./chat";
 export * from "./share-link";
 export * from "./feed";
 export * from "./sync";
+export * from "./profile";
