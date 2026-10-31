@@ -27,6 +27,8 @@ export interface VaultStore {
   putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[], options?: { requireSameKind?: boolean }): Promise<void>;
   /** Removes the vault only if its current generation matches the session. */
   clearForVault(expectedGeneration: Bytes): Promise<void>;
+  /** Removes records by id in one transaction, only if the vault's generation still matches. Unknown ids are skipped. */
+  deleteRecordsForVault(expectedGeneration: Bytes, ids: string[]): Promise<void>;
   putMeta(meta: VaultMeta): Promise<void>;
   putRecord(record: EncryptedRecord): Promise<void>;
   getRecord(id: string): Promise<EncryptedRecord | null>;
