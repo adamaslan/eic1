@@ -105,6 +105,9 @@ describe("ConnectionsList chat entry points", () => {
     );
     expect(html).toContain('href="/chat/author-friend"');
     expect(html).toContain('href="/chat/author-pal"');
+    // Every connection also links to its profile route.
+    expect(html).toContain('href="/profile/author-friend"');
+    expect(html).toContain('href="/profile/author-pal"');
     expect(html).toContain("2 new");
     expect(html).toContain('aria-label="2 unread messages"');
     // No badge for the connection with zero unread.

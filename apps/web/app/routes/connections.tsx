@@ -61,6 +61,9 @@ export function ConnectionsList({
                   {count} new
                 </span>
               )}
+              <Link to={`/profile/${connection.id}`} className="underline">
+                Profile
+              </Link>
               <Link to={`/chat/${connection.id}`} className="underline">
                 Chat
               </Link>
@@ -270,6 +273,7 @@ export default function Connections() {
           </span>
         )}
         <div className="flex flex-wrap gap-1">
+          <Link to={`/profile/${connection.id}`} className="underline">Profile</Link>
           <Link to={`/chat/${connection.id}`} className="underline">Chat</Link>
           <RetryFailedButton connection={connection} busy={busy} onRetry={() => retryFailedChunks(connection)} />
           <Button95 onClick={() => { setRenamingId(connection.id); setNicknameDraft(connection.nickname ?? ""); setRemovingId(null); }} disabled={busy}>Rename</Button95>
@@ -306,6 +310,7 @@ export default function Connections() {
             <input className={inputClass} value={handleValue} maxLength={HANDLE_MAX} onChange={(e) => setHandle(e.target.value)} aria-label="Handle" />
             <Button95 type="submit" disabled={busy || !social.settingsReady}>Save</Button95>
           </div>
+          {settings.handle && <Link to="/profile" className="underline">View my profile</Link>}
         </form>
       </Window>
 
