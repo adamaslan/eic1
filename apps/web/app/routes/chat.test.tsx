@@ -33,6 +33,8 @@ const connection = (over: Partial<Connection>): Connection => ({
   syncSeq: 0,
   syncEtag: null,
   syncPending: false,
+  syncStatus: "",
+  syncDetail: "",
   schemaVersion: 1,
   ...over,
 });
