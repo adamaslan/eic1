@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { AppError, type Category, type ItemType } from "@veil/core";
 import {
   LISTING_CATEGORIES,
@@ -168,6 +168,9 @@ export default function Compose() {
             <Button95 onClick={() => fileInput.current?.click()} disabled={progress !== null || images.length >= MAX_MEDIA_PER_ITEM}>
               Add photos…
             </Button95>
+            <Link to="/draw">
+              <Button95>Draw a picture…</Button95>
+            </Link>
           </div>
           <span className="text-[11px] text-[#404040]">Resized and compressed on this device before encryption.</span>
           {progress && (
