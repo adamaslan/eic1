@@ -21,6 +21,12 @@ import { listConnections, loadSettings, setConnectionSyncState } from "./social"
 
 export const CELLULAR_CHUNK_BUDGET_BYTES = 1024 * 1024;
 
+// A chunk that cannot be fetched is retried on the next pull (pending skips the etag
+// shortcut), but only a bounded number of times per manifest seq: a permanently-missing
+// chunk (e.g. a 404 the publisher never fixes) becomes terminally rejected after
+// MAX_CHUNK_FETCH_RETRIES attempts instead of retrying forever.
+export const MAX_CHUNK_FETCH_RETRIES = 3;
+
 export interface SyncFetchResponse {
   status: number;
   etag: string | null;
@@ -30,11 +36,18 @@ export interface SyncFetchResponse {
 /** Injected so tests can serve feeds from memory and the app can use fetch. */
 export type SyncFetcher = (url: string, etag: string | null) => Promise<SyncFetchResponse>;
 
-export type SyncNetwork = "wifi" | "cellular";
+// "unknown": the browser cannot report a transport (e.g. Safari/Firefox without
+// navigator.connection). Treated as metered - never silently authorizes unrestricted
+// downloads - but reported truthfully so the UI can say "unknown", not "cellular".
+export type SyncNetwork = "wifi" | "cellular" | "unknown";
 
 export interface SyncDeps {
   fetch: SyncFetcher;
   network: SyncNetwork;
+  /** Explicit user retry: re-pull and re-attempt chunks even when the cursor considers the
+   *  current manifest settled (e.g. after fetch retries were exhausted). Integrity and
+   *  rollback checks still apply; only the fetch retry budget restarts. */
+  retryFailed?: boolean;
   newId: () => string;
   now: Date;
   // Test seam: overrides the cellular chunk byte budget.
@@ -56,14 +69,27 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
   if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
   if (!isValidFeedUrl(connection.feedUrl)) throw new AppError("That connection's feed URL must be an https URL (http is allowed only for localhost).");
   if (!connection.pubkey) throw new AppError("This connection has no verified key.");
-  if (deps.network === "cellular" && !settings.syncOnCellular) {
+  const metered = deps.network !== "wifi";
+  if (metered && !settings.syncOnCellular) {
+    const detail =
+      deps.network === "unknown"
+        ? "waiting for Wi-Fi - connection type unknown to this browser, so large chunks wait; turn on cellular sync to download anyway"
+        : "waiting for Wi-Fi - cellular sync is off in Settings";
+    await setConnectionSyncState(vault, connection.id, {
+      seq: connection.syncSeq,
+      etag: connection.syncEtag,
+      pending: connection.syncPending,
+      retry: connection.syncRetry,
+      status: "deferred",
+      detail,
+    });
     return { status: "deferred", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
   }
 
   // Pending chunks from a cellular-deferred pull must be retried: skip the etag shortcut and
   // re-apply the same manifest (chunk application is idempotent), so delivery does not depend
   // on the sender republishing.
-  const head = await deps.fetch(manifestUrl(connection.feedUrl), connection.syncPending ? null : connection.syncEtag);
+  const head = await deps.fetch(manifestUrl(connection.feedUrl), connection.syncPending || deps.retryFailed ? null : connection.syncEtag);
   if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
   if (head.status !== 200 || head.text === null) {
     throw new VaultCorruptError(`The feed could not be fetched (status ${head.status}).`);
@@ -80,7 +106,7 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
       "That feed published an older sequence than the one already applied, so it was not rolled back. If the author rebuilt their vault, ask them to re-share and re-import their bundle to reset.",
     );
   }
-  if (manifest.seq === connection.syncSeq && !connection.syncPending) {
+  if (manifest.seq === connection.syncSeq && !connection.syncPending && !deps.retryFailed) {
     await setConnectionSyncState(vault, connection.id, {
       seq: connection.syncSeq,
       etag: head.etag ?? connection.syncEtag,
@@ -92,9 +118,11 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
   let appliedPosts = 0;
   let appliedChat = 0;
   const pendingChunks: string[] = [];
+  const fetchFailedChunks: string[] = [];
   const rejectedChunks: string[] = [];
   for (const ref of manifest.chunks) {
-    if (deps.network === "cellular" && ref.bytes > (deps.chunkBudgetBytes ?? CELLULAR_CHUNK_BUDGET_BYTES)) {
+    if (metered && ref.bytes > (deps.chunkBudgetBytes ?? CELLULAR_CHUNK_BUDGET_BYTES)) {
+      // Budget deferral is not a failure and does not count against the retry bound.
       pendingChunks.push(ref.id);
       continue;
     }
@@ -103,6 +131,7 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     // terminal.
     const res = await deps.fetch(chunkUrl(connection.feedUrl, ref.id), null);
     if (res.status !== 200 || res.text === null) {
+      fetchFailedChunks.push(ref.id);
       pendingChunks.push(ref.id);
       continue;
     }
@@ -138,17 +167,38 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     }
   }
 
+  // Bounded retry, scoped to this manifest seq: consecutive fetch failures advance the
+  // counter, a new manifest or a successful pull restarts it, and an explicit user retry
+  // (deps.retryFailed) restarts it too. Past the bound, only the fetch-failed chunks are
+  // terminally rejected (status "partial", distinct from retryable "deferred").
+  const sameManifest = manifest.seq === connection.syncSeq;
+  const retry =
+    fetchFailedChunks.length === 0 ? 0 : sameManifest && !deps.retryFailed ? connection.syncRetry + 1 : 1;
+  const exhausted = retry >= MAX_CHUNK_FETCH_RETRIES;
+  if (exhausted) {
+    const failed = new Set(fetchFailedChunks);
+    rejectedChunks.push(...fetchFailedChunks);
+    // Budget-deferred chunks are not failures: they stay pending so a later wi-fi pull
+    // still delivers them; only fetch-failed ids are rejected.
+    for (let i = pendingChunks.length - 1; i >= 0; i--) if (failed.has(pendingChunks[i]!)) pendingChunks.splice(i, 1);
+  }
   const status =
     pendingChunks.length > 0 ? "deferred" : rejectedChunks.length > 0 ? "partial" : "applied";
-  const detail =
-    rejectedChunks.length > 0 ? `rejected: ${rejectedChunks.join(", ")}` : pendingChunks.length > 0 ? `pending: ${pendingChunks.join(", ")}` : "";
+  const detailParts: string[] = [];
+  if (rejectedChunks.length > 0)
+    detailParts.push(`rejected: ${rejectedChunks.join(", ")}${exhausted ? ` (unreachable after ${MAX_CHUNK_FETCH_RETRIES} attempts)` : ""}`);
+  if (pendingChunks.length > 0) detailParts.push(`pending: ${pendingChunks.join(", ")}`);
+  const detail = detailParts.join("; ");
   await setConnectionSyncState(vault, connection.id, {
     seq: manifest.seq,
     etag: head.etag ?? connection.syncEtag,
     pending: pendingChunks.length > 0,
+    retry,
+    exhausted,
     status,
     detail,
   });
+
   return {
     status,
     appliedPosts,

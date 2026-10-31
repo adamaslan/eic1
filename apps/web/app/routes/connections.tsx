@@ -9,6 +9,7 @@ import {
   removeConnection,
   setConnectionHidden,
   setConnectionNickname,
+
   unreadCounts,
 } from "@veil/features";
 import type { Route } from "./+types/connections";
@@ -18,6 +19,7 @@ import { downloadTextFile } from "~/platform/download";
 import { useSessionStore } from "~/platform/session";
 import { useSocial } from "~/platform/use-social";
 import { newItemId } from "~/platform/vault-service";
+import { isFetchExhausted, retryConnectionFailedChunks, syncAllNormally } from "~/platform/sync-actions";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Connections — Everybody is Cool" }];
@@ -27,6 +29,13 @@ const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outli
 
 
 // Pure presentational half, exported for render tests: connection rows with chat links + unread badges.
+/** Labeled explicit retry, shown only for feeds whose fetch retries are exhausted
+ *  (structured state, not detail-string parsing). Integrity-rejected chunks never show this. */
+export function RetryFailedButton({ connection, busy, onRetry }: { connection: Connection; busy: boolean; onRetry: () => void }) {
+  if (!isFetchExhausted(connection)) return null;
+  return <Button95 onClick={onRetry} disabled={busy}>Retry failed chunks</Button95>;
+}
+
 export function ConnectionsList({
   connections,
   unread,
@@ -55,6 +64,12 @@ export function ConnectionsList({
               <Link to={`/chat/${connection.id}`} className="underline">
                 Chat
               </Link>
+              {connection.syncStatus && connection.syncStatus !== "applied" && connection.syncStatus !== "unchanged" && (
+                <span role="status" className="bg-[#ffffe1] px-1 text-[#800000]">
+                  sync {connection.syncStatus}
+                  {connection.syncDetail ? `: ${connection.syncDetail}` : ""}
+                </span>
+              )}
               <span className="text-[#404040]">connected {timeAgo(connection.addedAt, now)} ago</span>
             </span>
           </li>
@@ -173,6 +188,32 @@ export default function Connections() {
   const visible = connections.filter((connection) => !connection.hidden);
   const hiddenConns = connections.filter((connection) => connection.hidden);
 
+  function retryFailedChunks(connection: Connection) {
+    void run(async () => {
+      if (!vault || !social.settingsReady) return "";
+      // Explicitly labeled user retry, scoped to this connection: re-pulls its feed and
+      // re-attempts chunks whose fetch retries were exhausted. Signature verification and
+      // rollback protection still apply; only this feed's fetch retry budget restarts.
+      const result = await retryConnectionFailedChunks(vault, connection);
+      social.refresh();
+      return `Retry for @${connection.handle}: ${result.status}${result.rejectedChunks.length > 0 ? ` (still unreachable: ${result.rejectedChunks.length})` : ""}.`;
+    });
+  }
+
+  function syncNow() {
+    void run(async () => {
+      if (!vault || !social.settingsReady) return "";
+      // Normal sync honors settled cursors (conditional fetch) and accumulated fetch
+      // retries; only the explicitly labeled per-connection retry below passes retryFailed.
+      const results = await syncAllNormally(vault);
+      social.refresh();
+      const counts = new Map<string, number>();
+      for (const result of results.values()) counts.set(result.status, (counts.get(result.status) ?? 0) + 1);
+      const summary = [...counts.entries()].map(([status, n]) => `${n} ${status}`).join(", ");
+      return `Sync finished: ${summary}.`;
+    });
+  }
+
   function saveNickname(connectionId: string) {
     void run(async () => {
       if (!vault) return "";
@@ -222,8 +263,15 @@ export default function Connections() {
             </span>
           )}
         </div>
+        {connection.syncStatus && connection.syncStatus !== "applied" && connection.syncStatus !== "unchanged" && (
+          <span role="status" className="bg-[#ffffe1] px-1 text-[#800000]">
+            sync {connection.syncStatus}
+            {connection.syncDetail ? `: ${connection.syncDetail}` : ""}
+          </span>
+        )}
         <div className="flex flex-wrap gap-1">
           <Link to={`/chat/${connection.id}`} className="underline">Chat</Link>
+          <RetryFailedButton connection={connection} busy={busy} onRetry={() => retryFailedChunks(connection)} />
           <Button95 onClick={() => { setRenamingId(connection.id); setNicknameDraft(connection.nickname ?? ""); setRemovingId(null); }} disabled={busy}>Rename</Button95>
           <Button95 onClick={() => toggleHidden(connection)} disabled={busy}>{connection.hidden ? "Unhide" : "Hide"}</Button95>
           <Button95 onClick={() => { setRemovingId(connection.id); setRenamingId(null); }} disabled={busy}>Remove…</Button95>
@@ -307,7 +355,19 @@ export default function Connections() {
           <p className="text-[12px]">No connections yet. Import a friend's share file to add one.</p>
         ) : (
           <div className="flex flex-col gap-2 text-[12px]">
-            <p>To refresh someone's posts, import their newest share file again - importing updates in place.</p>
+            <p>To refresh someone's posts, import their newest share file again - importing updates in place. If they publish a feed, sync pulls it over the network instead.</p>
+            <label className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={settings.syncOnCellular}
+                disabled={busy || !social.settingsReady}
+                onChange={(e) => { void social.update({ ...settings, syncOnCellular: e.target.checked }); }}
+              />
+              <span>Allow feed sync on cellular or unknown connections (larger posts may use mobile data)</span>
+            </label>
+            <div>
+              <Button95 onClick={syncNow} disabled={busy || !social.settingsReady}>Sync feeds now</Button95>
+            </div>
             {visible.length > 0 && <ul className="flex flex-col gap-1">{visible.map(connectionRow)}</ul>}
             {hiddenConns.length > 0 && (
               <details>
@@ -321,4 +381,3 @@ export default function Connections() {
     </div>
   );
 }
-
