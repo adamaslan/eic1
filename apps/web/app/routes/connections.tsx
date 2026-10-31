@@ -36,6 +36,9 @@ export default function Connections() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
+  // Synchronous guard: drop events and the import buttons can fire faster than setBusy renders.
+  // Must stay above the early returns below - hooks may not be conditional (React error #310).
+  const importing = useRef(false);
 
   if (items.status === "loading") return <p className="text-[12px]">Loading…</p>;
   if (items.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{items.message}</p>;
@@ -81,9 +84,6 @@ export default function Connections() {
     });
   }
 
-  // Synchronous guard: drop events and the import buttons can fire faster than setBusy renders.
-  const importing = useRef(false);
-
   function importText(read: () => Promise<string>): Promise<boolean> {
     if (importing.current) return Promise.resolve(false);
     importing.current = true;
@@ -91,7 +91,8 @@ export default function Connections() {
       if (!vault || !social.settingsReady) return "";
       const result = await importShareBundle(vault, await read(), { settings, newId: newItemId, now: new Date() });
       social.refresh();
-      return `Connected with @${result.handle}: ${result.added} new, ${result.updated} updated, ${result.likesReceived} new like${result.likesReceived === 1 ? "" : "s"} on your posts.`;
+      const basis = result.verified ? `Verified signature from @${result.handle}` : `Unsigned file - trust the sender (@${result.handle})`;
+      return `${basis}: ${result.added} new, ${result.updated} updated, ${result.likesReceived} new like${result.likesReceived === 1 ? "" : "s"} on your posts.`;
     }).finally(() => {
       importing.current = false;
     });

@@ -32,6 +32,10 @@ export const ConnectionSchema = z.object({
   nickname: z.string().min(1).max(HANDLE_MAX).nullable().default(null),
   hidden: z.boolean().default(false),
   lastImportAt: z.iso.datetime().nullable().default(null),
+  // From the author's eic-share v2 bundle: their Ed25519 public key and (once sync lands) the
+  // feed URL their vault publishes to. Null for legacy v1 (unsigned) imports.
+  pubkey: z.string().min(1).nullable().default(null),
+  feedUrl: z.string().min(1).nullable().default(null),
   schemaVersion: z.literal(1),
 });
 export type Connection = z.infer<typeof ConnectionSchema>;
