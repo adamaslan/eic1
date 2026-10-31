@@ -480,4 +480,34 @@ describe("eic-share v2 signed bundles", () => {
     const connection = await bob.getJson("connection:alice-id");
     expect(connection).toMatchObject({ pubkey: null, feedUrl: null });
   });
+
+  it("upgrades an unsigned connection to verified on signed re-import, preserving identity fields", async () => {
+    const alice = await open();
+    await postWithPhoto(alice, "p1", "shareable");
+    const { text: file } = await buildShareBundle(alice, settingsFor("alice-id", "alice"), await alice.listItems(), NOW);
+    const v1 = JSON.parse(file);
+    v1.version = 1;
+    delete v1.signature;
+    delete v1.author.pubkey;
+
+    const bob = await open();
+    const unsigned = await importShareBundle(bob, JSON.stringify(v1), { settings: settingsFor("bob-id", "bob"), newId, now: NOW });
+    expect(unsigned.verified).toBe(false);
+    const before = (await bob.getJson("connection:alice-id")) as Record<string, unknown>;
+    expect(before.pubkey).toBeNull();
+    // The owner gave this connection a local nickname after the unsigned import.
+    await bob.putJson("connection", "connection:alice-id", { ...before, nickname: "Queen" });
+
+    const later = new Date("2026-10-30T12:00:00Z");
+    const signed = await importShareBundle(bob, file, { settings: settingsFor("bob-id", "bob"), newId, now: later });
+    expect(signed.verified).toBe(true);
+    const after = (await bob.getJson("connection:alice-id")) as Record<string, unknown>;
+    expect(after.nickname).toBe("Queen");
+    expect(after.addedAt).toBe(before.addedAt);
+    expect(after.lastImportAt).toBe(later.toISOString());
+    // The re-import reset clears sync cursors (explicit user-initiated recovery) while keeping identity.
+    expect(after).toMatchObject({ syncSeq: 0, syncEtag: null, syncPending: false });
+    expect(typeof after.pubkey).toBe("string");
+    expect((after.pubkey as string).length).toBeGreaterThan(0);
+  });
 });
