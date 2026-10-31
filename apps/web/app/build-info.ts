@@ -2,5 +2,7 @@
 declare const __BUILD_SHA__: string;
 declare const __BUILD_DATE__: string;
 
-export const BUILD_SHA = __BUILD_SHA__;
-export const BUILD_DATE = __BUILD_DATE__;
+// Root-level tests do not load the web Vite config. Keep those imports safe
+// without inventing a build identity; Vite replaces the constants in real builds.
+export const BUILD_SHA = typeof __BUILD_SHA__ === "string" ? __BUILD_SHA__ : "dev";
+export const BUILD_DATE = typeof __BUILD_DATE__ === "string" ? __BUILD_DATE__ : "unknown";
