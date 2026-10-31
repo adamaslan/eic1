@@ -77,7 +77,7 @@ export async function markThreadRead(vault: UnlockedVault, threadAuthorId: strin
 
 export async function sendChatMessage(
   vault: UnlockedVault,
-  connection: { authorId: string; pubkey: string | null },
+  connection: { id: string; pubkey: string | null },
   body: string,
   deps: ChatDeps,
 ): Promise<ChatMessage> {
