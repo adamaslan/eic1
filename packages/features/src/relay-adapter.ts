@@ -17,9 +17,10 @@ import { CHUNK_ID_PATTERN, verifyRelayPublish, type RelayPublishRequest } from "
 //    older one is mid-commit, the older publish's flip fails and its objects are
 //    orphaned - never served. There is no unconditional write on the read path.
 //  - Published objects are immutable and seq-keyed (objects/<seq>/...). The state
-//    object is the versioned pointer: readers only ever follow a committed
-//    `current` path out of a committed state, so a stale in-flight publish cannot
-//    overwrite a newer feed.
+//    object's `current` is the versioned pointer: it is set atomically by the
+//    generation-guarded commit flip and survives pending claims, so readers always
+//    get the last fully-committed feed and a stale in-flight publish can neither
+//    overwrite a newer feed nor take the current one down.
 //  - Idempotent commit: a same-seq + same-manifestSha retry after a mid-commit crash
 //    resumes; a same-seq + different-manifest retry is a rejected rollback attempt.
 //  - The rate counter increments for every VALIDLY-SIGNED claim, including denied
@@ -33,9 +34,11 @@ import { CHUNK_ID_PATTERN, verifyRelayPublish, type RelayPublishRequest } from "
 //    with a cursor, all ops accounted. A bucket lifecycle rule (>=
 //    RELAY_READ_MAX_AGE_MS) is owner-approved backstop config, not the mechanism.
 //
-// Retention/ceiling note: age-based lifecycle deletion is asynchronous and soft-delete
-// state is a bucket config decision - neither is a strict storage ceiling, and no
-// zero-bill claim is made anywhere in this design.
+// Retention/ceiling note: orphaned seq objects (lost commit races, crashed publishes)
+// and superseded versions accumulate until cleaned - sweeping them is a PRE-DEPLOY
+// obligation for the host step, and any age-based lifecycle rule is asynchronous and
+// owner-approved bucket config: neither is a strict storage ceiling, and no zero-bill
+// claim is made anywhere in this design.
 
 export const RELAY_MAX_CAS_RETRIES = 3;
 export const RELAY_READ_MAX_AGE_MS = 5 * 60 * 1000;
@@ -178,6 +181,9 @@ export async function admitRelayPublish(
       windowCount: isResume ? prev.windowCount : (inWindow && prev ? prev.windowCount : 0) + 1,
       manifestSha,
       committed: false,
+      // The last committed pointer survives every pending claim: a stalled, crashed,
+      // or over-cap publish never takes the readable feed down with it.
+      current: prev?.current,
     };
     const newGeneration = entry
       ? await store.compareAndSet(statePath, JSON.stringify(next), { generation: entry.generation })
@@ -289,7 +295,10 @@ async function gateRelayRead(
   const entry = await store.get(`${request.feedPath}/.state.json`);
   if (!entry) throw new AppError("That feed is not on the relay.");
   const state: PublisherState = JSON.parse(entry.data);
-  if (!state.committed || !state.current) throw new AppError("That feed has not finished publishing.");
+  // Reads follow the last COMMITTED pointer. A pending (stalled, crashed, or
+  // over-cap) claim leaves it untouched, so availability never regresses; only a
+  // never-committed feed has nothing to serve.
+  if (!state.current) throw new AppError("That feed is not on the relay.");
   return { store, ops, state };
 }
 
