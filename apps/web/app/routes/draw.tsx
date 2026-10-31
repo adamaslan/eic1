@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { AppError, type Bytes } from "@veil/core";
-import { PHOTO_CATEGORY, saveComposedItem, type ComposedMedia } from "@veil/features";
+import { encodePalettePng, PHOTO_CATEGORY, saveComposedItem, type ComposedMedia } from "@veil/features";
 import type { Route } from "./+types/draw";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
@@ -32,7 +32,23 @@ const JPEG_QUALITY = 0.85;
 type FormatId = (typeof FORMATS)[number]["id"];
 const mimeFor = (format: FormatId) => FORMATS.find((candidate) => candidate.id === format)?.mime ?? "image/png";
 
+// The PNG export is palette-indexed (encodePalettePng): the fixed 16-color canvas snaps
+// to ~1-2KB for line art instead of ~6.5KB as RGBA, which is what lets a drawing fit a
+// share-one-post link. White moves to the last palette slot as the transparency fallback.
+const hexToRgb = (hex: string) => ({
+  r: parseInt(hex.slice(1, 3), 16),
+  g: parseInt(hex.slice(3, 5), 16),
+  b: parseInt(hex.slice(5, 7), 16),
+});
+const PNG_PALETTE = [...PALETTE.filter((hex) => hex !== "#ffffff"), "#ffffff"].map(hexToRgb);
+
 async function encodeCanvas(canvas: HTMLCanvasElement, mime: string, quality?: number): Promise<Bytes> {
+  if (mime === "image/png") {
+    const context = canvas.getContext("2d");
+    if (!context) throw new AppError("This browser could not encode the drawing.");
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    return encodePalettePng(canvas.width, canvas.height, pixels.data, PNG_PALETTE);
+  }
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mime, quality));
   if (!blob) throw new AppError("This browser could not encode the drawing.");
   return new Uint8Array(await blob.arrayBuffer());
