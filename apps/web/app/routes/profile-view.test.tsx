@@ -20,7 +20,7 @@ describe("ProfileView", () => {
         nickname={null}
         isOwn
         verified={null}
-        asOf={null}
+        importedAt={null}
         now={NOW}
       />,
     );
@@ -37,24 +37,25 @@ describe("ProfileView", () => {
         nickname="Bestie"
         isOwn={false}
         verified
-        asOf={new Date("2026-10-30T16:00:00.000Z")}
+        importedAt={"2026-10-30T16:00:00.000Z"}
         now={NOW}
       />,
     );
     expect(html).toContain("Bestie&#x27;s profile");
-    expect(html).toContain("Verified from @friend");
-    expect(html).toContain("as of");
+    expect(html).toContain("Signature verified from @friend");
+    expect(html).toContain("profile claims updated");
+    expect(html).toContain("received");
   });
 
   it("flags an unsigned connection profile", () => {
     const html = render(
-      <ProfileView profile={baseProfile()} handle="friend" nickname={null} isOwn={false} verified={false} asOf={null} now={NOW} />,
+      <ProfileView profile={baseProfile()} handle="friend" nickname={null} isOwn={false} verified={false} importedAt={null} now={NOW} />,
     );
     expect(html).toContain("Unsigned - trust the sender");
   });
 
   it("renders a profile with no decorations and no avatar", () => {
-    const html = render(<ProfileView profile={baseProfile()} handle={null} nickname={null} isOwn={false} verified={false} asOf={null} now={NOW} />);
+    const html = render(<ProfileView profile={baseProfile()} handle={null} nickname={null} isOwn={false} verified={false} importedAt={null} now={NOW} />);
     expect(html).toContain("PixelPal");
     expect(html).not.toContain("<img");
   });
@@ -73,7 +74,7 @@ describe("ProfileView", () => {
         },
       ],
     });
-    const html = render(<ProfileView profile={profile} handle={null} nickname={null} isOwn verified={null} asOf={null} now={NOW} />);
+    const html = render(<ProfileView profile={profile} handle={null} nickname={null} isOwn verified={null} importedAt={null} now={NOW} />);
     expect(html).toContain("data:image/svg+xml;base64,");
     expect(html).not.toContain("<script");
     expect(html).not.toContain("<svg");
@@ -81,7 +82,7 @@ describe("ProfileView", () => {
 
   it("renders a data-uri avatar through an img tag", () => {
     const profile = baseProfile({ avatar: { kind: "data-uri", mime: "image/png", data: "aGVsbG8=" } });
-    const html = render(<ProfileView profile={profile} handle={null} nickname={null} isOwn verified={null} asOf={null} now={NOW} />);
+    const html = render(<ProfileView profile={profile} handle={null} nickname={null} isOwn verified={null} importedAt={null} now={NOW} />);
     expect(html).toContain("data:image/png;base64,aGVsbG8=");
   });
 });
