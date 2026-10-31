@@ -47,6 +47,9 @@ export const ConnectionSchema = z.object({
   syncSeq: z.number().int().nonnegative().default(0),
   syncEtag: z.string().nullable().default(null),
   syncPending: z.boolean().default(false),
+  // Consecutive pulls of the same manifest seq that still had unfetchable chunks. Bounded so
+  // a permanently-missing chunk stops retrying instead of pending forever. Local-only.
+  syncRetry: z.number().int().nonnegative().default(0),
   // Last pull outcome and a short reason, for honest user-visible sync status. Local-only.
   syncStatus: z.string().default(""),
   syncDetail: z.string().default(""),
