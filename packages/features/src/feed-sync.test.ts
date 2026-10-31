@@ -156,7 +156,9 @@ describe("pull sync", () => {
     const tampered = snapshot.files.map((f) => (f.path === "chunks/posts.json" ? { ...f, text: f.text.replace("from alice", "forged") } : f));
     const { host } = { host: hostFor(tampered, "https://feeds.example/alice", "etag-1") };
     const conn = { ...(await listConnections(bob)).find((c) => c.id === "alice-id")!, feedUrl: "https://feeds.example/alice" };
-    await expect(syncConnection(bob, conn, { fetch: host.fetch, network: "wifi", newId: deps.newId, now: NOW })).rejects.toThrow("does not match");
+    const result = await syncConnection(bob, conn, { fetch: host.fetch, network: "wifi", newId: deps.newId, now: NOW });
+    expect(result.status).toBe("partial");
+    expect(result.rejectedChunks).toContain("posts.json");
   });
 
   it("rehydrates a fresh vault from a feed: posts come back; envelopes sealed to the lost key cannot be opened", async () => {
@@ -241,19 +243,44 @@ describe("pull sync", () => {
     expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncSeq).toBe(5);
   });
 
-  it("recovers from a same-key low-seq republish instead of failing forever", async () => {
+  it("refuses a same-key low-seq republish as a silent rollback (recovery stays manual)", async () => {
     const { alice, bob } = await pairedVaults();
     const { host: host7 } = await aliceFeed(alice, [shareable("p1", "week one")], 7, "https://feeds.example/alice");
     const conn = { ...(await listConnections(bob)).find((c) => c.id === "alice-id")!, feedUrl: "https://feeds.example/alice" };
     await syncConnection(bob, conn, { fetch: host7.fetch, network: "wifi", newId: deps.newId, now: NOW });
     expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncSeq).toBe(7);
 
-    // Alice restores an older backup and republishes at seq 3: same key, lower seq.
+    // A replayed/older snapshot at seq 3 must NOT roll back newer state: reject with an
+    // actionable error. Recovery after a vault rebuild is explicit - re-import the bundle,
+    // which clears the cursor - not a silent downgrade.
     const { host: host3 } = await aliceFeed(alice, [shareable("p1", "week one")], 3, "https://feeds.example/alice");
     const conn2 = { ...(await listConnections(bob)).find((c) => c.id === "alice-id")!, feedUrl: "https://feeds.example/alice" };
-    const recovered = await syncConnection(bob, conn2, { fetch: host3.fetch, network: "wifi", newId: deps.newId, now: NOW });
-    expect(recovered.status).toBe("applied");
-    expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncSeq).toBe(3);
+    await expect(syncConnection(bob, conn2, { fetch: host3.fetch, network: "wifi", newId: deps.newId, now: NOW })).rejects.toThrow("older sequence");
+    expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncSeq).toBe(7);
+  });
+
+  it("rejects a permanently invalid chunk once without retrying it or masquerading as deferred", async () => {
+    const { alice, bob } = await pairedVaults();
+    const { snapshot } = await aliceFeed(alice, [shareable("p1", "week one"), shareable("p2", "week two")], 4, "https://feeds.example/alice");
+    // Corrupt one chunk on the wire: its hash no longer matches the signed manifest.
+    const byUrl = new Map(snapshot.files.map((f) => [`https://feeds.example/alice/${f.path}`, f.text]));
+    byUrl.set("https://feeds.example/alice/chunks/posts.json", '{"forged":true}');
+    const fetch: SyncFetcher = async (url) => {
+      const text = byUrl.get(url);
+      return text === undefined ? { status: 404, etag: null, text: null } : { status: 200, etag: "e9", text };
+    };
+    const conn = { ...(await listConnections(bob)).find((c) => c.id === "alice-id")!, feedUrl: "https://feeds.example/alice" };
+    const result = await syncConnection(bob, conn, { fetch, network: "wifi", newId: deps.newId, now: NOW });
+    expect(result.status).toBe("partial");
+    expect(result.rejectedChunks).toContain("posts.json");
+    expect(result.pendingChunks).toHaveLength(0);
+    // The cursor advances past the rejected chunk, so the next pull takes the etag shortcut
+    // instead of refetching the invalid chunk forever.
+    expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncSeq).toBe(4);
+    expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncPending).toBe(false);
+    const again = await syncConnection(bob, { ...(await listConnections(bob)).find((c) => c.id === "alice-id")!, feedUrl: "https://feeds.example/alice" }, { fetch, network: "wifi", newId: deps.newId, now: NOW });
+    expect(again.status).toBe("unchanged");
+    expect(again.rejectedChunks).toHaveLength(0);
   });
 
   it("rejects a connection whose feed URL is not https (except localhost)", async () => {
