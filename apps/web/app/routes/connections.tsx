@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { AppError, HANDLE_MAX, timeAgo, type Connection } from "@veil/core";
 import {
+  KeyRotationError,
   MAX_SHARE_FILE_BYTES,
   buildChatInviteBundle,
   buildChatInviteLink,
@@ -113,6 +114,9 @@ export default function Connections() {
   // Synchronous guard: drop events and the import buttons can fire faster than setBusy renders.
   // Must stay above the early returns below - hooks may not be conditional (React error #310).
   const importing = useRef(false);
+  // A key-change import holds here until the user explicitly confirms the replacement.
+  const pendingRotation = useRef<{ read: () => Promise<string> } | null>(null);
+  const [rotationPrompt, setRotationPrompt] = useState<string | null>(null);
 
   if (items.status === "loading") return <p className="text-[12px]">Loading…</p>;
   if (items.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{items.message}</p>;
@@ -168,20 +172,40 @@ export default function Connections() {
     });
   }
 
-  function importText(read: () => Promise<string>): Promise<boolean> {
+  function importText(read: () => Promise<string>, allowKeyRotation = false): Promise<boolean> {
     if (importing.current) return Promise.resolve(false);
     importing.current = true;
-    return run(async () => {
-      if (!vault || !social.settingsReady) return "";
-      const result = await importShareBundle(vault, await read(), { settings, newId: newItemId, now: new Date() });
-      social.refresh();
-      const basis = result.verified ? `Verified signature from @${result.handle}` : `Unsigned file - trust the sender (@${result.handle})`;
-      const counts = `${result.added} new, ${result.updated} updated, ${result.likesReceived} new like${result.likesReceived === 1 ? "" : "s"} on your posts.`;
-      const upgrade = result.keyAdded ? ` Chat unlocked with @${result.handle} - verified key saved.` : "";
-      return `${basis}: ${counts}${upgrade}`;
-    }).finally(() => {
-      importing.current = false;
-    });
+    return (async () => {
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        if (!vault || !social.settingsReady) return false;
+        const result = await importShareBundle(vault, await read(), { settings, newId: newItemId, now: new Date() }, { allowKeyRotation });
+        social.refresh();
+        const basis = result.verified ? `Verified signature from @${result.handle}` : `Unsigned file - trust the sender (@${result.handle})`;
+        const counts = `${result.added} new, ${result.updated} updated, ${result.likesReceived} new like${result.likesReceived === 1 ? "" : "s"} on your posts.`;
+        const upgrade = result.keyAdded
+          ? ` Chat unlocked with @${result.handle} - verified key saved.`
+          : result.keyChanged
+            ? ` Key replaced for @${result.handle} - future chat seals to the new key.`
+            : "";
+        setNotice(`${basis}: ${counts}${upgrade}`);
+        return true;
+      } catch (caught) {
+        if (caught instanceof KeyRotationError) {
+          // Hold the import: replacing a trusted key needs its own explicit confirmation.
+          pendingRotation.current = { read };
+          setRotationPrompt(caught.message);
+        } else {
+          setError(caught instanceof AppError ? caught.message : "That did not work. Please try again.");
+        }
+        return false;
+      } finally {
+        setBusy(false);
+        importing.current = false;
+      }
+    })();
   }
 
   function importFile(file: File | undefined) {
@@ -365,6 +389,33 @@ export default function Connections() {
             <Button95 onClick={importPasted} disabled={busy || !social.settingsReady || !settings.handle || !pasted.trim()}>Import pasted text</Button95>
           </div>
           {!settings.handle && <p className="text-[#404040]">Choose a handle first.</p>}
+          {rotationPrompt && (
+            <div className="flex flex-col gap-1 bg-[#ffffe1] px-1.5 py-1">
+              <p role="alert">{rotationPrompt}</p>
+              <div className="flex gap-1">
+                <Button95
+                  onClick={() => {
+                    const pending = pendingRotation.current;
+                    pendingRotation.current = null;
+                    setRotationPrompt(null);
+                    if (pending) void importText(pending.read, true);
+                  }}
+                  disabled={busy}
+                >
+                  Replace saved key
+                </Button95>
+                <Button95
+                  onClick={() => {
+                    pendingRotation.current = null;
+                    setRotationPrompt(null);
+                  }}
+                  disabled={busy}
+                >
+                  Cancel
+                </Button95>
+              </div>
+            </div>
+          )}
           {notice && <p role="status">{notice}</p>}
           {error && <p role="alert" className="text-[#800000]">{error}</p>}
         </div>
