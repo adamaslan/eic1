@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Item, Settings } from "@veil/core";
-import { SubtleCryptoPort } from "@veil/crypto";
+import { encodeBase64, type Item, type Settings } from "@veil/core";
+import { SubtleCryptoPort, signPayload } from "@veil/crypto";
 import { createVault, type UnlockedVault } from "@veil/vault";
 import { MemoryStore } from "../../vault/src/memory-store";
 import { buildFeedSnapshot, chunkUrl, manifestUrl, parseFeedManifest } from "./feed";
 import { syncAllConnections, syncConnection, type SyncDeps, type SyncFetcher } from "./sync";
-import { buildShareBundle, importShareBundle } from "./sharing";
+import { buildShareBundle, importShareBundle, loadOrCreateShareIdentity } from "./sharing";
 import { defaultSettings, listConnections, saveSettings, setConnectionSyncState } from "./social";
 import { listChatThread, sendChatMessage } from "./chat";
 import { getSampleItems } from "./demo-items";
@@ -213,6 +213,53 @@ describe("pull sync", () => {
     expect(results.get("carol-id")!.status).toBe("failed");
     expect(results.get("alice-id")!.status).toBe("applied");
     expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncSeq).toBe(7);
+  });
+
+  it("skips unknown chunk kinds from a newer feed version instead of failing the manifest", async () => {
+    const { alice, bob } = await pairedVaults();
+    const { snapshot } = await aliceFeed(alice, [shareable("p1", "from alice")], 5, "https://feeds.example/alice");
+    // Inject a chunk of a kind this code does not know, and re-sign the manifest with Alice's key.
+    const manifest = JSON.parse(snapshot.manifest);
+    const futureBytes = new TextEncoder().encode("future-data");
+    const futureHash = encodeBase64(new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", futureBytes)));
+    manifest.chunks.push({ id: "future.json", kind: "hologram", bytes: 11, sha256: futureHash });
+    const { signature, ...unsigned } = manifest;
+    void signature;
+    const identity = await loadOrCreateShareIdentity(alice);
+    const reSigned = JSON.stringify({ ...unsigned, signature: encodeBase64(await signPayload(identity.secretKey, new TextEncoder().encode(JSON.stringify(unsigned)))) });
+    const byUrl = new Map(snapshot.files.map((f) => [`https://feeds.example/alice/${f.path}`, f.text]));
+    byUrl.set("https://feeds.example/alice/feed.json", reSigned);
+    byUrl.set("https://feeds.example/alice/chunks/future.json", "future-data");
+    const fetch: SyncFetcher = async (url) => {
+      const text = byUrl.get(url);
+      return text === undefined ? { status: 404, etag: null, text: null } : { status: 200, etag: "e5", text };
+    };
+    const conn = { ...(await listConnections(bob)).find((c) => c.id === "alice-id")!, feedUrl: "https://feeds.example/alice" };
+    const result = await syncConnection(bob, conn, { fetch, network: "wifi", newId: deps.newId, now: NOW });
+    expect(result.status).toBe("applied");
+    expect(result.appliedPosts).toBe(1);
+    expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncSeq).toBe(5);
+  });
+
+  it("recovers from a same-key low-seq republish instead of failing forever", async () => {
+    const { alice, bob } = await pairedVaults();
+    const { host: host7 } = await aliceFeed(alice, [shareable("p1", "week one")], 7, "https://feeds.example/alice");
+    const conn = { ...(await listConnections(bob)).find((c) => c.id === "alice-id")!, feedUrl: "https://feeds.example/alice" };
+    await syncConnection(bob, conn, { fetch: host7.fetch, network: "wifi", newId: deps.newId, now: NOW });
+    expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncSeq).toBe(7);
+
+    // Alice restores an older backup and republishes at seq 3: same key, lower seq.
+    const { host: host3 } = await aliceFeed(alice, [shareable("p1", "week one")], 3, "https://feeds.example/alice");
+    const conn2 = { ...(await listConnections(bob)).find((c) => c.id === "alice-id")!, feedUrl: "https://feeds.example/alice" };
+    const recovered = await syncConnection(bob, conn2, { fetch: host3.fetch, network: "wifi", newId: deps.newId, now: NOW });
+    expect(recovered.status).toBe("applied");
+    expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncSeq).toBe(3);
+  });
+
+  it("rejects a connection whose feed URL is not https (except localhost)", async () => {
+    const { bob } = await pairedVaults();
+    const conn = { ...(await listConnections(bob)).find((c) => c.id === "alice-id")!, feedUrl: "http://evil.example/alice" };
+    await expect(syncConnection(bob, conn, { fetch: async () => ({ status: 200, etag: null, text: "" }), network: "wifi", newId: deps.newId, now: NOW })).rejects.toThrow("https");
   });
 
   it("reports no-feed for connections without a feed URL", async () => {
