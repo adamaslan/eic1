@@ -12,9 +12,12 @@ export function meta(_args: Route.MetaArgs) {
   return [{ title: "untitled - Paint — Everybody is Cool" }];
 }
 
-// Small on purpose: a 320px canvas with a flat palette compresses to a few KB, so a drawing
-// usually fits inside a share-one-post link (8000-char cap) instead of needing a share file.
-const CANVAS_SIZE = 320;
+// Small on purpose: a 192px canvas (shown chunky at 320px, like old Paint) with a flat palette
+// compresses to a few KB, so a drawing usually fits inside a share-one-post link (8000-char cap,
+// and the bundle carries the thumbnail too) instead of needing a share file.
+const CANVAS_SIZE = 192;
+const DISPLAY_SIZE = 320;
+const THUMB_SIZE = 128;
 const PALETTE = [
   "#000000", "#808080", "#800000", "#808000", "#008000", "#008080", "#000080", "#800080",
   "#ffffff", "#c0c0c0", "#ff0000", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff",
@@ -140,7 +143,15 @@ export default function Draw() {
       const mime = mimeFor(format);
       const quality = format === "jpeg" ? JPEG_QUALITY : undefined;
       const bytes = await encodeCanvas(canvas, mime, quality);
-      const thumb = await encodeCanvas(canvas, mime, quality);
+      const thumbCanvas = document.createElement("canvas");
+      thumbCanvas.width = THUMB_SIZE;
+      thumbCanvas.height = THUMB_SIZE;
+      const thumbContext = thumbCanvas.getContext("2d");
+      if (!thumbContext) throw new AppError("This browser could not encode the drawing.");
+      thumbContext.fillStyle = "#ffffff";
+      thumbContext.fillRect(0, 0, THUMB_SIZE, THUMB_SIZE);
+      thumbContext.drawImage(canvas, 0, 0, THUMB_SIZE, THUMB_SIZE);
+      const thumb = await encodeCanvas(thumbCanvas, mime, quality);
       const media: ComposedMedia[] = [{ bytes, thumb, mime }];
       await saveComposedItem(
         vault,
