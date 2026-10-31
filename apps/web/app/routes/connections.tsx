@@ -1,6 +1,14 @@
 import { useRef, useState, type FormEvent } from "react";
-import { AppError, HANDLE_MAX, timeAgo } from "@veil/core";
-import { MAX_SHARE_FILE_BYTES, buildShareBundle, ensureAuthorId, importShareBundle } from "@veil/features";
+import { AppError, HANDLE_MAX, timeAgo, type Connection } from "@veil/core";
+import {
+  MAX_SHARE_FILE_BYTES,
+  buildShareBundle,
+  ensureAuthorId,
+  importShareBundle,
+  removeConnection,
+  setConnectionHidden,
+  setConnectionNickname,
+} from "@veil/features";
 import type { Route } from "./+types/connections";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
@@ -25,6 +33,9 @@ export default function Connections() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pasted, setPasted] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [nicknameDraft, setNicknameDraft] = useState("");
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   if (items.status === "loading") return <p className="text-[12px]">Loading…</p>;
   if (items.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{items.message}</p>;
@@ -103,6 +114,79 @@ export default function Connections() {
     });
   }
 
+  const postCountFor = (connectionId: string) => allItems.filter((item) => item.authorId === connectionId).length;
+  const visible = connections.filter((connection) => !connection.hidden);
+  const hiddenConns = connections.filter((connection) => connection.hidden);
+
+  function saveNickname(connectionId: string) {
+    void run(async () => {
+      if (!vault) return "";
+      await setConnectionNickname(vault, connectionId, nicknameDraft);
+      social.refresh();
+      setRenamingId(null);
+      return nicknameDraft.trim() ? "Nickname saved." : "Nickname cleared.";
+    });
+  }
+
+  function toggleHidden(connection: Connection) {
+    void run(async () => {
+      if (!vault) return "";
+      await setConnectionHidden(vault, connection.id, !connection.hidden);
+      social.refresh();
+      return connection.hidden ? `@${connection.handle} is back in the list.` : `@${connection.handle} hidden. Their posts are still in your vault.`;
+    });
+  }
+
+  function remove(connectionId: string, handle: string, dropPosts: boolean) {
+    void run(async () => {
+      if (!vault) return "";
+      const result = await removeConnection(vault, connectionId, { dropPosts });
+      social.refresh();
+      setRemovingId(null);
+      return dropPosts
+        ? `@${handle} removed, along with ${result.droppedPosts} of their post${result.droppedPosts === 1 ? "" : "s"}.`
+        : `@${handle} removed. Their posts are still in your vault.`;
+    });
+  }
+
+  function connectionRow(connection: Connection) {
+    const postCount = postCountFor(connection.id);
+    return (
+      <li key={connection.id} className="flex flex-col gap-1 bg-white px-1.5 py-1">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+          <span className="font-bold">
+            {connection.nickname ? `${connection.nickname} (@${connection.handle})` : `@${connection.handle}`}
+          </span>
+          <span className="text-[#404040]">
+            {postCount} post{postCount === 1 ? "" : "s"} · last import {timeAgo(connection.lastImportAt ?? connection.addedAt, new Date())} ago
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          <Button95 onClick={() => { setRenamingId(connection.id); setNicknameDraft(connection.nickname ?? ""); setRemovingId(null); }} disabled={busy}>Rename</Button95>
+          <Button95 onClick={() => toggleHidden(connection)} disabled={busy}>{connection.hidden ? "Unhide" : "Hide"}</Button95>
+          <Button95 onClick={() => { setRemovingId(connection.id); setRenamingId(null); }} disabled={busy}>Remove…</Button95>
+        </div>
+        {renamingId === connection.id && (
+          <div className="flex gap-1">
+            <input className={inputClass} value={nicknameDraft} maxLength={HANDLE_MAX} onChange={(e) => setNicknameDraft(e.target.value)} placeholder="Nickname (only you see it)" aria-label="Nickname" />
+            <Button95 onClick={() => saveNickname(connection.id)} disabled={busy}>Save</Button95>
+            <Button95 onClick={() => setRenamingId(null)} disabled={busy}>Cancel</Button95>
+          </div>
+        )}
+        {removingId === connection.id && (
+          <div className="flex flex-col gap-1 bg-[#ffffe1] px-1.5 py-1">
+            <span>Remove @{connection.handle}? You can keep their posts in your vault or drop them entirely.</span>
+            <div className="flex flex-wrap gap-1">
+              <Button95 onClick={() => remove(connection.id, connection.handle, false)} disabled={busy}>Remove, keep posts</Button95>
+              <Button95 onClick={() => remove(connection.id, connection.handle, true)} disabled={busy}>Remove + drop posts</Button95>
+              <Button95 onClick={() => setRemovingId(null)} disabled={busy}>Cancel</Button95>
+            </div>
+          </div>
+        )}
+      </li>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <Window title="Your handle">
@@ -156,18 +240,20 @@ export default function Connections() {
         </div>
       </Window>
 
-      <Window title={`Connections (${connections.length})`}>
+      <Window title={`Connections (${visible.length})`}>
         {connections.length === 0 ? (
           <p className="text-[12px]">No connections yet. Import a friend's share file to add one.</p>
         ) : (
-          <ul className="flex flex-col gap-1 text-[12px]">
-            {connections.map((connection) => (
-              <li key={connection.id} className="flex justify-between bg-white px-1.5 py-1">
-                <span className="font-bold">@{connection.handle}</span>
-                <span className="text-[#404040]">connected {timeAgo(connection.addedAt, new Date())} ago</span>
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col gap-2 text-[12px]">
+            <p>To refresh someone's posts, import their newest share file again - importing updates in place.</p>
+            {visible.length > 0 && <ul className="flex flex-col gap-1">{visible.map(connectionRow)}</ul>}
+            {hiddenConns.length > 0 && (
+              <details>
+                <summary>Hidden ({hiddenConns.length})</summary>
+                <ul className="mt-1 flex flex-col gap-1">{hiddenConns.map(connectionRow)}</ul>
+              </details>
+            )}
+          </div>
         )}
       </Window>
     </div>
