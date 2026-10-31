@@ -261,6 +261,9 @@ export interface ImportResult {
   // True when this import gave the connection a verified key it did not have before - the
   // moment chat unlocks for a previously unsigned (v1) connection.
   keyAdded: boolean;
+  // True when this import replaced an existing verified key with a different one. Only possible
+  // when the caller explicitly allowed rotation; future chat seals to the new key.
+  keyChanged: boolean;
 }
 
 /**
@@ -269,10 +272,14 @@ export interface ImportResult {
  * file twice updates text and counts but does not duplicate photos. There is no signature on the
  * file, so a handle or like in it is only as trustworthy as whoever sent it.
  */
+/** Thrown when an import would replace a connection's verified key without explicit consent. */
+export class KeyRotationError extends AppError {}
+
 export async function importShareBundle(
   vault: UnlockedVault,
   text: string,
   deps: { settings: Settings; newId: () => string; now: Date },
+  options: { allowKeyRotation?: boolean } = {},
 ): Promise<ImportResult> {
   const bundle = parseShareBundle(text);
   let verified = false;
@@ -295,6 +302,20 @@ export async function importShareBundle(
   const { author } = bundle;
   if (!deps.settings.authorId) throw new AppError("Choose a handle before importing.");
   if (author.id === deps.settings.authorId) throw new AppError("That is your own share file.");
+
+  // A signed bundle whose key differs from the one already trusted for this connection would
+  // silently re-seal future chat to the new key. Rotation stays possible (vault-rebuild
+  // recovery) but only when the caller explicitly confirmed it - never as an import side effect.
+  const connectionId = `connection:${author.id}`;
+  const prior = ConnectionSchema.safeParse(await vault.getJson(connectionId));
+  const priorPubkey = prior.success ? prior.data.pubkey : null;
+  const keyChanged =
+    bundle.version === SHARE_VERSION_V2 && priorPubkey !== null && bundle.author.pubkey !== priorPubkey;
+  if (keyChanged && !options.allowKeyRotation) {
+    throw new KeyRotationError(
+      `@${author.handle}'s key in this file differs from the key you already trust for them. Only replace it if they told you they rebuilt their vault.`,
+    );
+  }
 
   const records: EncryptedRecord[] = [];
   let added = 0;
@@ -369,8 +390,6 @@ export async function importShareBundle(
   }
 
   if (records.length > 0) await vault.putRecords(records);
-  const connectionId = `connection:${author.id}`;
-  const prior = ConnectionSchema.safeParse(await vault.getJson(connectionId));
   await vault.putJson("connection", connectionId, {
     id: author.id,
     handle: author.handle,
@@ -405,8 +424,8 @@ export async function importShareBundle(
     await addNote(vault, `Imported ${added} new and ${updated} updated posts from @${author.handle}.`, deps);
   }
   for (const noteText of noteTexts) await addNote(vault, noteText, deps);
-  const keyAdded = bundle.version === SHARE_VERSION_V2 && !(prior.success && prior.data.pubkey !== null);
-  return { handle: author.handle, added, updated, likesReceived, verified, keyAdded };
+  const keyAdded = bundle.version === SHARE_VERSION_V2 && priorPubkey === null;
+  return { handle: author.handle, added, updated, likesReceived, verified, keyAdded, keyChanged };
 }
 
 function toMime(mime: string): (typeof ALLOWED_MIME)[number] {
