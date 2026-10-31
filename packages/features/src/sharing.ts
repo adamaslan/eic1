@@ -13,10 +13,12 @@ import {
 } from "@veil/core";
 import type { UnlockedVault } from "@veil/vault";
 import { MAX_MEDIA_PER_ITEM } from "@veil/media";
+import { generateSigningKeyPair, signPayload, verifySignature } from "@veil/crypto";
 import { addNote } from "./social";
 
 export const SHARE_FORMAT = "eic-share";
 const SHARE_VERSION = 1;
+const SHARE_VERSION_V2 = 2;
 export const MAX_SHARE_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_POSTS = 100;
 const MAX_LIKES = 5000;
@@ -57,6 +59,57 @@ const ShareBundleSchema = z.object({
   likesComplete: z.boolean().optional(),
 });
 export type ShareBundle = z.infer<typeof ShareBundleSchema>;
+
+const ShareBundleV2Schema = z.object({
+  format: z.literal(SHARE_FORMAT),
+  version: z.literal(SHARE_VERSION_V2),
+  exportedAt: z.iso.datetime(),
+  author: z.object({
+    id: idField,
+    handle: ConnectionSchema.shape.handle,
+    // Ed25519 public key, base64. Signs `signature` over the bundle without that field.
+    pubkey: z.string().min(1),
+    // Where this author publishes their encrypted feed (eic-feed v1). Absent until sync lands.
+    feedUrl: z.string().min(1).optional(),
+  }),
+  posts: z.array(PostSchema).max(MAX_POSTS).refine(
+    (posts) => new Set(posts.map((post) => post.id)).size === posts.length,
+    "Duplicate post ids are not allowed.",
+  ),
+  likes: z.array(z.object({ ownerId: idField, postId: idField })).max(MAX_LIKES),
+  likesComplete: z.boolean().optional(),
+  signature: z.string().min(1),
+});
+export type ShareBundleV2 = z.infer<typeof ShareBundleV2Schema>;
+
+// Canonical signed payload: the schema-parsed bundle minus its signature. JSON.stringify is
+// deterministic for schema-round-tripped values, so signer and verifier serialize identically.
+function signingPayload(bundle: ShareBundleV2): Bytes {
+  const { signature: _signature, ...unsigned } = bundle;
+  return new TextEncoder().encode(JSON.stringify(unsigned));
+}
+
+// Per-author Ed25519 identity, sealed in the vault like any other secret. Created on first share.
+const SHARE_IDENTITY_RECORD_ID = "identity:share";
+const ShareIdentitySchema = z.object({
+  publicKey: z.string().min(1),
+  secretKey: z.string().min(1),
+  schemaVersion: z.literal(1),
+});
+
+async function loadOrCreateShareIdentity(vault: UnlockedVault): Promise<{ publicKey: Bytes; secretKey: Bytes }> {
+  const existing = ShareIdentitySchema.safeParse(await vault.getJson(SHARE_IDENTITY_RECORD_ID));
+  if (existing.success) {
+    return { publicKey: decodeBase64(existing.data.publicKey), secretKey: decodeBase64(existing.data.secretKey) };
+  }
+  const pair = await generateSigningKeyPair();
+  await vault.putJson("identity", SHARE_IDENTITY_RECORD_ID, {
+    publicKey: encodeBase64(pair.publicKey),
+    secretKey: encodeBase64(pair.secretKey),
+    schemaVersion: 1,
+  });
+  return pair;
+}
 
 const importedId = (authorId: string, postId: string) => `post:${authorId}:${postId}`;
 
@@ -116,31 +169,40 @@ export async function buildShareBundle(
     postId: item.id.slice(`post:${item.authorId}:`.length),
   }));
 
-  const bundle: ShareBundle = {
+  const identity = await loadOrCreateShareIdentity(vault);
+  const unsigned = {
     format: SHARE_FORMAT,
-    version: SHARE_VERSION,
+    version: SHARE_VERSION_V2,
     exportedAt: now.toISOString(),
-    author: { id: settings.authorId, handle: settings.handle },
+    author: { id: settings.authorId, handle: settings.handle, pubkey: encodeBase64(identity.publicKey) },
     posts,
     likes,
     likesComplete: !single,
-  };
-  const text = JSON.stringify(bundle);
+  } as const;
+  const signature = await signPayload(identity.secretKey, new TextEncoder().encode(JSON.stringify(unsigned)));
+  const text = JSON.stringify({ ...unsigned, signature: encodeBase64(signature) });
   if (new TextEncoder().encode(text).byteLength >= MAX_SHARE_FILE_BYTES) {
     throw new AppError("That share file is too large. Make fewer posts shareable and try again.");
   }
   return { text, postCount: posts.length };
 }
 
-export function parseShareBundle(text: string): ShareBundle {
+export function parseShareBundle(text: string): ShareBundle | ShareBundleV2 {
   if (new TextEncoder().encode(text).byteLength >= MAX_SHARE_FILE_BYTES) {
-    throw new VaultCorruptError("That share file is too large.");
+    throw new VaultCorruptError("That file is too large.");
   }
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
     throw new VaultCorruptError("That file is not a share file.");
+  }
+  if ((json as { version?: unknown }).version === SHARE_VERSION_V2) {
+    const v2 = ShareBundleV2Schema.safeParse(json);
+    if (!v2.success) {
+      throw new VaultCorruptError("That file is not a share file, or it is from a newer version.");
+    }
+    return v2.data;
   }
   const parsed = ShareBundleSchema.safeParse(json);
   if (!parsed.success) {
@@ -154,6 +216,9 @@ export interface ImportResult {
   added: number;
   updated: number;
   likesReceived: number;
+  // True when the bundle was an eic-share v2 file whose Ed25519 signature verified against the
+  // author's embedded public key. v1 files are unsigned: trust comes from whoever sent the file.
+  verified: boolean;
 }
 
 /**
@@ -168,6 +233,23 @@ export async function importShareBundle(
   deps: { settings: Settings; newId: () => string; now: Date },
 ): Promise<ImportResult> {
   const bundle = parseShareBundle(text);
+  let verified = false;
+  if (bundle.version === SHARE_VERSION_V2) {
+    let ok = false;
+    try {
+      ok = await verifySignature(
+        decodeBase64(bundle.author.pubkey),
+        signingPayload(bundle),
+        decodeBase64(bundle.signature),
+      );
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      throw new VaultCorruptError("That share file's signature does not check out. Ask the sender for a fresh export.");
+    }
+    verified = true;
+  }
   const { author } = bundle;
   if (!deps.settings.authorId) throw new AppError("Choose a handle before importing.");
   if (author.id === deps.settings.authorId) throw new AppError("That is your own share file.");
@@ -249,13 +331,15 @@ export async function importShareBundle(
     id: author.id,
     handle: author.handle,
     addedAt: deps.now.toISOString(),
+    pubkey: bundle.version === SHARE_VERSION_V2 ? bundle.author.pubkey : null,
+    feedUrl: bundle.version === SHARE_VERSION_V2 ? (bundle.author.feedUrl ?? null) : null,
     schemaVersion: 1,
   });
   if (added + updated > 0) {
     await addNote(vault, `Imported ${added} new and ${updated} updated posts from @${author.handle}.`, deps);
   }
   for (const noteText of noteTexts) await addNote(vault, noteText, deps);
-  return { handle: author.handle, added, updated, likesReceived };
+  return { handle: author.handle, added, updated, likesReceived, verified };
 }
 
 function toMime(mime: string): (typeof ALLOWED_MIME)[number] {
