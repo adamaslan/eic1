@@ -30,6 +30,10 @@ import {
 export const RELAY_MAX_FILES_PER_PUBLISH = 100;
 export const RELAY_MAX_CHUNK_BYTES = 1024 * 1024;
 
+/** The one chunk-id schema shared by publish admission here and chunk reads in
+ * relay-adapter.ts. Ids outside it are rejected on BOTH paths. */
+export const CHUNK_ID_PATTERN = /^chat-[a-zA-Z0-9_-]{1,128}\.json$/;
+
 async function sha256Base64(text: string): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return encodeBase64(new Uint8Array(digest));
@@ -149,6 +153,7 @@ export async function verifyRelayPublish(
   for (const ref of manifest.chunks) {
     if (ref.kind !== "chat") throw new VaultCorruptError("The chat relay does not store posts, likes, or profile chunks.");
     if (ref.bytes > RELAY_MAX_CHUNK_BYTES) throw new VaultCorruptError("That feed chunk is too large.");
+    if (!CHUNK_ID_PATTERN.test(ref.id)) throw new VaultCorruptError("That feed chunk's name is not allowed.");
   }
 
   // Every uploaded file must be feed.json or a manifest-pinned chunk with matching bytes+hash.
