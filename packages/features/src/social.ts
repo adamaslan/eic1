@@ -185,6 +185,10 @@ export interface ConnectionSyncState {
   seq: number;
   etag: string | null;
   pending: boolean;
+  // Consecutive unfetchable-chunk count for the current manifest seq; omitted leaves the
+  // recorded value untouched (cursor-only writes).
+  retry?: number;
+  exhausted?: boolean;
   // Durable user-visible outcome of the last pull ("applied" | "unchanged" | "deferred" |
   // "partial" | "failed" | "no-feed") plus a short reason. Optional so cursor-only writes
   // (etag refresh on an unchanged manifest) do not clobber the recorded outcome.
@@ -203,6 +207,8 @@ export async function setConnectionSyncState(
     syncSeq: state.seq,
     syncEtag: state.etag,
     syncPending: state.pending,
+    syncRetry: state.retry ?? connection.syncRetry,
+    syncExhausted: state.exhausted ?? connection.syncExhausted,
     syncStatus: state.status ?? connection.syncStatus,
     syncDetail: state.detail ?? connection.syncDetail,
   }));
