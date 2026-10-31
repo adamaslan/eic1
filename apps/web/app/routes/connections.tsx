@@ -55,6 +55,12 @@ export function ConnectionsList({
               <Link to={`/chat/${connection.id}`} className="underline">
                 Chat
               </Link>
+              {connection.syncStatus && connection.syncStatus !== "applied" && connection.syncStatus !== "unchanged" && (
+                <span role="status" className="bg-[#ffffe1] px-1 text-[#800000]">
+                  sync {connection.syncStatus}
+                  {connection.syncDetail ? `: ${connection.syncDetail}` : ""}
+                </span>
+              )}
               <span className="text-[#404040]">connected {timeAgo(connection.addedAt, now)} ago</span>
             </span>
           </li>
@@ -321,4 +327,3 @@ export default function Connections() {
     </div>
   );
 }
-
