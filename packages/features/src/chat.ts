@@ -159,3 +159,15 @@ export async function applyInboundChatEnvelope(
   await vault.putJson(CHAT_KIND as never, recordIdFor(message.id), message);
   return { applied: true, message };
 }
+
+/** Outbound chat envelopes grouped by recipient, for the feed publish (#16). Envelopes only - bodies stay local. */
+export async function listOutboundChatEnvelopes(vault: UnlockedVault): Promise<Map<string, SyncEnvelope[]>> {
+  const byRecipient = new Map<string, SyncEnvelope[]>();
+  for (const message of await listAllMessages(vault)) {
+    if (message.direction !== "out" || !message.envelope) continue;
+    const list = byRecipient.get(message.threadAuthorId) ?? [];
+    list.push(message.envelope as SyncEnvelope);
+    byRecipient.set(message.threadAuthorId, list);
+  }
+  return byRecipient;
+}
