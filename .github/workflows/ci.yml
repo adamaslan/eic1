@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: eslint - rules-of-hooks is an error
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # npm install, not npm ci: the root lockfile predates the eslint/playwright
+      # devDependencies. Regenerating and committing it is a follow-up.
+      - run: npm install
+      - run: npm run lint
+
+  unit:
+    name: vitest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: npm test
+
+  transition-smoke:
+    name: playwright transition smoke - netlify deploy preview
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: npx playwright install --with-deps chromium
+      - name: Wait for the Netlify deploy preview of this commit
+        id: preview
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          sha="${{ github.event.pull_request.head.sha }}"
+          url="https://deploy-preview-${{ github.event.pull_request.number }}--everybodyiscool.netlify.app"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          # Prefer Netlify's commit status for THIS commit so we never test a stale
+          # preview; if Netlify posts no commit status, fall back to polling the URL.
+          for i in $(seq 1 90); do
+            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs" --jq '[.check_runs[] | select(.name | ascii_downcase | contains("deploy-preview")) | .conclusion] | first // ""' 2>/dev/null || echo "")
+            if [ "$state" = "success" ]; then
+              echo "Netlify reports a successful deploy for $sha"
+              exit 0
+            fi
+            if [ -z "$state" ]; then
+              code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)
+              if [ "$code" = "200" ]; then
+                echo "No Netlify commit status; preview URL answers 200"
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+          echo "Deploy preview never became ready" >&2
+          exit 1
+      - name: Run transition smoke against the deploy preview
+        run: npx playwright test
+        env:
+          DEPLOY_PREVIEW_URL: ${{ steps.preview.outputs.url }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
