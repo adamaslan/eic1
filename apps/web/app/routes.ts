@@ -7,6 +7,7 @@ export default [
     route("market", "routes/market.tsx"),
     route("compose", "routes/compose.tsx"),
     route("connections", "routes/connections.tsx"),
+    route("chat/:authorId", "routes/chat.tsx"),
     route("tools", "routes/tools.tsx"),
     route("tools/journal", "routes/journal.tsx"),
     route("vault", "routes/vault.tsx"),
