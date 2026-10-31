@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { httpSyncFetcher } from "./sync-fetcher";
+import { detectSyncNetwork, httpSyncFetcher } from "./sync-fetcher";
 
 describe("httpSyncFetcher", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -19,5 +19,23 @@ describe("httpSyncFetcher", () => {
     vi.stubGlobal("fetch", async () => new Response(null, { status: 304 }));
     const res = await httpSyncFetcher("https://friend.example/feed/manifest.json", null);
     expect(res).toEqual({ status: 304, etag: null, text: null });
+  });
+});
+
+describe("detectSyncNetwork", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("treats unknown connectivity as cellular (wi-fi-only default)", () => {
+    vi.stubGlobal("navigator", {});
+    expect(detectSyncNetwork()).toBe("cellular");
+  });
+
+  it("reports wifi only for wifi/ethernet transport", () => {
+    vi.stubGlobal("navigator", { connection: { type: "wifi" } });
+    expect(detectSyncNetwork()).toBe("wifi");
+    vi.stubGlobal("navigator", { connection: { type: "cellular" } });
+    expect(detectSyncNetwork()).toBe("cellular");
+    vi.stubGlobal("navigator", { connection: { type: "wifi", saveData: true } });
+    expect(detectSyncNetwork()).toBe("cellular");
   });
 });
