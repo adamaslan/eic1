@@ -4,9 +4,12 @@ import { generateSigningKeyPair, signPayload } from "@veil/crypto";
 import {
   admitRelayPublish,
   countingStore,
+  serveRelayChunk,
   serveRelayRead,
   signRelayRead,
+  sweepExpiredNonces,
   RELAY_MAX_CAS_RETRIES,
+  RELAY_MAX_NONCE_CHARS,
   type RelayAtomicStore,
   type StoreEntry,
 } from "./relay-adapter";
@@ -36,6 +39,12 @@ function memStore(barrier?: { wait(): Promise<void> }) {
     async putObject(path, text) {
       gen += 1;
       data.set(path, { data: text, generation: `g${gen}` });
+    },
+    async list(prefix) {
+      return [...data.keys()].filter((k) => k.startsWith(prefix));
+    },
+    async delete(path) {
+      data.delete(path);
     },
   };
   return { store, data };
@@ -70,7 +79,7 @@ describe("admitRelayPublish", () => {
     expect(result.publisherPath).toBe(await publisherPath(encodeBase64(key.publicKey)));
     expect(data.has(`${result.publisherPath}/feed.json`)).toBe(true);
     expect(data.has(`${result.publisherPath}/chunks/chat-peer.json`)).toBe(true);
-    expect(result.ops.reads).toBe(1);
+    expect(result.ops.reads).toBe(2); // seq-claim read + commit-flag read
     expect(result.ops.writes).toBe(2);
   });
 
@@ -187,7 +196,7 @@ describe("serveRelayRead", () => {
     const { store } = memStore();
     const { store: counted, ops } = countingStore(store);
     const reader = await generateSigningKeyPair();
-    const req = await readRequest(reader, "feeds/abc", Date.parse("2026-10-31T00:00:00Z"), "n1");
+    const req = await readRequest(reader, "feeds/abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst", Date.parse("2026-10-31T00:00:00Z"), "n1");
     await expect(serveRelayRead(counted, req, { now: new Date("2026-10-31T01:00:00Z") })).rejects.toThrow(/too old/);
     expect(ops).toEqual({ reads: 0, casAttempts: 0, writes: 0 });
   });
@@ -196,9 +205,142 @@ describe("serveRelayRead", () => {
     const { store } = memStore();
     const { store: counted, ops } = countingStore(store);
     const reader = await generateSigningKeyPair();
-    const req = await readRequest(reader, "feeds/abc", Date.parse("2026-10-31T00:00:00Z"), "n2");
-    req.feedPath = "feeds/other"; // signature no longer covers the request
+    const req = await readRequest(reader, "feeds/abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst", Date.parse("2026-10-31T00:00:00Z"), "n2");
+    req.feedPath = "feeds/zzzzzzzzzzzzzzzzzzzzzzzzzz22222222222222222222222222"; // signature no longer covers the request
     await expect(serveRelayRead(counted, req, { now: new Date("2026-10-31T00:00:30Z") })).rejects.toThrow(/signature/);
     expect(ops).toEqual({ reads: 0, casAttempts: 0, writes: 0 });
+  });
+});
+
+describe("admitRelayPublish idempotent recovery", () => {
+  it("resumes a same-seq, same-manifest retry after a mid-commit crash", async () => {
+    const { store, data } = memStore();
+    const key = await generateSigningKeyPair();
+    const { request } = await signedPublish({ seq: 4, key });
+    // Simulate the crash: claim seq 4 via a partial run, then delete the objects the
+    // crashed attempt never wrote and mark the state uncommitted.
+    const path = await publisherPath(encodeBase64(key.publicKey));
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(request.manifest));
+    const { encodeBase64: enc } = await import("@veil/core");
+    const sha = enc(new Uint8Array(digest));
+    await store.putObject(`${path}/.state.json`, JSON.stringify({
+      lastSeq: 4, windowStartMs: OPTS.now.getTime(), windowCount: 1, manifestSha: sha, committed: false,
+    }));
+    const result = await admitRelayPublish(store, request, OPTS);
+    expect(result.publisherPath).toBe(path);
+    expect(data.has(`${path}/feed.json`)).toBe(true);
+    const state = JSON.parse(data.get(`${path}/.state.json`)!.data);
+    expect(state.committed).toBe(true);
+    expect(state.windowCount).toBe(1); // not double-counted
+  });
+
+  it("rejects a same-seq retry with a DIFFERENT manifest (rollback attempt)", async () => {
+    const { store } = memStore();
+    const key = await generateSigningKeyPair();
+    const first = await signedPublish({ seq: 4, key });
+    await admitRelayPublish(store, first.request, OPTS);
+    // Different manifest bytes at the same seq: tamper builtAt then re-sign.
+    const parsed = JSON.parse(first.request.manifest);
+    delete parsed.signature;
+    parsed.builtAt = "2026-10-31T01:00:00.000Z";
+    const signature = await signPayload(key.secretKey, new TextEncoder().encode(JSON.stringify(parsed)));
+    const tampered = JSON.stringify({ ...parsed, signature: encodeBase64(signature) });
+    await expect(
+      admitRelayPublish(store, { manifest: tampered, files: first.request.files.map((f) => f.path === "feed.json" ? { ...f, text: tampered } : f) }, OPTS),
+    ).rejects.toThrow(/not newer/);
+  });
+});
+
+describe("serveRelayChunk", () => {
+  it("serves a chunk under the same signed-nonce rule and denies its replay", async () => {
+    const { store } = memStore();
+    const pub = await signedPublish({ seq: 1 });
+    await admitRelayPublish(store, pub.request, OPTS);
+    const path = await publisherPath(encodeBase64(pub.key.publicKey));
+    const reader = await generateSigningKeyPair();
+    const now = Date.parse("2026-10-31T00:00:30Z");
+    const chunkId = "chat-peer.json";
+    const nonce = encodeBase64(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+    const req = {
+      pubkey: encodeBase64(reader.publicKey),
+      feedPath: path,
+      chunkId,
+      ts: now,
+      nonce,
+      signature: await signRelayRead(reader.secretKey, { feedPath: `${path}/chunks/${chunkId}`, ts: now, nonce }),
+    };
+    const first = await serveRelayChunk(store, req, { now: new Date(now + 1000) });
+    expect(first.chunk).toContain("eic-feed-chunk");
+    await expect(serveRelayChunk(store, req, { now: new Date(now + 2000) })).rejects.toThrow(/already been used/);
+  });
+
+  it("rejects a manifest-read signature replayed against a chunk path", async () => {
+    const { store } = memStore();
+    const pub = await signedPublish({ seq: 1 });
+    await admitRelayPublish(store, pub.request, OPTS);
+    const path = await publisherPath(encodeBase64(pub.key.publicKey));
+    const reader = await generateSigningKeyPair();
+    const now = Date.parse("2026-10-31T00:00:30Z");
+    const nonce = encodeBase64(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+    // Signature over the MANIFEST path, presented for a chunk read.
+    const req = {
+      pubkey: encodeBase64(reader.publicKey),
+      feedPath: path,
+      chunkId: "chat-peer.json",
+      ts: now,
+      nonce,
+      signature: await signRelayRead(reader.secretKey, { feedPath: path, ts: now, nonce }),
+    };
+    await expect(serveRelayChunk(store, req, { now: new Date(now + 1000) })).rejects.toThrow(/signature/);
+  });
+
+  it("rejects a path-unsafe chunk id before any store op", async () => {
+    const { store } = memStore();
+    const { store: counted, ops } = countingStore(store);
+    const reader = await generateSigningKeyPair();
+    const now = Date.parse("2026-10-31T00:00:30Z");
+    const nonce = encodeBase64(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+    const req = {
+      pubkey: encodeBase64(reader.publicKey),
+      feedPath: "feeds/abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst",
+      chunkId: "../.state.json",
+      ts: now,
+      nonce,
+      signature: await signRelayRead(reader.secretKey, { feedPath: "x", ts: now, nonce }),
+    };
+    await expect(serveRelayChunk(counted, req, { now: new Date(now + 1000) })).rejects.toThrow(/damaged/);
+    expect(ops).toEqual({ reads: 0, casAttempts: 0, writes: 0 });
+  });
+});
+
+describe("read field limits", () => {
+  it("rejects an oversized nonce before any store op", async () => {
+    const { store } = memStore();
+    const { store: counted, ops } = countingStore(store);
+    const reader = await generateSigningKeyPair();
+    const now = Date.parse("2026-10-31T00:00:30Z");
+    const req = {
+      pubkey: encodeBase64(reader.publicKey),
+      feedPath: "feeds/abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst",
+      ts: now,
+      nonce: "n".repeat(RELAY_MAX_NONCE_CHARS + 1),
+      signature: "whatever",
+    };
+    await expect(serveRelayRead(counted, req, { now: new Date(now + 1000) })).rejects.toThrow(/damaged/);
+    expect(ops).toEqual({ reads: 0, casAttempts: 0, writes: 0 });
+  });
+});
+
+describe("sweepExpiredNonces", () => {
+  it("deletes expired nonces and keeps fresh ones", async () => {
+    const { store } = memStore();
+    const old = Date.parse("2026-10-31T00:00:00Z");
+    await store.putObject("replay/reader-a/n1", String(old));
+    await store.putObject("replay/reader-a/n2", String(old + 4 * 60_000));
+    const now = new Date(old + 6 * 60_000);
+    const result = await sweepExpiredNonces(store, now);
+    expect(result.deleted).toBe(1);
+    expect(await store.get("replay/reader-a/n1")).toBeNull();
+    expect(await store.get("replay/reader-a/n2")).not.toBeNull();
   });
 });
