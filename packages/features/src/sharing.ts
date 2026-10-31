@@ -353,6 +353,16 @@ export async function importShareBundle(
         : prior.success
           ? prior.data.feedUrl
           : null,
+    // Explicit re-import reset: bringing a bundle in by hand clears the sync cursors, so a
+    // friend who rebuilt their vault (republishing at a lower seq) syncs again from their new
+    // sequence. This is the user-initiated recovery path - pulls never roll back on their own.
+    // Note this also runs when a posts chunk applies during sync; the pull then writes the
+    // manifest cursors right after, so the reset only sticks for genuine re-imports.
+    syncSeq: 0,
+    syncEtag: null,
+    syncPending: false,
+    syncStatus: "",
+    syncDetail: "",
     schemaVersion: 1,
   });
   if (added + updated > 0) {
