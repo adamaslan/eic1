@@ -206,6 +206,7 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     etag: head.etag ?? connection.syncEtag,
     pending: pendingChunks.length > 0,
     retry,
+    exhausted,
     status,
     detail,
   });
