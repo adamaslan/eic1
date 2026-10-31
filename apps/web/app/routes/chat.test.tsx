@@ -68,12 +68,13 @@ describe("ChatThreadView", () => {
     expect(html).toContain("You");
   });
 
-  it("states the pull-model honesty note and renders an empty thread", () => {
+  it("states the honest local-only delivery note and invites a first message when verified", () => {
     const html = render(
       <ChatThreadView handle="friend" verified messages={[]} draft="" busy={false} error={null} onDraft={noop} onSend={sendNoop} />,
     );
-    expect(html).toContain("pulls your");
-    expect(html).toContain("No messages yet");
+    expect(html).toContain("Automatic delivery is not connected yet");
+    expect(html).not.toContain("pulls your");
+    expect(html).toContain("Say hi");
   });
 
   it("is read-only with a clear notice for an unsigned connection", () => {
@@ -81,7 +82,9 @@ describe("ChatThreadView", () => {
       <ChatThreadView handle="friend" verified={false} messages={[]} draft="" busy={false} error={null} onDraft={noop} onSend={sendNoop} />,
     );
     expect(html).toContain("unsigned share file");
+    expect(html).toContain("import it from the Connections screen");
     expect(html).toContain("Chat needs a verified connection");
+    expect(html).not.toContain("Say hi");
     const send = html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g)?.find((button) => button.includes(">Send<"));
     expect(send).toContain('disabled=""');
   });

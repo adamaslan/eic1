@@ -46,19 +46,20 @@ export function ChatThreadView({
       <Window title={`Chat with @${handle}`}>
         <div className="flex flex-col gap-2 text-[12px]">
           <p className="bg-[#ffffe1] px-1.5 py-1">
-            Messages are sealed for @{handle} and stored in your vault; they reach your friend when their app pulls your
-            feed. Chat is offline-first, not instant - everything you see renders from local data.
+            Messages are sealed for @{handle} and stored in your vault. Automatic delivery is not connected yet, so for
+            now they stay on this device. Chat is offline-first - everything you see renders from local data.
           </p>
           {!verified && (
             <p role="alert" className="bg-[#ffffe1] px-1.5 py-1">
-              This connection came from an unsigned share file, so chat is read-only. Ask them for a new signed share
-              file to chat.
+              This connection came from an unsigned share file, so chat is read-only. To chat, ask @{handle} for a new
+              signed share file and import it from the Connections screen. Your thread, nickname, and settings are kept
+              when you re-import.
             </p>
           )}
           {messages === null ? (
             <p>Loading…</p>
           ) : messages.length === 0 ? (
-            <p>No messages yet. Say hi - the first one is on you.</p>
+            <p>{verified ? "No messages yet. Say hi - the first one is on you." : "No messages yet."}</p>
           ) : (
             <ul className="flex flex-col gap-1">
               {messages.map((message) => (
