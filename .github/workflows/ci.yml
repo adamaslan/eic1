@@ -23,6 +23,17 @@ jobs:
       - run: npm install
       - run: npm run lint
 
+  typecheck:
+    name: tsc --noEmit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: npm run typecheck --workspace web
+
   unit:
     name: vitest
     runs-on: ubuntu-latest
