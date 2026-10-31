@@ -13,6 +13,16 @@ import { listConnections, loadSettings } from "./social";
 export const CHAT_KIND = "chat";
 export const CHAT_BODY_MAX = 2000;
 
+/**
+ * User-facing copy for a failed send. AppError messages are written for users and pass
+ * through; anything else (crypto, IndexedDB, etc.) gets a generic line that stays honest:
+ * the route only clears the draft on success, so the unsent text is still in the box.
+ */
+export function describeSendError(caught: unknown): string {
+  if (caught instanceof AppError) return caught.message;
+  return "That did not send. Your message is still in the box - please try again.";
+}
+
 export const ChatMessageSchema = z.object({
   v: z.literal(1),
   id: z.string().min(1),
