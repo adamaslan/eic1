@@ -3,6 +3,7 @@ import type { Route } from "./+types/landing";
 import { Window } from "~/ui95/Window";
 import { Bevel } from "~/ui95/Bevel";
 import { useSessionStore } from "~/platform/session";
+import { BUILD_DATE, BUILD_SHA } from "~/build-info";
 import { LandingDashboard } from "~/components/landing-dashboard";
 import { LandingPreview } from "~/components/landing-preview";
 
@@ -102,6 +103,9 @@ export default function Landing() {
           <Link to="/showcase" className="text-white underline">
             UI kit
           </Link>
+          <span className="ml-2 text-[#c0c0c0]" title={`Built ${BUILD_DATE}`}>
+            build {BUILD_SHA}
+          </span>
         </p>
       </div>
     </main>
