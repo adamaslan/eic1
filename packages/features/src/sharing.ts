@@ -12,6 +12,7 @@ import {
   type Settings,
 } from "@veil/core";
 import type { UnlockedVault } from "@veil/vault";
+import { isValidFeedUrl } from "./feed";
 import { MAX_MEDIA_PER_ITEM } from "@veil/media";
 import { generateSigningKeyPair, signPayload, verifySignature } from "@veil/crypto";
 import { addNote } from "./social";
@@ -343,7 +344,15 @@ export async function importShareBundle(
     hidden: prior.success ? prior.data.hidden : false,
     lastImportAt: deps.now.toISOString(),
     pubkey: bundle.version === SHARE_VERSION_V2 ? bundle.author.pubkey : (prior.success ? prior.data.pubkey : null),
-    feedUrl: bundle.version === SHARE_VERSION_V2 ? (bundle.author.feedUrl ?? null) : (prior.success ? prior.data.feedUrl : null),
+    // A bundle without a feedUrl keeps the prior one (re-exports may predate the publish setup);
+    // an invalid feedUrl is dropped rather than stored.
+    feedUrl:
+      bundle.version === SHARE_VERSION_V2
+        ? ((bundle.author.feedUrl && isValidFeedUrl(bundle.author.feedUrl) ? bundle.author.feedUrl : null) ??
+          (prior.success ? prior.data.feedUrl : null))
+        : prior.success
+          ? prior.data.feedUrl
+          : null,
     schemaVersion: 1,
   });
   if (added + updated > 0) {
