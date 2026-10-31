@@ -4,7 +4,7 @@ import { SubtleCryptoPort } from "@veil/crypto";
 import { createVault, newRecordId, type UnlockedVault } from "@veil/vault";
 import { MemoryStore } from "../../vault/src/memory-store";
 import { getSampleItems } from "./demo-items";
-import { buildShareBundle, importShareBundle, parseShareBundle, MAX_SHARE_FILE_BYTES } from "./sharing";
+import { buildChatInviteBundle, buildShareBundle, importShareBundle, parseShareBundle, MAX_SHARE_FILE_BYTES } from "./sharing";
 import { addNote, defaultSettings, listConnections, listNotes, saveSettings, loadSettings, toggleLike } from "./social";
 
 const NOW = new Date("2026-10-29T12:00:00Z");
@@ -26,6 +26,66 @@ async function postWithPhoto(vault: UnlockedVault, id: string, visibility: Item[
   await vault.putRecords([media, thumb, await vault.sealItem(item)]);
   return item;
 }
+
+describe("chat key cards", () => {
+  const unsignedV1 = (id: string, handle: string) =>
+    JSON.stringify({
+      format: "eic-share",
+      version: 1,
+      exportedAt: NOW.toISOString(),
+      author: { id, handle },
+      posts: [],
+      likes: [],
+    });
+
+  it("imports as a verified key with no posts, likes, or reconcile", async () => {
+    const alice = await open();
+    const { text } = await buildChatInviteBundle(alice, settingsFor("alice-id", "alice"), NOW);
+
+    const bob = await open();
+    await postWithPhoto(bob, "mine", "shareable");
+    const before = await bob.getItem("mine");
+    const result = await importShareBundle(bob, text, { settings: settingsFor("bob-id", "bob"), newId, now: NOW });
+
+    expect(result).toMatchObject({ handle: "alice", added: 0, updated: 0, likesReceived: 0, verified: true, keyAdded: true });
+    const connection = (await listConnections(bob))[0];
+    expect(connection?.pubkey).not.toBeNull();
+    // Nothing about the importer's own posts or likes changed.
+    expect(await bob.getItem("mine")).toEqual(before);
+  });
+
+  it("upgrades an unsigned (v1) connection in place, keeping history fields", async () => {
+    const alice = await open();
+    const { text } = await buildChatInviteBundle(alice, settingsFor("alice-id", "alice"), NOW);
+
+    const bob = await open();
+    const deps = { settings: settingsFor("bob-id", "bob"), newId, now: NOW };
+    const unsigned = await importShareBundle(bob, unsignedV1("alice-id", "alice"), deps);
+    expect(unsigned).toMatchObject({ verified: false, keyAdded: false });
+    expect((await listConnections(bob))[0]?.pubkey).toBeNull();
+
+    const upgraded = await importShareBundle(bob, text, deps);
+    expect(upgraded).toMatchObject({ verified: true, keyAdded: true });
+    const connection = (await listConnections(bob))[0];
+    expect(connection?.pubkey).not.toBeNull();
+    expect(connection?.addedAt).toBe(NOW.toISOString());
+
+    // A second key card for an already-verified connection is not a new unlock.
+    const again = await importShareBundle(bob, text, deps);
+    expect(again.keyAdded).toBe(false);
+  });
+
+  it("refuses my own key card", async () => {
+    const alice = await open();
+    const { text } = await buildChatInviteBundle(alice, settingsFor("alice-id", "alice"), NOW);
+    await expect(importShareBundle(alice, text, { settings: settingsFor("alice-id", "alice"), newId, now: NOW })).rejects.toThrow("your own");
+  });
+
+  it("requires a handle", async () => {
+    const vault = await open();
+    await expect(buildChatInviteBundle(vault, defaultSettings(), NOW)).rejects.toThrow("handle");
+  });
+});
 
 describe("share files", () => {
   it("exports only my shareable posts", async () => {
