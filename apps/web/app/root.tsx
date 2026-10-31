@@ -8,7 +8,7 @@ import {
   ScrollRestoration,
 } from "react-router";
 import { AppError } from "@veil/core";
-import { importShareBundle, loadSettings, readPostShareLink } from "@veil/features";
+import { importShareBundle, loadSettings, parseShareBundle, readPostShareLink } from "@veil/features";
 
 import type { Route } from "./+types/root";
 import stylesheet from "./app.css?url";
@@ -80,13 +80,18 @@ function ShareLinkImport({ vault }: { vault: ReturnType<typeof useSessionStore.g
   const [bundleText, setBundleText] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A key-card bundle carries no posts: the dialog must say what importing it actually does.
+  const [isKeyCard, setIsKeyCard] = useState(false);
 
   useEffect(() => {
     if (!vault) return;
     const read = () => {
       try {
         const text = readPostShareLink(window.location.hash);
-        if (text) setBundleText(text);
+        if (text) {
+          setBundleText(text);
+          setIsKeyCard(parseShareBundle(text).posts.length === 0);
+        }
       } catch (caught) {
         setMessage(caught instanceof AppError ? caught.message : "That share link could not be read.");
       }
@@ -111,7 +116,11 @@ function ShareLinkImport({ vault }: { vault: ReturnType<typeof useSessionStore.g
       const settings = await loadSettings(vault);
       const result = await importShareBundle(vault, bundleText, { settings, newId: newItemId, now: new Date() });
       setBundleText(null);
-      setMessage(`Imported from @${result.handle}: ${result.added} new, ${result.updated} updated. The post is in your vault and renders offline from here on.`);
+      setMessage(
+        result.keyAdded
+          ? `Chat unlocked with @${result.handle} - verified key saved. Your connection and history are unchanged.`
+          : `Imported from @${result.handle}: ${result.added} new, ${result.updated} updated. The post is in your vault and renders offline from here on.`,
+      );
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
     } catch (caught) {
       setMessage(caught instanceof AppError ? caught.message : "That share link could not be imported.");
@@ -127,7 +136,11 @@ function ShareLinkImport({ vault }: { vault: ReturnType<typeof useSessionStore.g
           <div className="flex flex-col gap-2 text-[12px]">
             {bundleText !== null ? (
               <>
-                <p>This link carries a post from a friend. Import it into your vault?</p>
+                <p>
+                  {isKeyCard
+                    ? "This link carries a friend's chat key - no posts. Importing it verifies their key and unlocks chat; your connection and history stay as they are."
+                    : "This link carries a post from a friend. Import it into your vault?"}
+                </p>
                 <div className="flex gap-1">
                   <Button95 onClick={() => void doImport()} disabled={busy}>Import</Button95>
                   <Button95 onClick={dismiss} disabled={busy}>Not now</Button95>
