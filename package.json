@@ -7,9 +7,15 @@
     "packages/*"
   ],
   "devDependencies": {
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "@playwright/test": "^1.49.0",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "typescript-eslint": "^8.15.0"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint .",
+    "test:e2e": "playwright test"
   }
 }

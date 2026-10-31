@@ -116,6 +116,31 @@ export class IndexedDbVaultStore implements VaultStore {
     }
   }
 
+  async deleteRecordsForVault(expectedGeneration: Bytes, ids: string[]): Promise<void> {
+    const db = await this.db();
+    const tx = db.transaction(["meta", "records"], "readwrite");
+    const metaStore = tx.objectStore("meta");
+    try {
+      const currentMeta = await metaStore.get(META_KEY);
+      if (!currentMeta || !sameBytes(vaultGeneration(currentMeta), expectedGeneration)) {
+        throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
+      }
+      const recordStore = tx.objectStore("records");
+      for (const id of ids) {
+        await recordStore.delete(id);
+      }
+      await tx.done;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {
+        // The transaction may already have aborted because an IndexedDB request failed.
+      }
+      await tx.done.catch(() => undefined);
+      throw error;
+    }
+  }
+
   async clearForVault(expectedGeneration: Bytes): Promise<void> {
     const db = await this.db();
     const tx = db.transaction(["meta", "records"], "readwrite");

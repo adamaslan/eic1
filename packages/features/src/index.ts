@@ -7,3 +7,4 @@ export * from "./social";
 export * from "./sharing";
 export * from "./journal";
 export * from "./chat";
+export * from "./share-link";

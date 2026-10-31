@@ -49,6 +49,14 @@ export class MemoryStore implements VaultStore {
       this.records.set(record.id, record);
     }
   }
+  async deleteRecordsForVault(expectedGeneration: Bytes, ids: string[]) {
+    if (!this.meta || !sameBytes(vaultGeneration(this.meta), expectedGeneration)) {
+      throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
+    }
+    for (const id of ids) {
+      this.records.delete(id);
+    }
+  }
   async clearForVault(expectedGeneration: Bytes) {
     if (!this.meta || !sameBytes(vaultGeneration(this.meta), expectedGeneration)) {
       throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");

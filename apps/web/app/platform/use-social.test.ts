@@ -40,6 +40,7 @@ import { useSocial } from "./use-social";
 
 const vault = {} as UnlockedVault;
 const settings: Settings = { ...defaultSettings(), authorId: "keep-id", handle: "keep-handle" };
+// eslint-disable-next-line react-hooks/rules-of-hooks -- test harness drives the hook through a mocked React, not a component
 const render = (current: UnlockedVault | null = vault) => { hooks.render(); return useSocial(current); };
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 

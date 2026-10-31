@@ -1,5 +1,7 @@
 import {
+  AppError,
   DEFAULT_SLOTS,
+  HANDLE_MAX,
   MAX_KEYWORDS,
   NoteSchema,
   SETTINGS_RECORD_ID,
@@ -118,4 +120,63 @@ export async function listConnections(vault: UnlockedVault): Promise<Connection[
     }
   }
   return [...byId.values()].sort((a, b) => a.handle.localeCompare(b.handle));
+}
+
+export interface ConnectionSummary {
+  connection: Connection;
+  postCount: number;
+}
+
+/** Per-connection stats for the management UI: how many of their posts live in this vault. */
+export function summarizeConnections(connections: Connection[], items: Item[]): ConnectionSummary[] {
+  return connections.map((connection) => ({
+    connection,
+    postCount: items.filter((item) => item.authorId === connection.id).length,
+  }));
+}
+
+async function updateConnection(vault: UnlockedVault, connectionId: string, change: (connection: Connection) => Connection): Promise<Connection> {
+  const recordId = `connection:${connectionId}`;
+  const parsed = ConnectionSchema.safeParse(await vault.getJson(recordId));
+  if (!parsed.success) throw new AppError("That connection does not exist.");
+  const updated = ConnectionSchema.parse(change(parsed.data));
+  await vault.putJson("connection", recordId, updated);
+  return updated;
+}
+
+/** Sets or clears your local nickname for a connection (null clears). It never leaves this vault. */
+export async function setConnectionNickname(vault: UnlockedVault, connectionId: string, nickname: string | null): Promise<Connection> {
+  const clean = nickname === null ? null : nickname.trim().slice(0, HANDLE_MAX) || null;
+  return updateConnection(vault, connectionId, (connection) => ({ ...connection, nickname: clean }));
+}
+
+/** Hides a connection from the list without deleting anything; their posts stay in the vault. */
+export async function setConnectionHidden(vault: UnlockedVault, connectionId: string, hidden: boolean): Promise<Connection> {
+  return updateConnection(vault, connectionId, (connection) => ({ ...connection, hidden }));
+}
+
+/**
+ * Removes a connection. With dropPosts, their imported posts and photos are deleted too;
+ * otherwise the posts stay in the vault. Likes they gave you are left as they were.
+ */
+export async function removeConnection(
+  vault: UnlockedVault,
+  connectionId: string,
+  options: { dropPosts: boolean },
+): Promise<{ droppedPosts: number }> {
+  const recordId = `connection:${connectionId}`;
+  const parsed = ConnectionSchema.safeParse(await vault.getJson(recordId));
+  if (!parsed.success) throw new AppError("That connection does not exist.");
+  const ids = [recordId];
+  let droppedPosts = 0;
+  if (options.dropPosts) {
+    const theirs = (await vault.listItems()).filter((item) => item.authorId === connectionId);
+    droppedPosts = theirs.length;
+    for (const item of theirs) {
+      ids.push(item.id, ...item.mediaIds);
+      if (item.thumbId) ids.push(item.thumbId);
+    }
+  }
+  await vault.deleteRecords(ids);
+  return { droppedPosts };
 }

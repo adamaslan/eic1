@@ -327,12 +327,18 @@ export async function importShareBundle(
   }
 
   if (records.length > 0) await vault.putRecords(records);
-  await vault.putJson("connection", `connection:${author.id}`, {
+  const connectionId = `connection:${author.id}`;
+  const prior = ConnectionSchema.safeParse(await vault.getJson(connectionId));
+  await vault.putJson("connection", connectionId, {
     id: author.id,
     handle: author.handle,
-    addedAt: deps.now.toISOString(),
-    pubkey: bundle.version === SHARE_VERSION_V2 ? bundle.author.pubkey : null,
-    feedUrl: bundle.version === SHARE_VERSION_V2 ? (bundle.author.feedUrl ?? null) : null,
+    // First import sets addedAt; re-imports refresh lastImportAt and keep nickname/hidden.
+    addedAt: prior.success ? prior.data.addedAt : deps.now.toISOString(),
+    nickname: prior.success ? prior.data.nickname : null,
+    hidden: prior.success ? prior.data.hidden : false,
+    lastImportAt: deps.now.toISOString(),
+    pubkey: bundle.version === SHARE_VERSION_V2 ? bundle.author.pubkey : (prior.success ? prior.data.pubkey : null),
+    feedUrl: bundle.version === SHARE_VERSION_V2 ? (bundle.author.feedUrl ?? null) : (prior.success ? prior.data.feedUrl : null),
     schemaVersion: 1,
   });
   if (added + updated > 0) {
