@@ -17,12 +17,16 @@ export const FEED_CHUNK_MAX_BYTES = 25 * 1024 * 1024;
 
 const CHUNK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
 
-export const FeedChunkKindSchema = z.enum(["posts", "likes", "chat"]);
-export type FeedChunkKind = z.infer<typeof FeedChunkKindSchema>;
+export const FEED_CHUNK_KINDS = ["posts", "likes", "chat"] as const;
+export type FeedChunkKind = (typeof FEED_CHUNK_KINDS)[number];
 
+// Kind is a plain string on the wire: manifests stay signed over their exact bytes, and
+// readers skip chunk kinds they do not know instead of rejecting the whole manifest. That
+// keeps older peers working when newer feeds add kinds (they still verify the manifest
+// signature and the hash of every chunk they apply).
 export const FeedChunkRefSchema = z.object({
   id: z.string().regex(CHUNK_ID),
-  kind: FeedChunkKindSchema,
+  kind: z.string().min(1).max(40),
   bytes: z.number().int().nonnegative(),
   sha256: z.string().min(1), // base64 digest of the chunk file bytes
 });
@@ -54,6 +58,17 @@ async function sha256Base64(text: string): Promise<string> {
 
 export function chunkUrl(feedUrl: string, chunkId: string): string {
   return `${feedUrl.replace(/\/+$/, "")}/chunks/${chunkId}`;
+}
+
+/** Feed URLs must be https (ciphertext hosts); plain http is allowed only for local development. */
+export function isValidFeedUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol === "https:") return true;
+    return u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "[::1]");
+  } catch {
+    return false;
+  }
 }
 
 export function manifestUrl(feedUrl: string): string {
