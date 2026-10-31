@@ -4,7 +4,7 @@ import { SubtleCryptoPort, signPayload } from "@veil/crypto";
 import { createVault, type UnlockedVault } from "@veil/vault";
 import { MemoryStore } from "../../vault/src/memory-store";
 import { buildFeedSnapshot, chunkUrl, manifestUrl, parseFeedManifest } from "./feed";
-import { syncAllConnections, syncConnection, type SyncDeps, type SyncFetcher } from "./sync";
+import { MAX_CHUNK_FETCH_RETRIES, syncAllConnections, syncConnection, type SyncDeps, type SyncFetcher } from "./sync";
 import { buildShareBundle, importShareBundle, loadOrCreateShareIdentity } from "./sharing";
 import { defaultSettings, listConnections, saveSettings, setConnectionSyncState } from "./social";
 import { listChatThread, sendChatMessage } from "./chat";
@@ -349,4 +349,45 @@ describe("pull sync", () => {
     const result = await syncConnection(bob, conn, { fetch: async () => ({ status: 500, etag: null, text: null }), network: "wifi", newId: deps.newId, now: NOW });
     expect(result.status).toBe("no-feed");
   });
+});
+
+it("terminally rejects an unreachable chunk after MAX_CHUNK_FETCH_RETRIES instead of retrying forever", async () => {
+  const feedUrl = "https://f.example/alice";
+  const alice = await open();
+  const bob = await open();
+  await saveSettings(alice, settingsFor("alice-id", "alice"));
+  await saveSettings(bob, settingsFor("bob-id", "bob"));
+  // Bob imports alice's bundle, which carries her feed URL.
+  await importShareBundle(bob, (await buildShareBundle(alice, { ...settingsFor("alice-id", "alice"), feedUrl }, [], NOW)).text, { settings: settingsFor("bob-id", "bob"), newId: deps.newId, now: NOW });
+  const item = shareable("itm-retry", "will be lost");
+  const { snapshot } = await aliceFeed(alice, [item], 1, feedUrl);
+  // Host serves the manifest but 404s every chunk.
+  const onlyManifest = hostFor(snapshot.files.filter((f) => f.path === "feed.json"), feedUrl, "etag-1");
+
+  const run = () => syncAllConnections(bob, { fetch: onlyManifest.fetch, network: "wifi", newId: deps.newId, now: NOW });
+
+  const persisted = async () => (await listConnections(bob)).find((c) => c.id === "alice-id")!;
+  for (let i = 0; i < MAX_CHUNK_FETCH_RETRIES - 1; i++) {
+    const results = await run();
+    expect(results.get("alice-id")!.status).toBe("deferred");
+    expect((await persisted()).syncDetail).toMatch(/^pending: /);
+    expect((await persisted()).syncPending).toBe(true);
+  }
+
+  const final = await run();
+  expect(final.get("alice-id")!.status).toBe("partial");
+  expect((await persisted()).syncDetail).toContain(`unreachable after ${MAX_CHUNK_FETCH_RETRIES} attempts`);
+  expect((await persisted()).syncPending).toBe(false);
+
+  // Cursor advanced past the lost chunk; the host is never re-fetched for this seq.
+  const chunkRequestsAfter = onlyManifest.requests.filter((u) => u !== manifestUrl(feedUrl)).length;
+  await run();
+  expect(onlyManifest.requests.filter((u) => u !== manifestUrl(feedUrl)).length).toBe(chunkRequestsAfter);
+  expect((await listChatThread(bob, "alice-id")).map((m) => m.body)).toHaveLength(0);
+
+  // A later, healthy manifest still applies.
+  const fixed = await aliceFeed(alice, [shareable("itm-ok", "arrives later")], 2, feedUrl);
+  const after = await syncAllConnections(bob, { fetch: fixed.host.fetch, network: "wifi", newId: deps.newId, now: NOW });
+  expect(after.get("alice-id")!.status).toBe("applied");
+  expect((await listChatThread(bob, "alice-id")).map((m) => m.body)).toHaveLength(0);
 });
