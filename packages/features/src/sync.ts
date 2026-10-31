@@ -11,6 +11,7 @@ import {
   verifyFeedManifest,
 } from "./feed";
 import { importShareBundle } from "./sharing";
+import { applyProfile, parseSignedProfile, verifySignedProfile } from "./profile";
 import { listConnections, loadSettings, setConnectionSyncState } from "./social";
 
 // Pull sync (spec section 3, transport J = pull): each connection publishes a signed eic-feed to
@@ -58,6 +59,7 @@ export interface SyncResult {
   status: "applied" | "unchanged" | "deferred" | "no-feed" | "failed" | "partial";
   appliedPosts: number;
   appliedChat: number;
+  appliedProfile: boolean;
   pendingChunks: string[];
   rejectedChunks: string[];
   error?: string;
@@ -66,7 +68,7 @@ export interface SyncResult {
 export async function syncConnection(vault: UnlockedVault, connection: Connection, deps: SyncDeps): Promise<SyncResult> {
   const settings = await loadSettings(vault);
   if (!settings.authorId) throw new AppError("Choose a handle before syncing.");
-  if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
+  if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [], appliedProfile: false };
   if (!isValidFeedUrl(connection.feedUrl)) throw new AppError("That connection's feed URL must be an https URL (http is allowed only for localhost).");
   if (!connection.pubkey) throw new AppError("This connection has no verified key.");
   const metered = deps.network !== "wifi";
@@ -83,14 +85,14 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
       status: "deferred",
       detail,
     });
-    return { status: "deferred", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
+    return { status: "deferred", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [], appliedProfile: false };
   }
 
   // Pending chunks from a cellular-deferred pull must be retried: skip the etag shortcut and
   // re-apply the same manifest (chunk application is idempotent), so delivery does not depend
   // on the sender republishing.
   const head = await deps.fetch(manifestUrl(connection.feedUrl), connection.syncPending || deps.retryFailed ? null : connection.syncEtag);
-  if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
+  if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [], appliedProfile: false };
   if (head.status !== 200 || head.text === null) {
     throw new VaultCorruptError(`The feed could not be fetched (status ${head.status}).`);
   }
@@ -112,11 +114,12 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
       etag: head.etag ?? connection.syncEtag,
       pending: connection.syncPending,
     });
-    return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
+    return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [], appliedProfile: false };
   }
 
   let appliedPosts = 0;
   let appliedChat = 0;
+  let appliedProfile = false;
   const pendingChunks: string[] = [];
   const fetchFailedChunks: string[] = [];
   const rejectedChunks: string[] = [];
@@ -137,8 +140,17 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     }
     try {
       await verifyFeedChunk(ref, res.text);
-      if (ref.kind !== "chat" && ref.kind !== "posts" && ref.kind !== "likes") {
+      if (ref.kind !== "chat" && ref.kind !== "posts" && ref.kind !== "likes" && ref.kind !== "profile") {
         // Unknown chunk kind from a newer feed version: skip it, keep everything else moving.
+        continue;
+      }
+      if (ref.kind === "profile") {
+        // Fail closed per chunk: an unverifiable or over-cap profile is terminally rejected
+        // for this manifest (not deferred), never applies, and never aborts posts/chat. A
+        // corrected republish arrives under a newer seq.
+        const signed = parseSignedProfile(res.text);
+        await verifySignedProfile(signed, connection.id, connection.pubkey);
+        appliedProfile = (await applyProfile(vault, signed.profile)).applied || appliedProfile;
         continue;
       }
       if (ref.kind === "chat") {
@@ -203,6 +215,7 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     status,
     appliedPosts,
     appliedChat,
+    appliedProfile,
     pendingChunks,
     rejectedChunks,
   };
@@ -221,6 +234,7 @@ export async function syncAllConnections(vault: UnlockedVault, deps: SyncDeps): 
         status: "failed",
         appliedPosts: 0,
         appliedChat: 0,
+        appliedProfile: false,
         pendingChunks: [],
         rejectedChunks: [],
         error: detail,

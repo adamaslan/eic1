@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AppError, VaultCorruptError, decodeBase64, encodeBase64, type Item, type Settings } from "@veil/core";
 import { signPayload, verifySignature, type SyncEnvelope } from "@veil/crypto";
 import type { UnlockedVault } from "@veil/vault";
+import { getProfile, signProfile } from "./profile";
 import { buildShareBundle, loadOrCreateShareIdentity } from "./sharing";
 import { listOutboundChatEnvelopes } from "./chat";
 
@@ -17,7 +18,7 @@ export const FEED_CHUNK_MAX_BYTES = 25 * 1024 * 1024;
 
 const CHUNK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
 
-export const FEED_CHUNK_KINDS = ["posts", "likes", "chat"] as const;
+export const FEED_CHUNK_KINDS = ["posts", "likes", "chat", "profile"] as const;
 export type FeedChunkKind = (typeof FEED_CHUNK_KINDS)[number];
 
 // Kind is a plain string on the wire: manifests stay signed over their exact bytes, and
@@ -125,6 +126,13 @@ export async function buildFeedSnapshot(
     const text = JSON.stringify(chunk);
     files.push({ path: `chunks/${id}`, text });
     chunks.push({ id, kind: "chat", bytes: new TextEncoder().encode(text).byteLength, sha256: await sha256Base64(text) });
+  }
+
+  const ownProfile = await getProfile(vault, settings.authorId);
+  if (ownProfile) {
+    const text = JSON.stringify(await signProfile(vault, ownProfile));
+    files.push({ path: "chunks/profile.json", text });
+    chunks.push({ id: "profile.json", kind: "profile", bytes: new TextEncoder().encode(text).byteLength, sha256: await sha256Base64(text) });
   }
 
   const unsigned = {
