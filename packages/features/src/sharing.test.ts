@@ -338,6 +338,10 @@ describe("share regression cases", () => {
     expect(post).toMatchObject({ likes: 23, likedBy: [] });
     const send = async (likes: { ownerId: string; postId: string }[]) => {
       const bundle = JSON.parse((await buildShareBundle(vault, settingsFor("alice", "alice"), [], NOW)).text);
+      // This test exercises like reconciliation on unsigned v1 files; strip the v2 signature fields.
+      bundle.version = 1;
+      delete bundle.signature;
+      delete bundle.author.pubkey;
       bundle.likes = likes;
       return importShareBundle(vault, JSON.stringify(bundle), { settings, newId, now: NOW });
     };
