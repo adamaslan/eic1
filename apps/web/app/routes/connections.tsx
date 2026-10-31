@@ -3,6 +3,8 @@ import { Link } from "react-router";
 import { AppError, HANDLE_MAX, timeAgo, type Connection } from "@veil/core";
 import {
   MAX_SHARE_FILE_BYTES,
+  buildChatInviteBundle,
+  buildChatInviteLink,
   buildShareBundle,
   ensureAuthorId,
   importShareBundle,
@@ -156,6 +158,16 @@ export default function Connections() {
     });
   }
 
+  function exportChatKey() {
+    void run(async () => {
+      if (!vault || !social.settingsReady) return "";
+      const { text } = await buildChatInviteBundle(vault, settings, new Date());
+      const link = buildChatInviteLink(text, `${window.location.origin}/`);
+      await navigator.clipboard.writeText(link);
+      return "Chat key link copied. Send it to a friend whose chat with you is read-only - it carries your verified key only, no posts.";
+    });
+  }
+
   function importText(read: () => Promise<string>): Promise<boolean> {
     if (importing.current) return Promise.resolve(false);
     importing.current = true;
@@ -164,7 +176,9 @@ export default function Connections() {
       const result = await importShareBundle(vault, await read(), { settings, newId: newItemId, now: new Date() });
       social.refresh();
       const basis = result.verified ? `Verified signature from @${result.handle}` : `Unsigned file - trust the sender (@${result.handle})`;
-      return `${basis}: ${result.added} new, ${result.updated} updated, ${result.likesReceived} new like${result.likesReceived === 1 ? "" : "s"} on your posts.`;
+      const counts = `${result.added} new, ${result.updated} updated, ${result.likesReceived} new like${result.likesReceived === 1 ? "" : "s"} on your posts.`;
+      const upgrade = result.keyAdded ? ` Chat unlocked with @${result.handle} - verified key saved.` : "";
+      return `${basis}: ${counts}${upgrade}`;
     }).finally(() => {
       importing.current = false;
     });
@@ -335,6 +349,7 @@ export default function Connections() {
             <Button95 onClick={exportFile} disabled={busy || !social.settingsReady || !settings.handle}>Export share file ({Math.min(shareable, 100)} post{Math.min(shareable, 100) === 1 ? "" : "s"})</Button95>
             <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(e) => importFile(e.target.files?.[0])} aria-label="Choose a share file" />
             <Button95 onClick={() => fileInput.current?.click()} disabled={busy || !social.settingsReady || !settings.handle}>Import a share file…</Button95>
+            <Button95 onClick={exportChatKey} disabled={busy || !social.settingsReady || !settings.handle}>Copy my chat key link</Button95>
           </div>
           <label className="flex flex-col gap-1">
             <span className="font-bold">Or paste what a friend sent you</span>
