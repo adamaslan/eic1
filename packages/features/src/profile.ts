@@ -29,7 +29,8 @@ export const FONT_CHOICES = ["ms-sans", "fixed", "pixel"] as const;
 
 const DataUriAssetSchema = z.object({
   kind: z.literal("data-uri"),
-  mime: z.string().min(1).max(100),
+  // Raster/vector image bytes only; anything else (text/html et al.) is rejected on save and on import.
+  mime: z.string().regex(/^image\//).max(100),
   data: z.string().min(1), // base64; byte cap enforced below
 });
 
@@ -48,6 +49,8 @@ const DecorationSchema = z.object({
   scale: z.number().positive().max(10),
   rotation: z.number().min(-360).max(360),
 });
+
+export type Decoration = z.infer<typeof DecorationSchema>;
 
 export const ProfileSchema = z
   .object({
