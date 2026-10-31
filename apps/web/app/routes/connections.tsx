@@ -25,6 +25,9 @@ export default function Connections() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pasted, setPasted] = useState("");
+  // Synchronous guard: drop events and the import buttons can fire faster than setBusy renders.
+  // Must stay above the early returns below - hooks may not be conditional (React error #310).
+  const importing = useRef(false);
 
   if (items.status === "loading") return <p className="text-[12px]">Loading…</p>;
   if (items.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{items.message}</p>;
@@ -69,9 +72,6 @@ export default function Connections() {
       return `Share file downloaded with ${postCount} post${postCount === 1 ? "" : "s"}. Anyone who gets it can read them.`;
     });
   }
-
-  // Synchronous guard: drop events and the import buttons can fire faster than setBusy renders.
-  const importing = useRef(false);
 
   function importText(read: () => Promise<string>): Promise<boolean> {
     if (importing.current) return Promise.resolve(false);
