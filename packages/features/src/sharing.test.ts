@@ -407,3 +407,73 @@ describe("sharing one post", () => {
     expect(ItemSchema.parse({ ...legacy, category: "free" }).category).toBe("general");
   });
 });
+
+describe("eic-share v2 signed bundles", () => {
+  it("signs exports and verifies them on import", async () => {
+    const alice = await open();
+    await postWithPhoto(alice, "p1", "shareable");
+    const { text: file } = await buildShareBundle(alice, settingsFor("alice-id", "alice"), await alice.listItems(), NOW);
+
+    const parsed = parseShareBundle(file);
+    expect(parsed.version).toBe(2);
+    if (parsed.version === 2) {
+      expect(parsed.author.pubkey.length).toBeGreaterThan(0);
+      expect(parsed.signature.length).toBeGreaterThan(0);
+    }
+
+    const bob = await open();
+    const result = await importShareBundle(bob, file, { settings: settingsFor("bob-id", "bob"), newId, now: NOW });
+    expect(result.verified).toBe(true);
+    expect(result.added).toBe(1);
+    const connection = await bob.getJson("connection:alice-id");
+    expect(connection).toMatchObject({ pubkey: (parsed as { author: { pubkey: string } }).author.pubkey, feedUrl: null });
+  });
+
+  it("reuses the same signing identity across exports", async () => {
+    const alice = await open();
+    await postWithPhoto(alice, "p1", "shareable");
+    const first = parseShareBundle((await buildShareBundle(alice, settingsFor("alice-id", "alice"), await alice.listItems(), NOW)).text);
+    const second = parseShareBundle((await buildShareBundle(alice, settingsFor("alice-id", "alice"), await alice.listItems(), NOW)).text);
+    if (first.version !== 2 || second.version !== 2) throw new Error("expected v2 bundles");
+    expect(second.author.pubkey).toBe(first.author.pubkey);
+  });
+
+  it("rejects a tampered v2 bundle", async () => {
+    const alice = await open();
+    await postWithPhoto(alice, "p1", "shareable");
+    const { text: file } = await buildShareBundle(alice, settingsFor("alice-id", "alice"), await alice.listItems(), NOW);
+    const tampered = JSON.parse(file);
+    tampered.posts[0].title = "Forged title";
+
+    const bob = await open();
+    await expect(importShareBundle(bob, JSON.stringify(tampered), { settings: settingsFor("bob-id", "bob"), newId, now: NOW })).rejects.toThrow(/signature/);
+  });
+
+  it("rejects a v2 bundle with a broken signature encoding", async () => {
+    const alice = await open();
+    await postWithPhoto(alice, "p1", "shareable");
+    const { text: file } = await buildShareBundle(alice, settingsFor("alice-id", "alice"), await alice.listItems(), NOW);
+    const tampered = JSON.parse(file);
+    tampered.signature = "not-valid-base64!!!";
+
+    const bob = await open();
+    await expect(importShareBundle(bob, JSON.stringify(tampered), { settings: settingsFor("bob-id", "bob"), newId, now: NOW })).rejects.toThrow(/signature/);
+  });
+
+  it("still imports unsigned v1 bundles, marked unverified", async () => {
+    const alice = await open();
+    await postWithPhoto(alice, "p1", "shareable");
+    const { text: file } = await buildShareBundle(alice, settingsFor("alice-id", "alice"), await alice.listItems(), NOW);
+    const v1 = JSON.parse(file);
+    v1.version = 1;
+    delete v1.signature;
+    delete v1.author.pubkey;
+
+    const bob = await open();
+    const result = await importShareBundle(bob, JSON.stringify(v1), { settings: settingsFor("bob-id", "bob"), newId, now: NOW });
+    expect(result.verified).toBe(false);
+    expect(result.added).toBe(1);
+    const connection = await bob.getJson("connection:alice-id");
+    expect(connection).toMatchObject({ pubkey: null, feedUrl: null });
+  });
+});
