@@ -28,6 +28,10 @@ export const ConnectionSchema = z.object({
   id: z.string().min(1),
   handle: z.string().min(1).max(HANDLE_MAX),
   addedAt: z.iso.datetime(),
+  // Local-only, never shared: your nickname for them, whether you hid them, and when you last imported their file.
+  nickname: z.string().min(1).max(HANDLE_MAX).nullable().default(null),
+  hidden: z.boolean().default(false),
+  lastImportAt: z.iso.datetime().nullable().default(null),
   schemaVersion: z.literal(1),
 });
 export type Connection = z.infer<typeof ConnectionSchema>;
