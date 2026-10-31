@@ -137,7 +137,11 @@ function UnlockedLanding() {
           </button>
         </nav>
         <LandingDashboard />
+        <p className="text-center text-[11px] text-[#c0c0c0]" title={`Built ${BUILD_DATE}`}>
+          build {BUILD_SHA}
+        </p>
       </div>
     </main>
   );
 }
+
