@@ -57,7 +57,7 @@ jobs:
           # Prefer Netlify's commit status for THIS commit so we never test a stale
           # preview; if Netlify posts no commit status, fall back to polling the URL.
           for i in $(seq 1 90); do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/status" --jq '[.statuses[] | select(.context | ascii_downcase | contains("netlify")) | .state] | first // ""' 2>/dev/null || echo "")
+            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs" --jq '[.check_runs[] | select(.name | ascii_downcase | contains("deploy-preview")) | .conclusion] | first // ""' 2>/dev/null || echo "")
             if [ "$state" = "success" ]; then
               echo "Netlify reports a successful deploy for $sha"
               exit 0
@@ -83,3 +83,4 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
