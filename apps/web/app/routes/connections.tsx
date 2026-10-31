@@ -54,6 +54,9 @@ export function ConnectionsList({
                   {count} new
                 </span>
               )}
+              <Link to={`/profile/${connection.id}`} className="underline">
+                Profile
+              </Link>
               <Link to={`/chat/${connection.id}`} className="underline">
                 Chat
               </Link>
@@ -187,6 +190,10 @@ export default function Connections() {
       const results = await syncAllConnections(vault, {
         fetch: httpSyncFetcher,
         network: detectSyncNetwork(),
+        // Pressing the button is an explicit user retry: re-pull feeds and re-attempt
+        // chunks whose fetch retries were exhausted. Integrity and rollback checks still
+        // apply - only the fetch retry budget restarts.
+        retryFailed: true,
         newId: newItemId,
         now: new Date(),
       });
@@ -254,6 +261,7 @@ export default function Connections() {
           </span>
         )}
         <div className="flex flex-wrap gap-1">
+          <Link to={`/profile/${connection.id}`} className="underline">Profile</Link>
           <Link to={`/chat/${connection.id}`} className="underline">Chat</Link>
           <Button95 onClick={() => { setRenamingId(connection.id); setNicknameDraft(connection.nickname ?? ""); setRemovingId(null); }} disabled={busy}>Rename</Button95>
           <Button95 onClick={() => toggleHidden(connection)} disabled={busy}>{connection.hidden ? "Unhide" : "Hide"}</Button95>
@@ -289,6 +297,7 @@ export default function Connections() {
             <input className={inputClass} value={handleValue} maxLength={HANDLE_MAX} onChange={(e) => setHandle(e.target.value)} aria-label="Handle" />
             <Button95 type="submit" disabled={busy || !social.settingsReady}>Save</Button95>
           </div>
+          {settings.handle && <Link to="/profile" className="underline">View my profile</Link>}
         </form>
       </Window>
 
@@ -339,6 +348,15 @@ export default function Connections() {
         ) : (
           <div className="flex flex-col gap-2 text-[12px]">
             <p>To refresh someone's posts, import their newest share file again - importing updates in place. If they publish a feed, sync pulls it over the network instead.</p>
+            <label className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={settings.syncOnCellular}
+                disabled={busy || !social.settingsReady}
+                onChange={(e) => { void social.update({ ...settings, syncOnCellular: e.target.checked }); }}
+              />
+              <span>Allow feed sync on cellular or unknown connections (larger posts may use mobile data)</span>
+            </label>
             <div>
               <Button95 onClick={syncNow} disabled={busy || !social.settingsReady}>Sync feeds now</Button95>
             </div>
