@@ -9,8 +9,7 @@ import {
   removeConnection,
   setConnectionHidden,
   setConnectionNickname,
-  syncAllConnections,
-  syncConnection,
+
   unreadCounts,
 } from "@veil/features";
 import type { Route } from "./+types/connections";
@@ -20,7 +19,7 @@ import { downloadTextFile } from "~/platform/download";
 import { useSessionStore } from "~/platform/session";
 import { useSocial } from "~/platform/use-social";
 import { newItemId } from "~/platform/vault-service";
-import { detectSyncNetwork, httpSyncFetcher } from "~/platform/sync-fetcher";
+import { isFetchExhausted, retryConnectionFailedChunks, syncAllNormally } from "~/platform/sync-actions";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Connections — Everybody is Cool" }];
@@ -30,6 +29,13 @@ const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outli
 
 
 // Pure presentational half, exported for render tests: connection rows with chat links + unread badges.
+/** Labeled explicit retry, shown only for feeds whose fetch retries are exhausted
+ *  (structured state, not detail-string parsing). Integrity-rejected chunks never show this. */
+export function RetryFailedButton({ connection, busy, onRetry }: { connection: Connection; busy: boolean; onRetry: () => void }) {
+  if (!isFetchExhausted(connection)) return null;
+  return <Button95 onClick={onRetry} disabled={busy}>Retry failed chunks</Button95>;
+}
+
 export function ConnectionsList({
   connections,
   unread,
@@ -191,13 +197,7 @@ export default function Connections() {
       // Explicitly labeled user retry, scoped to this connection: re-pulls its feed and
       // re-attempts chunks whose fetch retries were exhausted. Signature verification and
       // rollback protection still apply; only this feed's fetch retry budget restarts.
-      const result = await syncConnection(vault, connection, {
-        fetch: httpSyncFetcher,
-        network: detectSyncNetwork(),
-        retryFailed: true,
-        newId: newItemId,
-        now: new Date(),
-      });
+      const result = await retryConnectionFailedChunks(vault, connection);
       social.refresh();
       return `Retry for @${connection.handle}: ${result.status}${result.rejectedChunks.length > 0 ? ` (still unreachable: ${result.rejectedChunks.length})` : ""}.`;
     });
@@ -208,12 +208,7 @@ export default function Connections() {
       if (!vault || !social.settingsReady) return "";
       // Normal sync honors settled cursors (conditional fetch) and accumulated fetch
       // retries; only the explicitly labeled per-connection retry below passes retryFailed.
-      const results = await syncAllConnections(vault, {
-        fetch: httpSyncFetcher,
-        network: detectSyncNetwork(),
-        newId: newItemId,
-        now: new Date(),
-      });
+      const results = await syncAllNormally(vault);
       social.refresh();
       const counts = new Map<string, number>();
       for (const result of results.values()) counts.set(result.status, (counts.get(result.status) ?? 0) + 1);
@@ -280,9 +275,7 @@ export default function Connections() {
         <div className="flex flex-wrap gap-1">
           <Link to={`/profile/${connection.id}`} className="underline">Profile</Link>
           <Link to={`/chat/${connection.id}`} className="underline">Chat</Link>
-          {connection.syncDetail.includes("unreachable after") && (
-            <Button95 onClick={() => retryFailedChunks(connection)} disabled={busy}>Retry failed chunks</Button95>
-          )}
+          <RetryFailedButton connection={connection} busy={busy} onRetry={() => retryFailedChunks(connection)} />
           <Button95 onClick={() => { setRenamingId(connection.id); setNicknameDraft(connection.nickname ?? ""); setRemovingId(null); }} disabled={busy}>Rename</Button95>
           <Button95 onClick={() => toggleHidden(connection)} disabled={busy}>{connection.hidden ? "Unhide" : "Hide"}</Button95>
           <Button95 onClick={() => { setRemovingId(connection.id); setRenamingId(null); }} disabled={busy}>Remove…</Button95>
