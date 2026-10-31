@@ -97,7 +97,7 @@ const ShareIdentitySchema = z.object({
   schemaVersion: z.literal(1),
 });
 
-async function loadOrCreateShareIdentity(vault: UnlockedVault): Promise<{ publicKey: Bytes; secretKey: Bytes }> {
+export async function loadOrCreateShareIdentity(vault: UnlockedVault): Promise<{ publicKey: Bytes; secretKey: Bytes }> {
   const existing = ShareIdentitySchema.safeParse(await vault.getJson(SHARE_IDENTITY_RECORD_ID));
   if (existing.success) {
     return { publicKey: decodeBase64(existing.data.publicKey), secretKey: decodeBase64(existing.data.secretKey) };
