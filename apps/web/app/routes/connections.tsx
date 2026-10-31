@@ -1,4 +1,5 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Link } from "react-router";
 import { AppError, HANDLE_MAX, timeAgo, type Connection } from "@veil/core";
 import {
   MAX_SHARE_FILE_BYTES,
@@ -8,6 +9,7 @@ import {
   removeConnection,
   setConnectionHidden,
   setConnectionNickname,
+  unreadCounts,
 } from "@veil/features";
 import type { Route } from "./+types/connections";
 import { Button95 } from "~/ui95/Button95";
@@ -23,6 +25,45 @@ export function meta(_args: Route.MetaArgs) {
 
 const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
 
+
+// Pure presentational half, exported for render tests: connection rows with chat links + unread badges.
+export function ConnectionsList({
+  connections,
+  unread,
+  now,
+}: {
+  connections: Connection[];
+  unread: Record<string, number>;
+  now: Date;
+}) {
+  if (connections.length === 0) {
+    return <p className="text-[12px]">No connections yet. Import a friend's share file to add one.</p>;
+  }
+  return (
+    <ul className="flex flex-col gap-1 text-[12px]">
+      {connections.map((connection) => {
+        const count = unread[connection.id] ?? 0;
+        return (
+          <li key={connection.id} className="flex items-center justify-between bg-white px-1.5 py-1">
+            <span className="font-bold">@{connection.handle}</span>
+            <span className="flex items-center gap-2">
+              {count > 0 && (
+                <span className="bg-[#000080] px-1 font-bold text-white" aria-label={`${count} unread message${count === 1 ? "" : "s"}`}>
+                  {count} new
+                </span>
+              )}
+              <Link to={`/chat/${connection.id}`} className="underline">
+                Chat
+              </Link>
+              <span className="text-[#404040]">connected {timeAgo(connection.addedAt, now)} ago</span>
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export default function Connections() {
   const vault = useSessionStore((state) => state.vault);
   const social = useSocial(vault);
@@ -33,6 +74,19 @@ export default function Connections() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pasted, setPasted] = useState("");
+  const [unread, setUnread] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let live = true;
+    if (vault) {
+      void unreadCounts(vault).then((counts) => {
+        if (live) setUnread(counts);
+      });
+    }
+    return () => {
+      live = false;
+    };
+  }, [vault]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -152,6 +206,7 @@ export default function Connections() {
 
   function connectionRow(connection: Connection) {
     const postCount = postCountFor(connection.id);
+    const unreadCount = unread[connection.id] ?? 0;
     return (
       <li key={connection.id} className="flex flex-col gap-1 bg-white px-1.5 py-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-2">
@@ -161,8 +216,14 @@ export default function Connections() {
           <span className="text-[#404040]">
             {postCount} post{postCount === 1 ? "" : "s"} · last import {timeAgo(connection.lastImportAt ?? connection.addedAt, new Date())} ago
           </span>
+          {unreadCount > 0 && (
+            <span className="bg-[#000080] px-1 font-bold text-white" aria-label={`${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`}>
+              {unreadCount} new
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap gap-1">
+          <Link to={`/chat/${connection.id}`} className="underline">Chat</Link>
           <Button95 onClick={() => { setRenamingId(connection.id); setNicknameDraft(connection.nickname ?? ""); setRemovingId(null); }} disabled={busy}>Rename</Button95>
           <Button95 onClick={() => toggleHidden(connection)} disabled={busy}>{connection.hidden ? "Unhide" : "Hide"}</Button95>
           <Button95 onClick={() => { setRemovingId(connection.id); setRenamingId(null); }} disabled={busy}>Remove…</Button95>
