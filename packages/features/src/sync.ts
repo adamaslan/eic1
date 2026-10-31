@@ -42,79 +42,95 @@ export interface SyncDeps {
 }
 
 export interface SyncResult {
-  status: "applied" | "unchanged" | "deferred" | "no-feed" | "failed";
+  status: "applied" | "unchanged" | "deferred" | "no-feed" | "failed" | "partial";
   appliedPosts: number;
   appliedChat: number;
   pendingChunks: string[];
+  rejectedChunks: string[];
   error?: string;
 }
 
 export async function syncConnection(vault: UnlockedVault, connection: Connection, deps: SyncDeps): Promise<SyncResult> {
   const settings = await loadSettings(vault);
   if (!settings.authorId) throw new AppError("Choose a handle before syncing.");
-  if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
+  if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
   if (!isValidFeedUrl(connection.feedUrl)) throw new AppError("That connection's feed URL must be an https URL (http is allowed only for localhost).");
   if (!connection.pubkey) throw new AppError("This connection has no verified key.");
   if (deps.network === "cellular" && !settings.syncOnCellular) {
-    return { status: "deferred", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
+    return { status: "deferred", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
   }
 
   // Pending chunks from a cellular-deferred pull must be retried: skip the etag shortcut and
   // re-apply the same manifest (chunk application is idempotent), so delivery does not depend
   // on the sender republishing.
   const head = await deps.fetch(manifestUrl(connection.feedUrl), connection.syncPending ? null : connection.syncEtag);
-  if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
+  if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
   if (head.status !== 200 || head.text === null) {
     throw new VaultCorruptError(`The feed could not be fetched (status ${head.status}).`);
   }
   const manifest = parseFeedManifest(head.text);
   await verifyFeedManifest(manifest, connection.id, connection.pubkey);
-  // Same-key re-publish at a lower seq means the author restored older state (or rebuilt their
-  // vault and re-shared the same identity). Chunk application is idempotent, so accept it as a
-  // reset and continue from this seq instead of failing the connection forever. Authenticity is
-  // unchanged: the manifest still has to verify against the connection's pinned key.
-  
+  // Rollback protection: a signed manifest at a lower seq than we already applied could be a
+  // replayed stale snapshot, and accepting it would silently resurrect deleted posts and discard
+  // newer ones. signedAt/builtAt cannot prove freshness across clock skew, so recovery after a
+  // vault rebuild stays explicit: the author re-shares and the reader re-imports, which clears the
+  // cursor. Ordinary sync at equal-or-higher seq is unaffected.
+  if (manifest.seq < connection.syncSeq) {
+    throw new VaultCorruptError(
+      "That feed published an older sequence than the one already applied, so it was not rolled back. If the author rebuilt their vault, ask them to re-share and re-import their bundle to reset.",
+    );
+  }
   if (manifest.seq === connection.syncSeq && !connection.syncPending) {
     await setConnectionSyncState(vault, connection.id, {
       seq: connection.syncSeq,
       etag: head.etag ?? connection.syncEtag,
       pending: connection.syncPending,
     });
-    return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
+    return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [] };
   }
 
   let appliedPosts = 0;
   let appliedChat = 0;
   const pendingChunks: string[] = [];
+  const rejectedChunks: string[] = [];
   for (const ref of manifest.chunks) {
     if (deps.network === "cellular" && ref.bytes > (deps.chunkBudgetBytes ?? CELLULAR_CHUNK_BUDGET_BYTES)) {
       pendingChunks.push(ref.id);
       continue;
     }
-    const res = await deps.fetch(chunkUrl(connection.feedUrl, ref.id), null);
-    if (res.status !== 200 || res.text === null) {
-      throw new VaultCorruptError(`A feed chunk could not be fetched (status ${res.status}).`);
-    }
-    await verifyFeedChunk(ref, res.text);
-    if (ref.kind !== "chat" && ref.kind !== "posts" && ref.kind !== "likes") {
-      // Unknown chunk kind from a newer feed version: skip it, keep everything else moving.
-      continue;
-    }
-    if (ref.kind === "chat") {
-      for (const envelope of parseFeedChatChunk(res.text)) {
-        const e = envelope as { recipientAuthorId?: unknown } | null;
-        if (e?.recipientAuthorId !== settings.authorId) continue;
-        try {
-          const applied = await applyInboundChatEnvelope(vault, envelope, { newId: deps.newId, now: () => deps.now });
-          if (applied.applied) appliedChat += 1;
-        } catch {
-          // A chunk can carry envelopes for connections whose keys rotated; one bad envelope
-          // must not fail the whole sync. Others still apply.
-        }
+    try {
+      const res = await deps.fetch(chunkUrl(connection.feedUrl, ref.id), null);
+      if (res.status !== 200 || res.text === null) {
+        throw new VaultCorruptError(`A feed chunk could not be fetched (status ${res.status}).`);
       }
-    } else {
-      const result = await importShareBundle(vault, res.text, { settings, newId: deps.newId, now: deps.now });
-      appliedPosts += result.added + result.updated;
+      await verifyFeedChunk(ref, res.text);
+      if (ref.kind !== "chat" && ref.kind !== "posts" && ref.kind !== "likes") {
+        // Unknown chunk kind from a newer feed version: skip it, keep everything else moving.
+        continue;
+      }
+      if (ref.kind === "chat") {
+        for (const envelope of parseFeedChatChunk(res.text)) {
+          const e = envelope as { recipientAuthorId?: unknown } | null;
+          if (e?.recipientAuthorId !== settings.authorId) continue;
+          try {
+            const applied = await applyInboundChatEnvelope(vault, envelope, { newId: deps.newId, now: () => deps.now });
+            if (applied.applied) appliedChat += 1;
+          } catch {
+            // A chunk can carry envelopes for connections whose keys rotated; one bad envelope
+            // must not fail the whole sync. Others still apply.
+          }
+        }
+      } else {
+        const result = await importShareBundle(vault, res.text, { settings, newId: deps.newId, now: deps.now });
+        appliedPosts += result.added + result.updated;
+      }
+    } catch (caught) {
+      // A chunk that fails fetch/integrity/parse/apply is rejected, not deferred: it is not
+      // retried (the cursor advances past it) and does not masquerade as a cellular deferral.
+      // A corrected republish arrives under a newer seq and is applied then. Other chunks and
+      // other connections keep moving.
+      rejectedChunks.push(ref.id);
+      continue;
     }
   }
 
@@ -124,10 +140,11 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     pending: pendingChunks.length > 0,
   });
   return {
-    status: pendingChunks.length > 0 ? "deferred" : "applied",
+    status: pendingChunks.length > 0 ? "deferred" : rejectedChunks.length > 0 ? "partial" : "applied",
     appliedPosts,
     appliedChat,
     pendingChunks,
+    rejectedChunks,
   };
 }
 
