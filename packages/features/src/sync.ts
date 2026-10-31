@@ -3,6 +3,7 @@ import type { UnlockedVault } from "@veil/vault";
 import { applyInboundChatEnvelope } from "./chat";
 import {
   chunkUrl,
+  isValidFeedUrl,
   manifestUrl,
   parseFeedChatChunk,
   parseFeedManifest,
@@ -52,6 +53,7 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
   const settings = await loadSettings(vault);
   if (!settings.authorId) throw new AppError("Choose a handle before syncing.");
   if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
+  if (!isValidFeedUrl(connection.feedUrl)) throw new AppError("That connection's feed URL must be an https URL (http is allowed only for localhost).");
   if (!connection.pubkey) throw new AppError("This connection has no verified key.");
   if (deps.network === "cellular" && !settings.syncOnCellular) {
     return { status: "deferred", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
@@ -67,9 +69,11 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
   }
   const manifest = parseFeedManifest(head.text);
   await verifyFeedManifest(manifest, connection.id, connection.pubkey);
-  if (manifest.seq < connection.syncSeq) {
-    throw new VaultCorruptError("That feed moved backward. Ask the connection for a fresh publish.");
-  }
+  // Same-key re-publish at a lower seq means the author restored older state (or rebuilt their
+  // vault and re-shared the same identity). Chunk application is idempotent, so accept it as a
+  // reset and continue from this seq instead of failing the connection forever. Authenticity is
+  // unchanged: the manifest still has to verify against the connection's pinned key.
+  
   if (manifest.seq === connection.syncSeq && !connection.syncPending) {
     await setConnectionSyncState(vault, connection.id, {
       seq: connection.syncSeq,
@@ -92,6 +96,10 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
       throw new VaultCorruptError(`A feed chunk could not be fetched (status ${res.status}).`);
     }
     await verifyFeedChunk(ref, res.text);
+    if (ref.kind !== "chat" && ref.kind !== "posts" && ref.kind !== "likes") {
+      // Unknown chunk kind from a newer feed version: skip it, keep everything else moving.
+      continue;
+    }
     if (ref.kind === "chat") {
       for (const envelope of parseFeedChatChunk(res.text)) {
         const e = envelope as { recipientAuthorId?: unknown } | null;
