@@ -98,7 +98,7 @@ export function ProfileView({
             <p className="text-[12px]">
               {verified ? `Signature verified from @${handle}` : "Unsigned - trust the sender"}
               <span className="text-[#404040]"> · profile claims updated {timeAgo(profile.updatedAt, now)} ago</span>
-              {importedAt && <span className="text-[#404040]"> · received {timeAgo(importedAt, now)} ago</span>}
+              {importedAt && <span className="text-[#404040]"> · bundle imported {timeAgo(importedAt, now)} ago</span>}
             </p>
           )}
           {profile.bio && <p className="whitespace-pre-wrap text-[12px]">{profile.bio}</p>}
