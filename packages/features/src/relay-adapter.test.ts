@@ -275,7 +275,7 @@ describe("serveRelayRead", () => {
     expect(ops).toEqual({ reads: 0, casAttempts: 0, writes: 0, lists: 0, deletes: 0 });
   });
 
-  it("refuses to serve a feed whose publish never committed", async () => {
+  it("refuses to serve a feed whose first publish never committed", async () => {
     const { store } = memStore();
     const key = await generateSigningKeyPair();
     const path = await publisherPath(encodeBase64(key.publicKey));
@@ -285,7 +285,54 @@ describe("serveRelayRead", () => {
     const reader = await generateSigningKeyPair();
     const now = Date.parse("2026-10-31T00:00:30Z");
     const req = await readRequest(reader, path, now, encodeBase64(globalThis.crypto.getRandomValues(new Uint8Array(16))));
-    await expect(serveRelayRead(store, req, { now: new Date(now + 1000) })).rejects.toThrow(/not finished publishing/);
+    await expect(serveRelayRead(store, req, { now: new Date(now + 1000) })).rejects.toThrow(/not on the relay/);
+  });
+
+  it("serves the last committed feed while a newer publish is pending", async () => {
+    const { store } = memStore();
+    const key = await generateSigningKeyPair();
+    const path = await publisherPath(encodeBase64(key.publicKey));
+    await admitRelayPublish(store, (await signedPublish({ seq: 1, key })).request, OPTS);
+    // seq 2 claims but never commits (stalled mid-commit).
+    await store.putObject(`${path}/.state.json`, JSON.stringify({
+      lastSeq: 2, windowStartMs: OPTS.now.getTime(), windowCount: 2, manifestSha: "pending",
+      committed: false, current: "objects/1/feed.json",
+    }));
+    const reader = await generateSigningKeyPair();
+    const now = OPTS.now.getTime() + 1000;
+    const req = await readRequest(reader, path, now, encodeBase64(globalThis.crypto.getRandomValues(new Uint8Array(16))));
+    const served = await serveRelayRead(store, req, { now: new Date(now + 500) });
+    expect(JSON.parse(served.manifest).seq).toBe(1);
+  });
+
+  it("keeps serving the committed feed after a crashed publish that is never resumed", async () => {
+    const { store } = memStore();
+    const key = await generateSigningKeyPair();
+    const path = await publisherPath(encodeBase64(key.publicKey));
+    await admitRelayPublish(store, (await signedPublish({ seq: 3, key })).request, OPTS);
+    await store.putObject(`${path}/.state.json`, JSON.stringify({
+      lastSeq: 4, windowStartMs: OPTS.now.getTime(), windowCount: 2, manifestSha: "crashed",
+      committed: false, current: "objects/3/feed.json",
+    }));
+    const reader = await generateSigningKeyPair();
+    const now = OPTS.now.getTime() + 60_000;
+    const req = await readRequest(reader, path, now, encodeBase64(globalThis.crypto.getRandomValues(new Uint8Array(16))));
+    const served = await serveRelayRead(store, req, { now: new Date(now + 500) });
+    expect(JSON.parse(served.manifest).seq).toBe(3);
+  });
+
+  it("keeps the feed readable after an over-cap denial", async () => {
+    const { store } = memStore();
+    const key = await generateSigningKeyPair();
+    const path = await publisherPath(encodeBase64(key.publicKey));
+    await admitRelayPublish(store, (await signedPublish({ seq: 1, key })).request, OPTS);
+    await admitRelayPublish(store, (await signedPublish({ seq: 2, key })).request, OPTS);
+    await admitRelayPublish(store, (await signedPublish({ seq: 3, key })).request, OPTS).catch(() => {});
+    const reader = await generateSigningKeyPair();
+    const now = OPTS.now.getTime() + 1000;
+    const req = await readRequest(reader, path, now, encodeBase64(globalThis.crypto.getRandomValues(new Uint8Array(16))));
+    const served = await serveRelayRead(store, req, { now: new Date(now + 500) });
+    expect(JSON.parse(served.manifest).seq).toBe(2);
   });
 });
 
