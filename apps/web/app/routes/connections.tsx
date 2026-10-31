@@ -9,6 +9,7 @@ import {
   removeConnection,
   setConnectionHidden,
   setConnectionNickname,
+  syncAllConnections,
   unreadCounts,
 } from "@veil/features";
 import type { Route } from "./+types/connections";
@@ -18,6 +19,7 @@ import { downloadTextFile } from "~/platform/download";
 import { useSessionStore } from "~/platform/session";
 import { useSocial } from "~/platform/use-social";
 import { newItemId } from "~/platform/vault-service";
+import { httpSyncFetcher } from "~/platform/sync-fetcher";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Connections — Everybody is Cool" }];
@@ -179,6 +181,23 @@ export default function Connections() {
   const visible = connections.filter((connection) => !connection.hidden);
   const hiddenConns = connections.filter((connection) => connection.hidden);
 
+  function syncNow() {
+    void run(async () => {
+      if (!vault || !social.settingsReady) return "";
+      const results = await syncAllConnections(vault, {
+        fetch: httpSyncFetcher,
+        network: "wifi",
+        newId: newItemId,
+        now: new Date(),
+      });
+      social.refresh();
+      const counts = new Map<string, number>();
+      for (const result of results.values()) counts.set(result.status, (counts.get(result.status) ?? 0) + 1);
+      const summary = [...counts.entries()].map(([status, n]) => `${n} ${status}`).join(", ");
+      return `Sync finished: ${summary}.`;
+    });
+  }
+
   function saveNickname(connectionId: string) {
     void run(async () => {
       if (!vault) return "";
@@ -228,6 +247,12 @@ export default function Connections() {
             </span>
           )}
         </div>
+        {connection.syncStatus && connection.syncStatus !== "applied" && connection.syncStatus !== "unchanged" && (
+          <span role="status" className="bg-[#ffffe1] px-1 text-[#800000]">
+            sync {connection.syncStatus}
+            {connection.syncDetail ? `: ${connection.syncDetail}` : ""}
+          </span>
+        )}
         <div className="flex flex-wrap gap-1">
           <Link to={`/chat/${connection.id}`} className="underline">Chat</Link>
           <Button95 onClick={() => { setRenamingId(connection.id); setNicknameDraft(connection.nickname ?? ""); setRemovingId(null); }} disabled={busy}>Rename</Button95>
@@ -313,7 +338,10 @@ export default function Connections() {
           <p className="text-[12px]">No connections yet. Import a friend's share file to add one.</p>
         ) : (
           <div className="flex flex-col gap-2 text-[12px]">
-            <p>To refresh someone's posts, import their newest share file again - importing updates in place.</p>
+            <p>To refresh someone's posts, import their newest share file again - importing updates in place. If they publish a feed, sync pulls it over the network instead.</p>
+            <div>
+              <Button95 onClick={syncNow} disabled={busy || !social.settingsReady}>Sync feeds now</Button95>
+            </div>
             {visible.length > 0 && <ul className="flex flex-col gap-1">{visible.map(connectionRow)}</ul>}
             {hiddenConns.length > 0 && (
               <details>
