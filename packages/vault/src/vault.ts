@@ -21,7 +21,7 @@ import {
   verifyVaultKey,
 } from "@veil/crypto";
 
-export type JsonRecordKind = Extract<RecordKind, "settings" | "connection" | "note" | "journal">;
+export type JsonRecordKind = Extract<RecordKind, "settings" | "connection" | "note" | "journal" | "identity">;
 
 export interface VaultDeps {
   store: VaultStore;
@@ -35,6 +35,8 @@ export interface UnlockedVault {
   sealItem(item: Item): Promise<EncryptedRecord>;
   /** Writes all records in one transaction: either every one lands or none does. */
   putRecords(records: EncryptedRecord[]): Promise<void>;
+  /** Deletes records by id in one transaction. Ids that do not exist are skipped. */
+  deleteRecords(ids: string[]): Promise<void>;
   getRecord(id: string): Promise<Bytes | null>;
   putItem(item: Item): Promise<void>;
   getItem(id: string): Promise<Item | null>;
@@ -121,6 +123,9 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedGeneration: 
 
     async putRecords(records) {
       await store.putRecordsForVault(expectedGeneration, records);
+    },
+    async deleteRecords(ids) {
+      await store.deleteRecordsForVault(expectedGeneration, ids);
     },
 
     async getRecord(id) {

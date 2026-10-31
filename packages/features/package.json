@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@veil/core": "^0.0.0",
+    "@veil/crypto": "^0.0.0",
     "@veil/vault": "^0.0.0",
     "react": "^19.3.1",
     "@veil/media": "^0.0.0"

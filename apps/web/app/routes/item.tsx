@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { AppError, formatPrice, timeAgo, type Item } from "@veil/core";
-import { buildShareBundle, toggleLike, useVaultItems } from "@veil/features";
+import { buildPostShareLink, buildShareBundle, toggleLike, useVaultItems } from "@veil/features";
 import type { Route } from "./+types/item";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
@@ -19,6 +19,19 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
   const { state, reload } = useVaultItems(vault);
   const social = useSocial(vault);
   const [shareNote, setShareNote] = useState<string | null>(null);
+
+  async function shareLink(item: Item, allItems: Item[]) {
+    if (!vault) return;
+    setShareNote(null);
+    try {
+      const { text } = await buildShareBundle(vault, social.settings, allItems, new Date(), { onlyPostId: item.id });
+      const link = buildPostShareLink(text, `${window.location.origin}/`);
+      await navigator.clipboard.writeText(link);
+      setShareNote("Link copied. It opens the app and offers to import this post - the post travels in the link itself, no server involved.");
+    } catch (caught) {
+      setShareNote(caught instanceof AppError ? caught.message : "That could not be shared. Please try again.");
+    }
+  }
 
   async function share(item: Item, allItems: Item[]) {
     if (!vault) return;
@@ -79,6 +92,15 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
               title="Sends this one post to a friend, even while it is Private. Pressing it is the consent."
             >
               ↗ Share
+            </Button95>
+          )}
+          {item.authorId === null && (
+            <Button95
+              onClick={() => shareLink(item, state.items)}
+              disabled={!social.settingsReady}
+              title="Copies a link that opens the app and imports this post. Text posts only; big posts need the Share file."
+            >
+              ↗ Link
             </Button95>
           )}
           {item.authorId === null && (
