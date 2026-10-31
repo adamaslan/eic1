@@ -33,6 +33,8 @@ const connection = (over: Partial<Connection>): Connection => ({
   syncSeq: 0,
   syncEtag: null,
   syncPending: false,
+  syncRetry: 0,
+  syncExhausted: false,
   syncStatus: "",
   syncDetail: "",
   schemaVersion: 1,
@@ -111,5 +113,21 @@ describe("ConnectionsList chat entry points", () => {
 
   it("keeps the empty state", () => {
     expect(render(<ConnectionsList connections={[]} unread={{}} now={new Date()} />)).toContain("No connections yet");
+  });
+
+  it("shows the durable last-sync failure and detail for a degraded connection", () => {
+    const html = render(
+      <ConnectionsList
+        connections={[
+          connection({ id: "author-friend", handle: "friend", syncStatus: "failed", syncDetail: "feed unreachable" }),
+          connection({ id: "author-pal", handle: "pal", syncStatus: "applied" }),
+        ]}
+        unread={{}}
+        now={new Date("2026-10-31T00:00:00.000Z")}
+      />,
+    );
+    expect(html).toContain("sync failed: feed unreachable");
+    // A clean connection shows no sync warning.
+    expect(html.match(/sync /g)).toHaveLength(1);
   });
 });
