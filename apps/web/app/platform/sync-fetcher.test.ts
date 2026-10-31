@@ -30,12 +30,19 @@ describe("detectSyncNetwork", () => {
     expect(detectSyncNetwork()).toBe("cellular");
   });
 
-  it("reports wifi only for wifi/ethernet transport", () => {
+  it("reports wifi only for explicit wifi/ethernet transport", () => {
     vi.stubGlobal("navigator", { connection: { type: "wifi" } });
+    expect(detectSyncNetwork()).toBe("wifi");
+    vi.stubGlobal("navigator", { connection: { type: "ethernet" } });
     expect(detectSyncNetwork()).toBe("wifi");
     vi.stubGlobal("navigator", { connection: { type: "cellular" } });
     expect(detectSyncNetwork()).toBe("cellular");
     vi.stubGlobal("navigator", { connection: { type: "wifi", saveData: true } });
+    expect(detectSyncNetwork()).toBe("cellular");
+  });
+
+  it("never treats effectiveType (speed estimate) as wifi", () => {
+    vi.stubGlobal("navigator", { connection: { effectiveType: "4g" } });
     expect(detectSyncNetwork()).toBe("cellular");
   });
 });
