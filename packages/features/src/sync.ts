@@ -10,8 +10,8 @@ import {
   verifyFeedChunk,
   verifyFeedManifest,
 } from "./feed";
-import { applyProfile, parseSignedProfile, verifySignedProfile } from "./profile";
 import { importShareBundle } from "./sharing";
+import { applyProfile, parseSignedProfile, verifySignedProfile } from "./profile";
 import { listConnections, loadSettings, setConnectionSyncState } from "./social";
 
 // Pull sync (spec section 3, transport J = pull): each connection publishes a signed eic-feed to
@@ -43,106 +43,131 @@ export interface SyncDeps {
 }
 
 export interface SyncResult {
-  status: "applied" | "unchanged" | "deferred" | "no-feed" | "failed";
+  status: "applied" | "unchanged" | "deferred" | "no-feed" | "failed" | "partial";
   appliedPosts: number;
   appliedChat: number;
   appliedProfile: boolean;
   pendingChunks: string[];
+  rejectedChunks: string[];
   error?: string;
 }
 
 export async function syncConnection(vault: UnlockedVault, connection: Connection, deps: SyncDeps): Promise<SyncResult> {
   const settings = await loadSettings(vault);
   if (!settings.authorId) throw new AppError("Choose a handle before syncing.");
-  if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
+  if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [], appliedProfile: false };
   if (!isValidFeedUrl(connection.feedUrl)) throw new AppError("That connection's feed URL must be an https URL (http is allowed only for localhost).");
   if (!connection.pubkey) throw new AppError("This connection has no verified key.");
   if (deps.network === "cellular" && !settings.syncOnCellular) {
-    return { status: "deferred", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
+    return { status: "deferred", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [], appliedProfile: false };
   }
 
   // Pending chunks from a cellular-deferred pull must be retried: skip the etag shortcut and
   // re-apply the same manifest (chunk application is idempotent), so delivery does not depend
   // on the sender republishing.
   const head = await deps.fetch(manifestUrl(connection.feedUrl), connection.syncPending ? null : connection.syncEtag);
-  if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
+  if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [], appliedProfile: false };
   if (head.status !== 200 || head.text === null) {
     throw new VaultCorruptError(`The feed could not be fetched (status ${head.status}).`);
   }
   const manifest = parseFeedManifest(head.text);
   await verifyFeedManifest(manifest, connection.id, connection.pubkey);
-  // Same-key re-publish at a lower seq means the author restored older state (or rebuilt their
-  // vault and re-shared the same identity). Chunk application is idempotent, so accept it as a
-  // reset and continue from this seq instead of failing the connection forever. Authenticity is
-  // unchanged: the manifest still has to verify against the connection's pinned key.
-  
+  // Rollback protection: a signed manifest at a lower seq than we already applied could be a
+  // replayed stale snapshot, and accepting it would silently resurrect deleted posts and discard
+  // newer ones. signedAt/builtAt cannot prove freshness across clock skew, so recovery after a
+  // vault rebuild stays explicit: the author re-shares and the reader re-imports, which clears the
+  // cursor. Ordinary sync at equal-or-higher seq is unaffected.
+  if (manifest.seq < connection.syncSeq) {
+    throw new VaultCorruptError(
+      "That feed published an older sequence than the one already applied, so it was not rolled back. If the author rebuilt their vault, ask them to re-share and re-import their bundle to reset.",
+    );
+  }
   if (manifest.seq === connection.syncSeq && !connection.syncPending) {
     await setConnectionSyncState(vault, connection.id, {
       seq: connection.syncSeq,
       etag: head.etag ?? connection.syncEtag,
       pending: connection.syncPending,
     });
-    return { status: "unchanged", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
+    return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [], appliedProfile: false };
   }
 
   let appliedPosts = 0;
   let appliedChat = 0;
   let appliedProfile = false;
   const pendingChunks: string[] = [];
+  const rejectedChunks: string[] = [];
   for (const ref of manifest.chunks) {
     if (deps.network === "cellular" && ref.bytes > (deps.chunkBudgetBytes ?? CELLULAR_CHUNK_BUDGET_BYTES)) {
       pendingChunks.push(ref.id);
       continue;
     }
+    // A chunk that cannot be fetched (network/5xx/404) is transient: defer it and retry on
+    // the next pull, exactly like a cellular-deferred chunk. Only content-level failures are
+    // terminal.
     const res = await deps.fetch(chunkUrl(connection.feedUrl, ref.id), null);
     if (res.status !== 200 || res.text === null) {
-      throw new VaultCorruptError(`A feed chunk could not be fetched (status ${res.status}).`);
-    }
-    await verifyFeedChunk(ref, res.text);
-    if (ref.kind !== "chat" && ref.kind !== "posts" && ref.kind !== "likes" && ref.kind !== "profile") {
-      // Unknown chunk kind from a newer feed version: skip it, keep everything else moving.
+      pendingChunks.push(ref.id);
       continue;
     }
-    if (ref.kind === "profile") {
-      // Fail closed per chunk: an unverifiable or over-cap profile never applies, and never
-      // aborts posts/chat - it is retried on the next pull (pending stays set).
-      try {
+    try {
+      await verifyFeedChunk(ref, res.text);
+      if (ref.kind !== "chat" && ref.kind !== "posts" && ref.kind !== "likes" && ref.kind !== "profile") {
+        // Unknown chunk kind from a newer feed version: skip it, keep everything else moving.
+        continue;
+      }
+      if (ref.kind === "profile") {
+        // Fail closed per chunk: an unverifiable or over-cap profile is terminally rejected
+        // for this manifest (not deferred), never applies, and never aborts posts/chat. A
+        // corrected republish arrives under a newer seq.
         const signed = parseSignedProfile(res.text);
         await verifySignedProfile(signed, connection.id, connection.pubkey);
         appliedProfile = (await applyProfile(vault, signed.profile)).applied || appliedProfile;
-      } catch {
-        pendingChunks.push(ref.id);
         continue;
       }
-    } else if (ref.kind === "chat") {
-      for (const envelope of parseFeedChatChunk(res.text)) {
-        const e = envelope as { recipientAuthorId?: unknown } | null;
-        if (e?.recipientAuthorId !== settings.authorId) continue;
-        try {
-          const applied = await applyInboundChatEnvelope(vault, envelope, { newId: deps.newId, now: () => deps.now });
-          if (applied.applied) appliedChat += 1;
-        } catch {
-          // A chunk can carry envelopes for connections whose keys rotated; one bad envelope
-          // must not fail the whole sync. Others still apply.
+      if (ref.kind === "chat") {
+        for (const envelope of parseFeedChatChunk(res.text)) {
+          const e = envelope as { recipientAuthorId?: unknown } | null;
+          if (e?.recipientAuthorId !== settings.authorId) continue;
+          try {
+            const applied = await applyInboundChatEnvelope(vault, envelope, { newId: deps.newId, now: () => deps.now });
+            if (applied.applied) appliedChat += 1;
+          } catch {
+            // A chunk can carry envelopes for connections whose keys rotated; one bad envelope
+            // must not fail the whole sync. Others still apply.
+          }
         }
+      } else {
+        const result = await importShareBundle(vault, res.text, { settings, newId: deps.newId, now: deps.now });
+        appliedPosts += result.added + result.updated;
       }
-    } else {
-      const result = await importShareBundle(vault, res.text, { settings, newId: deps.newId, now: deps.now });
-      appliedPosts += result.added + result.updated;
+    } catch (caught) {
+      // A chunk that fails integrity/signature/parse/apply is terminally rejected for this
+      // manifest: it is not retried (the cursor advances past it) and does not masquerade as
+      // a transient deferral. A corrected republish arrives under a newer seq and is applied
+      // then. Other chunks and other connections keep moving.
+      rejectedChunks.push(ref.id);
+      continue;
     }
   }
 
+  const status =
+    pendingChunks.length > 0 ? "deferred" : rejectedChunks.length > 0 ? "partial" : "applied";
+  const detail =
+    rejectedChunks.length > 0 ? `rejected: ${rejectedChunks.join(", ")}` : pendingChunks.length > 0 ? `pending: ${pendingChunks.join(", ")}` : "";
   await setConnectionSyncState(vault, connection.id, {
     seq: manifest.seq,
     etag: head.etag ?? connection.syncEtag,
     pending: pendingChunks.length > 0,
+    status,
+    detail,
   });
   return {
-    status: pendingChunks.length > 0 ? "deferred" : "applied",
+    status,
     appliedPosts,
     appliedChat,
     appliedProfile,
     pendingChunks,
+    rejectedChunks,
   };
 }
 
@@ -154,12 +179,23 @@ export async function syncAllConnections(vault: UnlockedVault, deps: SyncDeps): 
       results.set(connection.id, await syncConnection(vault, connection, deps));
     } catch (error) {
       // One corrupt or unreachable feed must not abort the remaining peers.
+      const detail = error instanceof Error ? error.message : String(error);
       results.set(connection.id, {
         status: "failed",
         appliedPosts: 0,
         appliedChat: 0,
+        appliedProfile: false,
         pendingChunks: [],
-        error: error instanceof Error ? error.message : String(error),
+        rejectedChunks: [],
+        error: detail,
+      });
+      // Persist the failure so the user-visible sync status is honest instead of stale-ok.
+      await setConnectionSyncState(vault, connection.id, {
+        seq: connection.syncSeq,
+        etag: connection.syncEtag,
+        pending: connection.syncPending,
+        status: "failed",
+        detail,
       });
     }
   }
