@@ -98,11 +98,15 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
       pendingChunks.push(ref.id);
       continue;
     }
+    // A chunk that cannot be fetched (network/5xx/404) is transient: defer it and retry on
+    // the next pull, exactly like a cellular-deferred chunk. Only content-level failures are
+    // terminal.
+    const res = await deps.fetch(chunkUrl(connection.feedUrl, ref.id), null);
+    if (res.status !== 200 || res.text === null) {
+      pendingChunks.push(ref.id);
+      continue;
+    }
     try {
-      const res = await deps.fetch(chunkUrl(connection.feedUrl, ref.id), null);
-      if (res.status !== 200 || res.text === null) {
-        throw new VaultCorruptError(`A feed chunk could not be fetched (status ${res.status}).`);
-      }
       await verifyFeedChunk(ref, res.text);
       if (ref.kind !== "chat" && ref.kind !== "posts" && ref.kind !== "likes") {
         // Unknown chunk kind from a newer feed version: skip it, keep everything else moving.
@@ -125,22 +129,28 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
         appliedPosts += result.added + result.updated;
       }
     } catch (caught) {
-      // A chunk that fails fetch/integrity/parse/apply is rejected, not deferred: it is not
-      // retried (the cursor advances past it) and does not masquerade as a cellular deferral.
-      // A corrected republish arrives under a newer seq and is applied then. Other chunks and
-      // other connections keep moving.
+      // A chunk that fails integrity/signature/parse/apply is terminally rejected for this
+      // manifest: it is not retried (the cursor advances past it) and does not masquerade as
+      // a transient deferral. A corrected republish arrives under a newer seq and is applied
+      // then. Other chunks and other connections keep moving.
       rejectedChunks.push(ref.id);
       continue;
     }
   }
 
+  const status =
+    pendingChunks.length > 0 ? "deferred" : rejectedChunks.length > 0 ? "partial" : "applied";
+  const detail =
+    rejectedChunks.length > 0 ? `rejected: ${rejectedChunks.join(", ")}` : pendingChunks.length > 0 ? `pending: ${pendingChunks.join(", ")}` : "";
   await setConnectionSyncState(vault, connection.id, {
     seq: manifest.seq,
     etag: head.etag ?? connection.syncEtag,
     pending: pendingChunks.length > 0,
+    status,
+    detail,
   });
   return {
-    status: pendingChunks.length > 0 ? "deferred" : rejectedChunks.length > 0 ? "partial" : "applied",
+    status,
     appliedPosts,
     appliedChat,
     pendingChunks,
@@ -156,12 +166,22 @@ export async function syncAllConnections(vault: UnlockedVault, deps: SyncDeps): 
       results.set(connection.id, await syncConnection(vault, connection, deps));
     } catch (error) {
       // One corrupt or unreachable feed must not abort the remaining peers.
+      const detail = error instanceof Error ? error.message : String(error);
       results.set(connection.id, {
         status: "failed",
         appliedPosts: 0,
         appliedChat: 0,
         pendingChunks: [],
-        error: error instanceof Error ? error.message : String(error),
+        rejectedChunks: [],
+        error: detail,
+      });
+      // Persist the failure so the user-visible sync status is honest instead of stale-ok.
+      await setConnectionSyncState(vault, connection.id, {
+        seq: connection.syncSeq,
+        etag: connection.syncEtag,
+        pending: connection.syncPending,
+        status: "failed",
+        detail,
       });
     }
   }
