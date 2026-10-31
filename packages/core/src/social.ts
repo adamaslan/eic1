@@ -47,6 +47,9 @@ export const ConnectionSchema = z.object({
   syncSeq: z.number().int().nonnegative().default(0),
   syncEtag: z.string().nullable().default(null),
   syncPending: z.boolean().default(false),
+  // Last pull outcome and a short reason, for honest user-visible sync status. Local-only.
+  syncStatus: z.string().default(""),
+  syncDetail: z.string().default(""),
   schemaVersion: z.literal(1),
 });
 export type Connection = z.infer<typeof ConnectionSchema>;
