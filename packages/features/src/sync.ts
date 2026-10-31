@@ -22,6 +22,12 @@ import { listConnections, loadSettings, setConnectionSyncState } from "./social"
 
 export const CELLULAR_CHUNK_BUDGET_BYTES = 1024 * 1024;
 
+// A chunk that cannot be fetched is retried on the next pull (pending skips the etag
+// shortcut), but only a bounded number of times per manifest seq: a permanently-missing
+// chunk (e.g. a 404 the publisher never fixes) becomes terminally rejected after
+// MAX_CHUNK_FETCH_RETRIES attempts instead of retrying forever.
+export const MAX_CHUNK_FETCH_RETRIES = 3;
+
 export interface SyncFetchResponse {
   status: number;
   etag: string | null;
@@ -95,9 +101,11 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
   let appliedChat = 0;
   let appliedProfile = false;
   const pendingChunks: string[] = [];
+  const fetchFailedChunks: string[] = [];
   const rejectedChunks: string[] = [];
   for (const ref of manifest.chunks) {
     if (deps.network === "cellular" && ref.bytes > (deps.chunkBudgetBytes ?? CELLULAR_CHUNK_BUDGET_BYTES)) {
+      // Budget deferral is not a failure and does not count against the retry bound.
       pendingChunks.push(ref.id);
       continue;
     }
@@ -106,6 +114,7 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     // terminal.
     const res = await deps.fetch(chunkUrl(connection.feedUrl, ref.id), null);
     if (res.status !== 200 || res.text === null) {
+      fetchFailedChunks.push(ref.id);
       pendingChunks.push(ref.id);
       continue;
     }
@@ -150,17 +159,33 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     }
   }
 
+  // Bounded retry: consecutive fetch failures for the same manifest seq advance the
+  // counter; any other outcome resets it. Past the bound, the unfetchable chunks are
+  // terminally rejected (status "partial", distinct from retryable "deferred") and the
+  // cursor stops waiting on them.
+  const retry = fetchFailedChunks.length > 0 ? connection.syncRetry + 1 : 0;
+  const exhausted = retry >= MAX_CHUNK_FETCH_RETRIES;
+  if (exhausted) {
+    rejectedChunks.push(...fetchFailedChunks);
+    pendingChunks.length = 0;
+  }
   const status =
     pendingChunks.length > 0 ? "deferred" : rejectedChunks.length > 0 ? "partial" : "applied";
   const detail =
-    rejectedChunks.length > 0 ? `rejected: ${rejectedChunks.join(", ")}` : pendingChunks.length > 0 ? `pending: ${pendingChunks.join(", ")}` : "";
+    rejectedChunks.length > 0
+      ? `rejected: ${rejectedChunks.join(", ")}${exhausted ? ` (unreachable after ${MAX_CHUNK_FETCH_RETRIES} attempts)` : ""}`
+      : pendingChunks.length > 0
+        ? `pending: ${pendingChunks.join(", ")}`
+        : "";
   await setConnectionSyncState(vault, connection.id, {
     seq: manifest.seq,
     etag: head.etag ?? connection.syncEtag,
     pending: pendingChunks.length > 0,
+    retry,
     status,
     detail,
   });
+
   return {
     status,
     appliedPosts,
