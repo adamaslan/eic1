@@ -193,6 +193,39 @@ export async function buildShareBundle(
   return { text, postCount: posts.length };
 }
 
+/**
+ * Builds a "chat key card": a signed eic-share v2 bundle carrying only my identity and key -
+ * no posts, no likes. When a friend imports it, their connection to me gains my verified key
+ * (unlocking chat) without touching their posts or like snapshot. Trust still comes from the
+ * channel the card travels over, exactly like a full signed share file.
+ */
+export async function buildChatInviteBundle(
+  vault: UnlockedVault,
+  settings: Settings,
+  now: Date,
+): Promise<{ text: string }> {
+  if (!settings.authorId || !settings.handle) {
+    throw new AppError("Choose a handle before sharing.");
+  }
+  const identity = await loadOrCreateShareIdentity(vault);
+  const unsigned = {
+    format: SHARE_FORMAT,
+    version: SHARE_VERSION_V2,
+    exportedAt: now.toISOString(),
+    author: {
+      id: settings.authorId,
+      handle: settings.handle,
+      pubkey: encodeBase64(identity.publicKey),
+      ...(settings.feedUrl ? { feedUrl: settings.feedUrl } : {}),
+    },
+    posts: [],
+    likes: [],
+    likesComplete: false,
+  } as const;
+  const signature = await signPayload(identity.secretKey, new TextEncoder().encode(JSON.stringify(unsigned)));
+  return { text: JSON.stringify({ ...unsigned, signature: encodeBase64(signature) }) };
+}
+
 export function parseShareBundle(text: string): ShareBundle | ShareBundleV2 {
   if (new TextEncoder().encode(text).byteLength >= MAX_SHARE_FILE_BYTES) {
     throw new VaultCorruptError("That file is too large.");
@@ -225,6 +258,9 @@ export interface ImportResult {
   // True when the bundle was an eic-share v2 file whose Ed25519 signature verified against the
   // author's embedded public key. v1 files are unsigned: trust comes from whoever sent the file.
   verified: boolean;
+  // True when this import gave the connection a verified key it did not have before - the
+  // moment chat unlocks for a previously unsigned (v1) connection.
+  keyAdded: boolean;
 }
 
 /**
@@ -369,7 +405,8 @@ export async function importShareBundle(
     await addNote(vault, `Imported ${added} new and ${updated} updated posts from @${author.handle}.`, deps);
   }
   for (const noteText of noteTexts) await addNote(vault, noteText, deps);
-  return { handle: author.handle, added, updated, likesReceived, verified };
+  const keyAdded = bundle.version === SHARE_VERSION_V2 && !(prior.success && prior.data.pubkey !== null);
+  return { handle: author.handle, added, updated, likesReceived, verified, keyAdded };
 }
 
 function toMime(mime: string): (typeof ALLOWED_MIME)[number] {
