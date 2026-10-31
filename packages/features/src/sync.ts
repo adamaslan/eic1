@@ -9,6 +9,7 @@ import {
   verifyFeedChunk,
   verifyFeedManifest,
 } from "./feed";
+import { applyProfile, parseSignedProfile, verifySignedProfile } from "./profile";
 import { importShareBundle } from "./sharing";
 import { listConnections, loadSettings, setConnectionSyncState } from "./social";
 
@@ -44,20 +45,21 @@ export interface SyncResult {
   status: "applied" | "unchanged" | "deferred" | "no-feed";
   appliedPosts: number;
   appliedChat: number;
+  appliedProfile: boolean;
   pendingChunks: string[];
 }
 
 export async function syncConnection(vault: UnlockedVault, connection: Connection, deps: SyncDeps): Promise<SyncResult> {
   const settings = await loadSettings(vault);
   if (!settings.authorId) throw new AppError("Choose a handle before syncing.");
-  if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
+  if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
   if (!connection.pubkey) throw new AppError("This connection has no verified key.");
   if (deps.network === "cellular" && !settings.syncOnCellular) {
-    return { status: "deferred", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
+    return { status: "deferred", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
   }
 
   const head = await deps.fetch(manifestUrl(connection.feedUrl), connection.syncEtag);
-  if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
+  if (head.status === 304) return { status: "unchanged", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
   if (head.status !== 200 || head.text === null) {
     throw new VaultCorruptError(`The feed could not be fetched (status ${head.status}).`);
   }
@@ -69,11 +71,12 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
       etag: head.etag ?? connection.syncEtag,
       pending: connection.syncPending,
     });
-    return { status: "unchanged", appliedPosts: 0, appliedChat: 0, pendingChunks: [] };
+    return { status: "unchanged", appliedPosts: 0, appliedChat: 0, appliedProfile: false, pendingChunks: [] };
   }
 
   let appliedPosts = 0;
   let appliedChat = 0;
+  let appliedProfile = false;
   const pendingChunks: string[] = [];
   for (const ref of manifest.chunks) {
     if (deps.network === "cellular" && ref.bytes > (deps.chunkBudgetBytes ?? CELLULAR_CHUNK_BUDGET_BYTES)) {
@@ -85,7 +88,12 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
       throw new VaultCorruptError(`A feed chunk could not be fetched (status ${res.status}).`);
     }
     await verifyFeedChunk(ref, res.text);
-    if (ref.kind === "chat") {
+    if (ref.kind === "profile") {
+      // Fail closed: an unverifiable profile never partially applies.
+      const signed = parseSignedProfile(res.text);
+      await verifySignedProfile(signed, connection.id, connection.pubkey);
+      appliedProfile = (await applyProfile(vault, signed.profile)).applied || appliedProfile;
+    } else if (ref.kind === "chat") {
       for (const envelope of parseFeedChatChunk(res.text)) {
         const e = envelope as { recipientAuthorId?: unknown } | null;
         if (e?.recipientAuthorId !== settings.authorId) continue;
@@ -112,6 +120,7 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     status: pendingChunks.length > 0 ? "deferred" : "applied",
     appliedPosts,
     appliedChat,
+    appliedProfile,
     pendingChunks,
   };
 }
