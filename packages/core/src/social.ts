@@ -50,6 +50,9 @@ export const ConnectionSchema = z.object({
   // Consecutive pulls of the same manifest seq that still had unfetchable chunks. Bounded so
   // a permanently-missing chunk stops retrying instead of pending forever. Local-only.
   syncRetry: z.number().int().nonnegative().default(0),
+  // True only when chunk fetches for the current manifest exhausted their retry budget:
+  // the structured signal for the explicit "retry failed chunks" affordance (no string parsing).
+  syncExhausted: z.boolean().default(false),
   // Last pull outcome and a short reason, for honest user-visible sync status. Local-only.
   syncStatus: z.string().default(""),
   syncDetail: z.string().default(""),
