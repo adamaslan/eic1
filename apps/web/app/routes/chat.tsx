@@ -5,6 +5,7 @@ import {
   CHAT_BODY_MAX,
   listChatThread,
   markThreadRead,
+  describeSendError,
   sendChatMessage,
   type ChatMessage,
 } from "@veil/features";
@@ -152,7 +153,9 @@ export default function Chat({ params }: Route.ComponentProps) {
       setDraft("");
       setMessages(await listChatThread(vault, connection.id));
     } catch (caught) {
-      setError(caught instanceof AppError ? caught.message : "That did not send. Please try again.");
+      // AppError messages are user-written; anything else is logged for diagnosis.
+      if (!(caught instanceof AppError)) console.error("chat send failed", caught);
+      setError(describeSendError(caught));
     } finally {
       setBusy(false);
     }
