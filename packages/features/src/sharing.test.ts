@@ -72,7 +72,34 @@ describe("chat key cards", () => {
 
     // A second key card for an already-verified connection is not a new unlock.
     const again = await importShareBundle(bob, text, deps);
-    expect(again.keyAdded).toBe(false);
+    expect(again).toMatchObject({ keyAdded: false, keyChanged: false });
+  });
+
+  it("refuses silent key rotation; explicit consent rotates and preserves history", async () => {
+    const alice = await open();
+    const { text: card } = await buildChatInviteBundle(alice, settingsFor("alice-id", "alice"), NOW);
+    const bob = await open();
+    const deps = { settings: settingsFor("bob-id", "bob"), newId, now: NOW };
+    await importShareBundle(bob, card, deps);
+    const trusted = (await listConnections(bob))[0]!.pubkey;
+    expect(trusted).not.toBeNull();
+
+    // A different vault signing as the same handle/id holds a different key.
+    const impostor = await open();
+    const { text: rotated } = await buildChatInviteBundle(impostor, settingsFor("alice-id", "alice"), NOW);
+
+    // Default import refuses the rotation and leaves the trusted key untouched.
+    await expect(importShareBundle(bob, rotated, deps)).rejects.toThrow("differs from the key you already trust");
+    expect((await listConnections(bob))[0]!.pubkey).toBe(trusted);
+
+    // Explicit consent rotates: future chat seals to the new key; the connection survives.
+    const confirmed = await importShareBundle(bob, rotated, deps, { allowKeyRotation: true });
+    expect(confirmed).toMatchObject({ keyChanged: true, keyAdded: false });
+    expect((await listConnections(bob))[0]!.pubkey).not.toBe(trusted);
+
+    // Re-importing that same key again is ordinary: neither added nor changed.
+    const repeat = await importShareBundle(bob, rotated, deps);
+    expect(repeat).toMatchObject({ keyAdded: false, keyChanged: false });
   });
 
   it("refuses my own key card", async () => {
