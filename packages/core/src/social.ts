@@ -28,6 +28,10 @@ export const ConnectionSchema = z.object({
   id: z.string().min(1),
   handle: z.string().min(1).max(HANDLE_MAX),
   addedAt: z.iso.datetime(),
+  // From the author's eic-share v2 bundle: their Ed25519 public key and (once sync lands) the
+  // feed URL their vault publishes to. Null for legacy v1 (unsigned) imports.
+  pubkey: z.string().min(1).nullable().default(null),
+  feedUrl: z.string().min(1).nullable().default(null),
   schemaVersion: z.literal(1),
 });
 export type Connection = z.infer<typeof ConnectionSchema>;
