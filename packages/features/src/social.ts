@@ -106,7 +106,6 @@ export async function listNotes(vault: UnlockedVault): Promise<Note[]> {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-/** Connection values keep the author id; their vault record keys are `connection:${authorId}`. */
 // In-flight connection record writes per unlocked-vault session. A connection-list read
 // awaits the writes pending when it starts, so a screen that mounts while a
 // hide/rename/remove is still committing sees committed post-write state instead of
@@ -154,6 +153,7 @@ async function awaitConnectionWrites(vault: UnlockedVault): Promise<void> {
   }
 }
 
+/** Connection values keep the author id; their vault record keys are `connection:${authorId}`. */
 export async function listConnections(vault: UnlockedVault): Promise<Connection[]> {
   await awaitConnectionWrites(vault);
   const raw = await vault.listJson("connection");

@@ -218,7 +218,7 @@ describe("connection write/read consistency", () => {
     }
   });
 
-  it("a pending write on a locked session's vault never blocks a different session's read", async () => {
+  it("a pending write on a wrapped vault does not block a read on the base vault", async () => {
     const vault = await open();
     await seedConnection(vault);
     const { wrapped } = gated(vault, "connection");
