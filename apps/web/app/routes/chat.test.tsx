@@ -100,6 +100,13 @@ describe("ChatThreadView", () => {
     expect(html).toContain("Copied 2 messages as a link");
   });
 
+  it("offers the older batch when a link left messages out", () => {
+    const html = render(
+      <ChatThreadView handle="friend" verified messages={[]} draft="" busy={false} error={null} linkNotice={null} olderLeftOut={3} onDraft={noop} onSend={sendNoop} onShareLink={noop} onOlderLink={noop} />,
+    );
+    expect(html).toContain("Text the 3 older ones");
+  });
+
   it("keeps the chat-link button off for an unsigned connection", () => {
     const html = render(
       <ChatThreadView handle="friend" verified={false} messages={[]} draft="" busy={false} error={null} linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} />,
