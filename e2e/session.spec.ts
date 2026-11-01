@@ -133,7 +133,12 @@ test("idle lock stays at one hour, activity resets idle only, and delayed return
   await page.getByRole("button", { name: "Unlock", exact: true }).click();
   await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
   await page.goto("/market");
-  await page.clock.setSystemTime((await page.evaluate(() => Date.now())) + 60 * 60_000);
+  // A hard load resumes the vault asynchronously. Do not take the clock origin
+  // from navigation completion before the unlocked route has actually rendered.
+  await expect(page.getByText("eight-hour persisted data")).toBeVisible();
+  // The exact 60-minute boundary is covered above. Here timers are deliberately
+  // not fired: a clearly overdue wall clock must be checked on the return event.
+  await page.clock.setSystemTime((await page.evaluate(() => Date.now())) + 61 * 60_000);
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page).toHaveURL(/\/unlock/);
 });
