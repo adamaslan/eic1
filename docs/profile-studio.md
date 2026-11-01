@@ -66,3 +66,11 @@ B/C require their own tests and review packets. Revisit usefulness rather than p
 ProfileRoute hooks run before all early returns. Locked: existing desktop redirect; load: Loading; missing handle/profile: honest absent state with Connections route; read failure: alert, no empty success; owner: studio plus saved draft; connection: existing read-only view. Async work is canceled on route/vault change. Browser test runs loaded editor -> edited -> saved -> projected -> discarded on one mounted instance, then reloads for persistence.
 
 Remaining verification before delivery: independent exact-head technical review, different-family review vote, CI and stamped deploy preview, preview phone/desktop pixels, post-merge production proof. No self-merge.
+
+## Stale selected-profile conflict fix
+
+The private draft now records the feed snapshot it was based on, independently from private content. Update refuses if that snapshot has changed, including when another tab commits during encryption. The encrypted-record compare happens inside the existing IndexedDB readwrite transaction, with vault-generation and kind checks retained. No schema/store version change.
+
+On conflict, private edits remain in the form. Save private draft still works without changing the feed. Review latest saved feed profile shows the current snapshot and advances only the comparison baseline; it does not merge it into private fields or upload anything. Compare that card with the selected preview, then explicitly Update to replace it. A successful update advances the form's baseline. Persisted drafts with no baseline default to null and must review latest before replacing an already-saved profile.
+
+This is local cross-tab lost-update protection, not cross-device synchronization or remote recall. Existing unconditional save APIs keep their prior behavior; this conditional API prevents a studio publish from clobbering a change committed after its baseline.
