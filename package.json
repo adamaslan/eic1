@@ -16,6 +16,7 @@
   "scripts": {
     "test": "vitest run",
     "lint": "eslint .",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "verify:prod": "EIC_TARGET_URL=https://everybodyiscool.netlify.app playwright test e2e/prod.spec.ts"
   }
 }
