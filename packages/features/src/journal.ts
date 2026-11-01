@@ -29,3 +29,31 @@ export async function addJournalEntry(
   await vault.putJson("journal", entry.id, entry);
   return entry;
 }
+
+/** Edits an entry in place: same id and original timestamp, new text. */
+export async function updateJournalEntry(vault: UnlockedVault, id: string, text: string): Promise<JournalEntry> {
+  const existing = JournalEntrySchema.safeParse(await vault.getJson(id));
+  if (!existing.success) throw new AppError("That entry does not exist.");
+  const clean = text.trim();
+  if (!clean) throw new AppError("Write something first.");
+  if (clean.length > JOURNAL_ENTRY_MAX) throw new AppError(`Keep an entry under ${JOURNAL_ENTRY_MAX} characters.`);
+  const updated = JournalEntrySchema.parse({ ...existing.data, text: clean });
+  await vault.putJson("journal", updated.id, updated);
+  return updated;
+}
+
+/** Deletes one entry by id. Only journal records can be deleted: any other record id is
+ * rejected, so a caller can never use this to delete non-journal data. A missing entry is a no-op. */
+export async function deleteJournalEntry(vault: UnlockedVault, id: string): Promise<void> {
+  const existing = await vault.getJson(id);
+  if (existing === null) return;
+  if (!JournalEntrySchema.safeParse(existing).success) throw new AppError("That entry does not exist.");
+  await vault.deleteRecords([id]);
+}
+
+/** Case-insensitive substring filter; blank query returns everything. */
+export function filterJournal(entries: JournalEntry[], query: string): JournalEntry[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((entry) => entry.text.toLowerCase().includes(needle));
+}
