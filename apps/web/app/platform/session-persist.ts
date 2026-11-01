@@ -26,6 +26,7 @@ const db = () =>
 export async function saveSession(key: VaultKey, now: number): Promise<number> {
   const expiresAt = now + SESSION_MS;
   const lockMarker = currentLockMarker();
+  if (lockMarker === "storage-unavailable") throw new Error("Session revocation storage is unavailable.");
   await (await db()).put(STORE, { key, expiresAt, lockMarker } satisfies PersistedSession, KEY);
   return expiresAt;
 }
@@ -33,7 +34,7 @@ export async function saveSession(key: VaultKey, now: number): Promise<number> {
 /** Returns the saved session, or null if there is none or it has expired (expired ones are deleted). */
 export async function loadSession(now: number): Promise<PersistedSession | null> {
   const saved = (await (await db()).get(STORE, KEY)) as PersistedSession | undefined;
-  if (!saved || !Number.isFinite(saved.expiresAt) || saved.expiresAt > now + SESSION_MS || saved.expiresAt <= now || (saved.lockMarker ?? null) !== currentLockMarker()) {
+  if (currentLockMarker() === "storage-unavailable" || !saved || !Number.isFinite(saved.expiresAt) || saved.expiresAt > now + SESSION_MS || saved.expiresAt <= now || (saved.lockMarker ?? null) !== currentLockMarker()) {
     if (saved) await clearSession();
     return null;
   }
