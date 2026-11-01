@@ -79,7 +79,10 @@ test("handle-less recipient sees an honest import error and can still import the
   // The offer is still there (not dismissed, not replaced) - nothing was eaten.
   await expect(pageB.getByText("Import it into your vault?")).toBeVisible();
 
-  // Recover: save a handle, hard-load the SAME link again, import succeeds.
+  // Recover: the modal is global, so the user closes it ("Not now" consumes the URL
+  // hash), saves a handle, and re-taps the original text - the same link then imports.
+  await pageB.getByRole("button", { name: "Not now" }).click();
+  await expect(pageB.getByText("A friend shared a post with you")).toHaveCount(0);
   await saveHandle(pageB, "recipient");
   await pageB.goto(link);
   await pageB.getByRole("button", { name: "Import", exact: true }).click();
