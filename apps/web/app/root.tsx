@@ -10,11 +10,13 @@ import {
 } from "react-router";
 import { AppError } from "@veil/core";
 import {
+  KeyRotationError,
   MAX_CHAT_LINK_CHARS,
   applyChatShareLink,
   importConnectCard,
   importShareBundle,
   loadSettings,
+  parseShareBundle,
   peekConnectCardAuthor,
   peekConnectCardHandle,
   readChatShareLink,
@@ -189,6 +191,14 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
   const [busy, setBusy] = useState(false);
   const [connectTick, setConnectTick] = useState(0);
   const openingChat = useRef(false);
+  // A key-card bundle carries no posts: the dialog must say what importing it actually does.
+  const [isKeyCard, setIsKeyCard] = useState(false);
+  // The claimed author (v2 cards carry a key; v1 files do not) so the dialog can name whose
+  // key it is and show a short fingerprint for comparison.
+  const [claimed, setClaimed] = useState<{ handle: string; pubkey: string | null } | null>(null);
+  // Set when the card's key differs from the saved verified key: replacing needs its own
+  // explicit confirmation, never a side effect of one Import click.
+  const [rotationPending, setRotationPending] = useState(false);
 
   useEffect(() => {
     if (!vault) return;
@@ -213,6 +223,17 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
       try {
         const link = readPendingLink(hash);
         if (link === null) return;
+        if (link.kind === "post") {
+          // #41's dialog enrichment: name whose key/post this is and say what importing does.
+          try {
+            const parsed = parseShareBundle(link.text);
+            setIsKeyCard(parsed.version === 2 && parsed.posts.length === 0);
+            setClaimed({ handle: parsed.author.handle, pubkey: parsed.version === 2 ? parsed.author.pubkey : null });
+          } catch {
+            setIsKeyCard(false);
+            setClaimed(null);
+          }
+        }
         if (link.kind === "connect") {
           // Reject your own card up front instead of confirming first and failing after.
           const author = peekConnectCardAuthor(link.text);
@@ -284,19 +305,36 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
     else stripUrlHash();
     setPending(null);
     setMessage(null);
+    setRotationPending(false);
   };
 
-  const doImport = async () => {
+  const fingerprint = (pubkey: string) => pubkey.slice(0, 8);
+
+  const doImport = async (allowKeyRotation = false) => {
     if (!vault || pending?.kind !== "post") return;
     setBusy(true);
     try {
       const settings = await loadSettings(vault);
-      const result = await importShareBundle(vault, pending.text, { settings, newId: newItemId, now: new Date() });
+      const result = await importShareBundle(vault, pending.text, { settings, newId: newItemId, now: new Date() }, { allowKeyRotation });
       setPending(null);
-      setMessage(`Imported from @${result.handle}: ${result.added} new, ${result.updated} updated. The post is in your vault and renders offline from here on.`);
+      setRotationPending(false);
+      setMessage(
+        result.keyChanged
+          ? `Key replaced for @${result.handle} - future chat seals to the new key. Your connection and history are unchanged.`
+          : result.keyAdded
+            ? `Chat unlocked with @${result.handle} - verified key saved. Your connection and history are unchanged.`
+            : isKeyCard
+              ? `Chat already unlocked with @${result.handle} - the saved verified key is unchanged. Nothing new to import.`
+              : `Imported from @${result.handle}: ${result.added} new, ${result.updated} updated. The post is in your vault and renders offline from here on.`,
+      );
       consumeHash("post");
     } catch (caught) {
-      setMessage(caught instanceof AppError ? caught.message : "That share link could not be imported.");
+      if (caught instanceof KeyRotationError) {
+        // Distinct confirmation step: the first Import click only surfaces the warning.
+        setRotationPending(true);
+      } else {
+        setMessage(caught instanceof AppError ? caught.message : "That share link could not be imported.");
+      }
     } finally {
       setBusy(false);
     }
@@ -355,13 +393,32 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
             </div>
           </Window>
         ) : pending?.kind === "post" && message === null ? (
-          <Window title="A friend shared a post with you">
+          <Window title={isKeyCard ? "A friend sent a chat key" : "A friend shared a post with you"}>
             <div className="flex flex-col gap-2 text-[12px]">
-              <p>This link carries a post from a friend. Import it into your vault?</p>
-              <div className="flex gap-1">
-                <Button95 onClick={() => void doImport()} disabled={busy}>Import</Button95>
-                <Button95 onClick={() => dismiss("post")} disabled={busy}>Not now</Button95>
-              </div>
+              {rotationPending && claimed ? (
+                <>
+                  <p role="alert">
+                    This replaces the saved verified key for @{claimed.handle} (new key {claimed.pubkey ? fingerprint(claimed.pubkey) : "unknown"}…).
+                    Only continue if they told you they rebuilt their vault - a new key could be someone else.
+                  </p>
+                  <div className="flex gap-1">
+                    <Button95 onClick={() => void doImport(true)} disabled={busy}>Replace saved key</Button95>
+                    <Button95 onClick={() => dismiss("post")} disabled={busy}>Cancel</Button95>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p>
+                    {isKeyCard && claimed
+                      ? `This link claims a chat key for @${claimed.handle}${claimed.pubkey ? ` (key ${fingerprint(claimed.pubkey)}…)` : ""} - no posts. The signature proves the sender holds that key, not that they are who they claim: only import a link that came from them directly. Importing it saves the key and unlocks chat; your connection and history stay as they are.`
+                      : "This link carries a post from a friend. Import it into your vault?"}
+                  </p>
+                  <div className="flex gap-1">
+                    <Button95 onClick={() => void doImport()} disabled={busy}>Import</Button95>
+                    <Button95 onClick={() => dismiss("post")} disabled={busy}>Not now</Button95>
+                  </div>
+                </>
+              )}
             </div>
           </Window>
         ) : (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPostShareLink, readPostShareLink, POST_LINK_PREFIX, MAX_POST_LINK_CHARS } from "./share-link";
+import { buildChatInviteLink, buildPostShareLink, readPostShareLink, POST_LINK_PREFIX, MAX_POST_LINK_CHARS } from "./share-link";
 
 const BASE = "https://everybodyiscool.netlify.app/";
 
@@ -31,5 +31,15 @@ describe("share-one-post links", () => {
 
   it("reports damaged links instead of crashing", () => {
     expect(() => readPostShareLink(`${POST_LINK_PREFIX}!!!not-base64!!!`)).toThrow(/damaged/);
+  });
+});
+
+describe("chat key invite links", () => {
+  it("round-trips a key card through a link", () => {
+    const card = JSON.stringify({ format: "eic-share", version: 2, author: { id: "a1", handle: "alice", pubkey: "pk" }, posts: [], likes: [], likesComplete: false, signature: "sig", exportedAt: "2026-10-29T12:00:00.000Z" });
+    const link = buildChatInviteLink(card, BASE);
+    expect(link.startsWith(`${BASE}${POST_LINK_PREFIX}`)).toBe(true);
+    expect(link.length).toBeLessThanOrEqual(MAX_POST_LINK_CHARS);
+    expect(readPostShareLink(new URL(link).hash)).toBe(card);
   });
 });
