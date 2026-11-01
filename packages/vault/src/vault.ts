@@ -1,4 +1,5 @@
 import {
+  AppError,
   type Bytes,
   type EncryptedRecord,
   type Item,
@@ -43,6 +44,7 @@ export interface UnlockedVault {
   listItems(): Promise<Item[]>;
   /** Seals a JSON value as a settings, connection, or note record and writes it. Replaces only records of the same kind. */
   putJson(kind: JsonRecordKind, id: string, value: unknown): Promise<void>;
+  putJsonIfUnchanged(kind: JsonRecordKind, id: string, value: unknown, expected: unknown | null): Promise<void>;
   getJson(id: string): Promise<unknown | null>;
   listJson(kind: JsonRecordKind, opts?: { skipUndecryptable?: boolean }): Promise<unknown[]>;
   /** Wipes this vault only while its original header is still current. */
@@ -166,6 +168,20 @@ function openSession(deps: VaultDeps, initialKey: VaultKey, expectedGeneration: 
       await store.putRecordsForVault(expectedGeneration, [
         { v: 1, id, kind, iv: sealed.iv, ciphertext: sealed.ciphertext },
       ], { requireSameKind: true });
+    },
+
+    async putJsonIfUnchanged(kind, id, value, expected) {
+      const keyInUse = activeKey();
+      const previous = await store.getRecord(id);
+      const actual = previous ? decodeJson(await openBytes(crypto, keyInUse, { iv: previous.iv, ciphertext: previous.ciphertext })) : null;
+      if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+        throw new AppError("The saved profile changed. Review the latest feed profile before updating. Nothing was overwritten.");
+      }
+      const sealed = await sealBytes(crypto, keyInUse, encodeJson(value));
+      activeKey(); // Lock during encryption cannot commit a later stale operation.
+      await store.putRecordsForVault(expectedGeneration, [
+        { v: 1, id, kind, iv: sealed.iv, ciphertext: sealed.ciphertext },
+      ], { requireSameKind: true, expectedRecord: previous });
     },
 
     async getJson(id) {
