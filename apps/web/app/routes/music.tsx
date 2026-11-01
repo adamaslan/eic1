@@ -311,7 +311,14 @@ export default function Music() {
   async function onDelete(name: string) {
     if (!vault) return;
     if (!window.confirm(`Delete the saved playlist "${name}"? The songs on your device are not touched.`)) return;
-    await deletePlaylist(vault, name);
+    try {
+      await deletePlaylist(vault, name);
+    } catch (err) {
+      // A rejection does not prove which state the caller can still read.
+      // Keep the current list and report uncertainty rather than claim success.
+      store.setNote(`Couldn't confirm deletion of "${name}". ${err instanceof Error ? err.message : "Please try again."}`);
+      return;
+    }
     if (store.playlistName === name) store.setPlaylistName(null);
     await refreshSaved();
   }
