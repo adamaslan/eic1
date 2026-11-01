@@ -236,14 +236,19 @@ export function readConnectLink(hash: string): string | null {
   }
 }
 
-/** Best-effort handle for the confirm dialog; the real validation happens in importConnectCard. */
-export function peekConnectCardHandle(text: string): string | null {
+/** Best-effort card author for the confirm dialog; the real validation happens in importConnectCard. */
+export function peekConnectCardAuthor(text: string): { id: string; handle: string } | null {
   try {
     const parsed = ConnectCardSchema.safeParse(JSON.parse(text));
-    return parsed.success ? parsed.data.author.handle : null;
+    return parsed.success ? { id: parsed.data.author.id, handle: parsed.data.author.handle } : null;
   } catch {
     return null;
   }
+}
+
+/** Best-effort handle for the confirm dialog; the real validation happens in importConnectCard. */
+export function peekConnectCardHandle(text: string): string | null {
+  return peekConnectCardAuthor(text)?.handle ?? null;
 }
 
 /**
