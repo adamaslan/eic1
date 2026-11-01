@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { AppError, JOURNAL_ENTRY_MAX, timeAgo, type JournalEntry } from "@veil/core";
-import { addJournalEntry, deleteJournalEntry, filterJournal, listJournal, updateJournalEntry } from "@veil/features";
+import { addJournalEntry, applyJournalFilters, buildJournalShareBundle, buildJournalShareLink, deleteJournalEntry, emptyJournalFilter, isJournalFilterActive, JOURNAL_DATE_RANGES, listJournal, loadSettings, updateJournalEntry, type JournalDateRange } from "@veil/features";
 import type { Route } from "./+types/journal";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
@@ -19,9 +19,34 @@ export default function Journal() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
+  const [range, setRange] = useState<JournalDateRange>("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [shareNote, setShareNote] = useState<{ id: string; note: string } | null>(null);
+
+  // Sharing one entry is always the owner's explicit per-entry choice. The entry travels inside
+  // the link fragment; the recipient opens the app and sees it, no server involved.
+  async function shareEntry(entry: JournalEntry) {
+    if (!vault) return;
+    setShareNote(null);
+    try {
+      const settings = await loadSettings(vault);
+      if (!settings.authorId || !settings.handle) throw new AppError("Choose a handle before sharing.");
+      const bundle = buildJournalShareBundle({
+        authorId: settings.authorId,
+        authorHandle: settings.handle,
+        text: entry.text,
+        createdAt: entry.createdAt,
+        now: new Date(),
+      });
+      const link = buildJournalShareLink(bundle, `${window.location.origin}/`);
+      await navigator.clipboard.writeText(link);
+      setShareNote({ id: entry.id, note: "Link copied. It opens the app and shows this entry - it travels in the link itself, no server involved." });
+    } catch (caught) {
+      setShareNote({ id: entry.id, note: caught instanceof AppError ? caught.message : "That entry could not be shared. Please try again." });
+    }
+  }
 
   const reload = useCallback(async () => {
     if (!vault) return;
@@ -94,7 +119,10 @@ export default function Journal() {
   }
 
   const now = new Date();
-  const shown = entries === null ? null : filterJournal(entries, query);
+  const filter = { query, range };
+  const filterActive = isJournalFilterActive(filter);
+  const filtered = entries === null ? null : applyJournalFilters(entries, filter, now);
+  const shown = filtered === null ? null : filtered.entries;
   return (
     <div className="flex flex-col gap-3">
       <Window title="New entry">
@@ -106,13 +134,14 @@ export default function Journal() {
             rows={5}
             maxLength={JOURNAL_ENTRY_MAX}
             value={text}
+            disabled={saving}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={saveOnShortcut}
             className="w-full bg-white px-1.5 py-1 text-[12px] outline-none"
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button95 type="submit" className="shrink-0 whitespace-nowrap" disabled={saving || !text.trim()}>{saving ? "Encrypting…" : "🔒 Save entry"}</Button95>
-            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay in this vault and are never put in a share file.</span>
+            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay in this vault: share files never include them. An entry leaves only when you tap its Share link, one entry at a time.</span>
           </div>
           {error && <p role="alert" className="text-[#800000]">{error}</p>}
         </form>
@@ -120,21 +149,51 @@ export default function Journal() {
 
       <Window title={`Entries${entries ? ` (${entries.length})` : ""}`}>
         {entries !== null && entries.length > 0 && (
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search entries"
-            aria-label="Search entries"
-            className="mb-2 w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px]"
-          />
+          <div className="mb-2 flex flex-col gap-1">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search entries"
+              aria-label="Search entries"
+              className="w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px]"
+            />
+            <div className="flex flex-wrap items-center gap-1">
+              {JOURNAL_DATE_RANGES.map((option) => (
+                <Button95 key={option.id} pressed={range === option.id} onClick={() => setRange(option.id)}>
+                  {option.label}
+                </Button95>
+              ))}
+              {filterActive && (
+                <Button95
+                  onClick={() => {
+                    setQuery("");
+                    setRange(emptyJournalFilter.range);
+                  }}
+                >
+                  Clear filter
+                </Button95>
+              )}
+            </div>
+            {filterActive && filtered !== null && (
+              <p className="text-[11px] text-[#404040]">
+                Showing {filtered.entries.length} of {filtered.total} {filtered.total === 1 ? "entry" : "entries"}.
+              </p>
+            )}
+          </div>
         )}
         {shown === null ? (
           <p className="text-[12px]">Loading…</p>
         ) : entries!.length === 0 ? (
           <p className="text-[12px]">No entries yet.</p>
         ) : shown.length === 0 ? (
-          <p className="text-[12px]">No entries match that search.</p>
+          <p className="text-[12px]">
+            {query.trim() !== "" && range !== "all"
+              ? "No entries match that search in that date range."
+              : query.trim() !== ""
+                ? "No entries match that search."
+                : "No entries in that date range."}
+          </p>
         ) : (
           <ul className="flex flex-col gap-1 text-[12px]">
             {shown.map((entry) => (
@@ -162,6 +221,9 @@ export default function Journal() {
                       <button type="button" onClick={() => startEdit(entry)} className="text-[#0000cc] underline">
                         Edit
                       </button>
+                      <button type="button" onClick={() => void shareEntry(entry)} className="text-[#0000cc] underline">
+                        Share
+                      </button>
                       {confirmingId === entry.id ? (
                         <>
                           <span>Delete this entry?</span>
@@ -178,6 +240,9 @@ export default function Journal() {
                         </button>
                       )}
                     </div>
+                    {shareNote?.id === entry.id && (
+                      <p className="mt-0.5 text-[11px] text-[#404040]">{shareNote.note}</p>
+                    )}
                   </>
                 )}
               </li>
