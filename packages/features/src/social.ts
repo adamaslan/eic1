@@ -107,7 +107,55 @@ export async function listNotes(vault: UnlockedVault): Promise<Note[]> {
 }
 
 /** Connection values keep the author id; their vault record keys are `connection:${authorId}`. */
+// In-flight connection record writes per unlocked-vault session. A connection-list read
+// awaits the writes pending when it starts, so a screen that mounts while a
+// hide/rename/remove is still committing sees committed post-write state instead of
+// pre-write state. Scope and limits, deliberately narrow:
+// - Registration is synchronous with the write call, so a read begun after the write call
+//   began always awaits it. A read begun before a write may still return pre-write state.
+// - Only updateConnection/removeConnection register. Share/chat-link import writes
+//   (sharing.ts, chat-link.ts) bypass this registry; their flows show their own progress.
+// - Writer-writer races (concurrent updates to the same record) keep last-commit-wins.
+// - The registry is per UnlockedVault object, so writes from a previous locked session
+//   can never block a new session's reads.
+// - allSettled alone cannot bound a never-settling write, so the wait is time-bounded:
+//   after the budget the read proceeds against committed state, which stays honest
+//   because the uncommitted write has not taken effect.
+const pendingConnectionWrites = new WeakMap<UnlockedVault, Set<Promise<unknown>>>();
+const CONNECTION_WRITE_WAIT_MS = 5000;
+
+function trackConnectionWrite<T>(vault: UnlockedVault, work: Promise<T>): Promise<T> {
+  let pending = pendingConnectionWrites.get(vault);
+  if (!pending) {
+    pending = new Set();
+    pendingConnectionWrites.set(vault, pending);
+  }
+  pending.add(work);
+  const settle = () => {
+    pending.delete(work);
+  };
+  work.then(settle, settle);
+  return work;
+}
+
+async function awaitConnectionWrites(vault: UnlockedVault): Promise<void> {
+  const pending = pendingConnectionWrites.get(vault);
+  if (!pending || pending.size === 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.allSettled([...pending]),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, CONNECTION_WRITE_WAIT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function listConnections(vault: UnlockedVault): Promise<Connection[]> {
+  await awaitConnectionWrites(vault);
   const raw = await vault.listJson("connection");
   const byId = new Map<string, Connection>();
   for (const value of raw) {
@@ -136,12 +184,14 @@ export function summarizeConnections(connections: Connection[], items: Item[]): 
 }
 
 async function updateConnection(vault: UnlockedVault, connectionId: string, change: (connection: Connection) => Connection): Promise<Connection> {
-  const recordId = `connection:${connectionId}`;
-  const parsed = ConnectionSchema.safeParse(await vault.getJson(recordId));
-  if (!parsed.success) throw new AppError("That connection does not exist.");
-  const updated = ConnectionSchema.parse(change(parsed.data));
-  await vault.putJson("connection", recordId, updated);
-  return updated;
+  return trackConnectionWrite(vault, (async () => {
+    const recordId = `connection:${connectionId}`;
+    const parsed = ConnectionSchema.safeParse(await vault.getJson(recordId));
+    if (!parsed.success) throw new AppError("That connection does not exist.");
+    const updated = ConnectionSchema.parse(change(parsed.data));
+    await vault.putJson("connection", recordId, updated);
+    return updated;
+  })());
 }
 
 /** Sets or clears your local nickname for a connection (null clears). It never leaves this vault. */
@@ -160,6 +210,14 @@ export async function setConnectionHidden(vault: UnlockedVault, connectionId: st
  * otherwise the posts stay in the vault. Likes they gave you are left as they were.
  */
 export async function removeConnection(
+  vault: UnlockedVault,
+  connectionId: string,
+  options: { dropPosts: boolean },
+): Promise<{ droppedPosts: number }> {
+  return trackConnectionWrite(vault, removeConnectionInner(vault, connectionId, options));
+}
+
+async function removeConnectionInner(
   vault: UnlockedVault,
   connectionId: string,
   options: { dropPosts: boolean },
