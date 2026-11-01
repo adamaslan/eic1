@@ -118,6 +118,7 @@ const NAV = [
   ["/compose", "+ Post"],
   ["/tools", "Tools"],
   ["/connections", "Connections"],
+  ["/profile", "My profile"],
   ["/vault", "Vault"],
 ];
 
@@ -144,4 +145,3 @@ function UnlockedLanding() {
     </main>
   );
 }
-

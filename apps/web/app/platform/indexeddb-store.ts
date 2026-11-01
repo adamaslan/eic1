@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import {
+  AppError,
   VaultAlreadyExistsError,
   VaultCorruptError,
   VaultLockedError,
@@ -85,7 +86,7 @@ export class IndexedDbVaultStore implements VaultStore {
     }
   }
 
-  async putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[], options?: { requireSameKind?: boolean }): Promise<void> {
+  async putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[], options?: { requireSameKind?: boolean; expectedRecord?: EncryptedRecord | null }): Promise<void> {
     const db = await this.db();
     const tx = db.transaction(["meta", "records"], "readwrite");
     const metaStore = tx.objectStore("meta");
@@ -95,6 +96,14 @@ export class IndexedDbVaultStore implements VaultStore {
         throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
       }
       const recordStore = tx.objectStore("records");
+      if (options && "expectedRecord" in options) {
+        const current = (await recordStore.get(records[0]?.id)) ?? null;
+        const expected = options.expectedRecord ?? null;
+        if (records.length !== 1 || (expected && expected.id !== records[0].id) ||
+          (current === null ? expected !== null : expected === null || current.kind !== expected.kind || !sameBytes(current.iv, expected.iv) || !sameBytes(current.ciphertext, expected.ciphertext))) {
+          throw new AppError("The saved profile changed. Review the latest feed profile before updating. Nothing was overwritten.");
+        }
+      }
       for (const record of records) {
         if (options?.requireSameKind) {
           const existing = await recordStore.get(record.id);
