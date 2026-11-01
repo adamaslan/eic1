@@ -57,3 +57,17 @@ export const textSizePx = (id: TextSizeId): number =>
 // palette encoder snaps the anti-aliased edges to the nearest palette color, so the
 // placed text stays low-KB like the brush strokes.
 export const textFont = (px: number): string => `${px}px "Courier New", monospace`;
+
+// Tools that mark the canvas. The draw route also switches cursor and panel behavior
+// on this: "brush" and "eraser" stroke, "text" previews and places.
+export type PaintTool = "brush" | "eraser" | "text";
+
+// The canvas starts white and the PNG export snaps pixels to the fixed palette, so the
+// eraser paints the background color instead of punching alpha holes. White is a palette
+// slot, so erased strokes stay palette-indexed and low-KB like every other stroke, and
+// erasing is an ordinary undoable paint stroke in the history.
+export const ERASE_COLOR = "#ffffff";
+
+/** The color a stroke actually lays down for the given tool. */
+export const strokeColor = (tool: PaintTool, color: string): string =>
+  tool === "eraser" ? ERASE_COLOR : color;

@@ -10,10 +10,14 @@ interface TaskbarProps {
   children?: ReactNode;
 }
 
-// Fixed bottom bar: Start button, optional task items, build stamp, and a sunken clock.
+// Bottom bar: Start button, optional task items, build stamp, and a sunken clock.
+// Sticky, not fixed: it stays pinned to the viewport bottom while scrolling, but it
+// also occupies flow space at the document end, so page content can never be trapped
+// beneath it (a fixed bar overlaps the bottom of slightly-taller-than-viewport pages
+// with no way to scroll clear).
 export function Taskbar({ startLabel = "Start", onStart, clock, children }: TaskbarProps) {
   return (
-    <footer className="fixed inset-x-0 bottom-0 flex items-center gap-1 bg-[#c0c0c0] p-1">
+    <footer className="sticky inset-x-0 bottom-0 z-10 flex items-center gap-1 bg-[#c0c0c0] p-1">
       <Button95 onClick={onStart} className="font-bold">
         {startLabel}
       </Button95>

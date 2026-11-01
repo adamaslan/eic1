@@ -11,7 +11,7 @@ const TOOLS = [
   {
     to: "/draw",
     name: "Paint",
-    blurb: "Draw with brushes and text on a chunky canvas, with undo. Saves as an encrypted photo post.",
+    blurb: "Draw with brushes, an eraser, and text on a chunky canvas, with undo. Saves as an encrypted photo post.",
   },
 ];
 

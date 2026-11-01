@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PaintHistory, TEXT_SIZES, textFont, textSizePx, type TextSizeId } from "./paint";
+import { ERASE_COLOR, PaintHistory, TEXT_SIZES, strokeColor, textFont, textSizePx, type TextSizeId } from "./paint";
 
 describe("PaintHistory", () => {
   it("starts with nothing to undo or redo", () => {
@@ -94,5 +94,18 @@ describe("textFont", () => {
   it("builds a monospace canvas font at the requested size", () => {
     expect(textFont(12)).toBe('12px "Courier New", monospace');
     expect(textFont(32)).toContain("32px");
+  });
+});
+
+describe("strokeColor", () => {
+  it("eraser always paints the white background color", () => {
+    expect(ERASE_COLOR).toBe("#ffffff");
+    expect(strokeColor("eraser", "#000000")).toBe(ERASE_COLOR);
+    expect(strokeColor("eraser", "#ff0000")).toBe("#ffffff");
+  });
+
+  it("brush and text keep the chosen color", () => {
+    expect(strokeColor("brush", "#800000")).toBe("#800000");
+    expect(strokeColor("text", "#000080")).toBe("#000080");
   });
 });

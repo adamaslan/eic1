@@ -20,7 +20,8 @@ export default function Home() {
   const [pressed, setPressed] = useState(false);
 
   return (
-    <main className="min-h-screen bg-[#008080] p-3 pb-16">
+    <main className="flex min-h-screen flex-col bg-[#008080] p-3">
+      <div className="flex-1">
       <Window title="Everybody is Cool — primitives">
         <div className="flex flex-col gap-3">
           <div role="group" aria-label="Active view" className="flex flex-wrap gap-1">
@@ -39,6 +40,7 @@ export default function Home() {
           </Button95>
         </div>
       </Window>
+      </div>
       <Taskbar clock="12:00" onStart={() => undefined}>
         <span className="truncate self-center text-[12px]">Everybody is Cool</span>
       </Taskbar>

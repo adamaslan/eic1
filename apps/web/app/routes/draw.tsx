@@ -7,9 +7,11 @@ import {
   PHOTO_CATEGORY,
   saveComposedItem,
   TEXT_SIZES,
+  strokeColor,
   textFont,
   textSizePx,
   type ComposedMedia,
+  type PaintTool,
   type TextSizeId,
 } from "@veil/features";
 import type { Route } from "./+types/draw";
@@ -66,7 +68,7 @@ async function encodeCanvas(canvas: HTMLCanvasElement, mime: string, quality?: n
 
 const formatKb = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
 
-type Tool = "brush" | "text";
+type Tool = PaintTool;
 
 export default function Draw() {
   const vault = useSessionStore((state) => state.vault);
@@ -86,6 +88,10 @@ export default function Draw() {
   const [textValue, setTextValue] = useState("");
   const [textSizeId, setTextSizeId] = useState<TextSizeId>("m");
   const [textAnchor, setTextAnchor] = useState<{ x: number; y: number } | null>(null);
+  // Pointer position for the text-tool crosshair guides. The guides are an overlay:
+  // they are never painted into the canvas bitmap, so they cannot enter exports,
+  // saved posts, or the undo history.
+  const [crosshair, setCrosshair] = useState<{ x: number; y: number } | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [format, setFormat] = useState<FormatId>("png");
@@ -174,6 +180,7 @@ export default function Draw() {
   const selectTool = (next: Tool) => {
     if (next === tool) return;
     discardTextPreview();
+    setCrosshair(null);
     setTool(next);
   };
 
@@ -261,13 +268,14 @@ export default function Draw() {
   };
 
   const drawSegment = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (tool === "text") setCrosshair(canvasPoint(event));
     if (!drawing.current) return;
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
     const point = canvasPoint(event);
     const from = last.current ?? point;
-    context.strokeStyle = color;
+    context.strokeStyle = strokeColor(tool, color);
     context.lineWidth = brush;
     context.lineCap = "round";
     context.lineJoin = "round";
@@ -375,10 +383,13 @@ export default function Draw() {
             <Button95 pressed={tool === "brush"} onClick={() => selectTool("brush")} disabled={saving}>
               Brush
             </Button95>
+            <Button95 pressed={tool === "eraser"} onClick={() => selectTool("eraser")} disabled={saving}>
+              Eraser
+            </Button95>
             <Button95 pressed={tool === "text"} onClick={() => selectTool("text")} disabled={saving}>
               Text
             </Button95>
-            {tool === "brush" &&
+            {(tool === "brush" || tool === "eraser") &&
               BRUSHES.map((option) => (
                 <Button95 key={option} pressed={brush === option} onClick={() => setBrush(option)}>
                   {option}px
@@ -398,18 +409,18 @@ export default function Draw() {
             </Button95>
             <Button95 onClick={clearCanvas} disabled={saving}>Clear</Button95>
           </div>
+          <div className="relative self-start">
           <canvas
             ref={canvasRef}
             width={CANVAS_SIZE}
             height={CANVAS_SIZE}
-            className="touch-none bg-white"
             style={{
               // Fit phones: 320px preferred, shrink before the window overflows
               // (toolbar column + window padding reserve ~120px of the viewport).
               width: `min(${DISPLAY_SIZE}px, calc(100vw - 120px))`,
               height: "auto",
               imageRendering: "pixelated",
-              cursor: tool === "text" ? "text" : "crosshair",
+              cursor: "crosshair",
               borderTop: "2px solid #808080",
               borderLeft: "2px solid #808080",
               borderRight: "2px solid #ffffff",
@@ -419,7 +430,44 @@ export default function Draw() {
             onPointerMove={drawSegment}
             onPointerUp={endStroke}
             onPointerCancel={endStroke}
+            onPointerLeave={() => setCrosshair(null)}
+            className="block touch-none bg-white"
           />
+          {tool === "text" && (
+            // Aim aid for the text tool: full-span guides follow the pointer, and a
+            // fixed cross marks the anchor once clicked. Difference blending keeps the
+            // lines visible over any palette color. Overlay only - never painted.
+            <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+              {crosshair && (
+                <>
+                  <div
+                    data-testid="text-crosshair-v"
+                    className="absolute top-0 bottom-0 w-px bg-white mix-blend-difference"
+                    style={{ left: `${(crosshair.x / CANVAS_SIZE) * 100}%` }}
+                  />
+                  <div
+                    data-testid="text-crosshair-h"
+                    className="absolute left-0 right-0 h-px bg-white mix-blend-difference"
+                    style={{ top: `${(crosshair.y / CANVAS_SIZE) * 100}%` }}
+                  />
+                </>
+              )}
+              {textAnchor && (
+                <div
+                  data-testid="text-anchor-cross"
+                  className="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2"
+                  style={{
+                    left: `${(textAnchor.x / CANVAS_SIZE) * 100}%`,
+                    top: `${(textAnchor.y / CANVAS_SIZE) * 100}%`,
+                  }}
+                >
+                  <div className="absolute top-0 bottom-0 left-1/2 w-px bg-white mix-blend-difference" />
+                  <div className="absolute left-0 right-0 top-1/2 h-px bg-white mix-blend-difference" />
+                </div>
+              )}
+            </div>
+          )}
+          </div>
         </div>
         {tool === "text" && (
           <div className="flex flex-wrap items-center gap-1">
@@ -440,7 +488,7 @@ export default function Draw() {
               Place text
             </Button95>
             <span className="text-[11px] text-[#404040]">
-              Click the canvas to choose where the text starts. It lands in the selected color.
+              Crosshairs aim where the text starts - click the canvas to set the spot. It lands in the selected color.
             </span>
           </div>
         )}
