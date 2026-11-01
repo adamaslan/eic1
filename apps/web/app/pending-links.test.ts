@@ -94,7 +94,7 @@ describe("promoteArrivalHash (parse-time capture)", () => {
     const bundle = JSON.stringify({ format: "eic-share", version: 1, type: "journal-entry" });
     const hash = `#import=${toBase64Url(bundle)}`;
     captureArrival(hash);
-    promoteArrivalHash(store, "");
+    expect(promoteArrivalHash(store, "")).toBe(true);
     expect(readMemoryArrival()).toBe(hash);
     expect(readStash(store, "post")).toBeNull();
     expect([...store.data.values()].some((value) => value.includes(bundle))).toBe(false);

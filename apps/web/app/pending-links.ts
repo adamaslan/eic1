@@ -164,10 +164,10 @@ function readWindowArrival(): string | null {
  * unlock path, never a cross-load promise. Vault binding is untouched: the slot is unbound,
  * exactly like the pre-vault stash the mount effect writes.
  */
-export function promoteArrivalHash(store: SlotStore, liveHash: string): void {
+export function promoteArrivalHash(store: SlotStore, liveHash: string): boolean {
   const hash = readWindowArrival() ?? liveHash;
   const kind = kindOfHash(hash);
-  if (!kind) return;
+  if (!kind) return false;
   memoryArrival = hash;
   let journalLink = false;
   if (kind === "post") {
@@ -181,6 +181,7 @@ export function promoteArrivalHash(store: SlotStore, liveHash: string): void {
   if (!journalLink) {
     writeStash(store, kind, { hash, forAuthorId: null, stashedAt: Date.now() });
   }
+  return journalLink;
 }
 
 export function bindStashesToVault(store: SlotStore, authorId: string): void {

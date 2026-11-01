@@ -452,7 +452,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
                   <p className="bg-white px-1.5 py-1 whitespace-pre-wrap [overflow-wrap:anywhere] max-h-40 overflow-y-auto">{journalShare.entry.text}</p>
                   <p className="text-[#404040]">
                     @{journalShare.author.handle}, {new Date(journalShare.entry.createdAt).toLocaleString()} -
-                    this came through their link, not a server. The entry stays in this tab's memory, not browser storage, until you save or dismiss it; it will be offered to the vault you unlock next.
+                    This entry came through their link, not a server. The link text stays in this tab's memory, not browser storage or the address bar, until you save or dismiss it; it will be offered to the vault you unlock next.
                   </p>
                   <div className="flex gap-1">
                     <Button95 onClick={() => void doSaveJournalCopy()} disabled={busy}>Save a copy to my journal</Button95>
