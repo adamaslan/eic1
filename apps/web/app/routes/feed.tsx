@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import { selectFeed, useVaultItems } from "@veil/features";
 import type { Route } from "./+types/feed";
 import { PhotoCard } from "~/components/cards";
@@ -22,13 +23,18 @@ export default function Feed() {
 
   return (
     <div className="flex flex-col gap-2">
-      <input
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search posts"
-        className="w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px]"
-      />
+      <div className="flex items-center gap-2">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search posts"
+          className="min-w-0 flex-1 bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px] sm:flex-none"
+        />
+        <Link to="/draw" className="shrink-0 text-[12px] font-bold text-[#0000cc] underline">
+          🎨 Paint
+        </Link>
+      </div>
       {photos.length === 0 && (
         <div className="flex flex-col items-start gap-2 text-[12px] text-[#0a0a0a]">
           <p>{query ? "No posts match that search." : "No posts yet."}</p>

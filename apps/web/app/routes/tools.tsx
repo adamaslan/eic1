@@ -8,6 +8,11 @@ export function meta(_args: Route.MetaArgs) {
 
 const TOOLS = [
   { to: "/tools/journal", name: "Journal", blurb: "Write private entries. Each one is encrypted in your vault." },
+  {
+    to: "/draw",
+    name: "Paint",
+    blurb: "Draw with brushes and text on a chunky canvas, with undo. Saves as an encrypted photo post.",
+  },
 ];
 
 export default function Tools() {

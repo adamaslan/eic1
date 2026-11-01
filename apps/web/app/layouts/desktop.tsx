@@ -9,6 +9,7 @@ const TABS = [
   { id: "feed", label: "Feed" },
   { id: "market", label: "Market" },
   { id: "compose", label: "+ Post" },
+  { id: "draw", label: "Paint" },
   { id: "tools", label: "Tools" },
   { id: "connections", label: "Connections" },
   { id: "vault", label: "Vault" },
@@ -31,6 +32,8 @@ export default function DesktopLayout() {
 
   const active = pathname === "/" ? "home" : pathname.startsWith("/market") ? "market" : pathname.startsWith("/compose")
       ? "compose"
+      : pathname.startsWith("/draw")
+        ? "draw"
       : pathname.startsWith("/tools")
         ? "tools"
       : pathname.startsWith("/connections")
