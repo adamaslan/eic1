@@ -10,14 +10,12 @@ import {
 } from "react-router";
 import { AppError } from "@veil/core";
 import {
-  CHAT_LINK_PREFIX,
-  CONNECT_LINK_PREFIX,
   MAX_CHAT_LINK_CHARS,
-  POST_LINK_PREFIX,
   applyChatShareLink,
   importConnectCard,
   importShareBundle,
   loadSettings,
+  peekConnectCardAuthor,
   peekConnectCardHandle,
   readChatShareLink,
   readConnectLink,
@@ -27,6 +25,18 @@ import {
 
 import type { Route } from "./+types/root";
 import stylesheet from "./app.css?url";
+import {
+  bindStashesToVault,
+  dropAllStashes,
+  dropStash,
+  kindOfHash,
+  readStash,
+  resolveStashForVault,
+  sessionSlotStore,
+  writeStash,
+  LEGACY_PENDING_LINK_KEY,
+  type PendingKind,
+} from "~/pending-links";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
 import { useSessionStore } from "~/platform/session";
@@ -67,35 +77,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const LEGACY_PENDING_LINK_KEY = "eic.pendingLinkHash";
-const pendingKey = (kind: "post" | "chat" | "connect") => `eic.pendingLink.v2.${kind}`;
-
-const kindOfHash = (hash: string): "post" | "chat" | "connect" | null =>
-  hash.startsWith(CHAT_LINK_PREFIX) ? "chat" : hash.startsWith(CONNECT_LINK_PREFIX) ? "connect" : hash.startsWith(POST_LINK_PREFIX) ? "post" : null;
-
 const isLinkHash = (hash: string): boolean => kindOfHash(hash) !== null;
-
-type StashedLink = { hash: string; forAuthorId: string | null; stashedAt: number };
-
-const readStash = (kind: "post" | "chat" | "connect"): StashedLink | null => {
-  try {
-    const raw = window.sessionStorage.getItem(pendingKey(kind));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<StashedLink>;
-    if (typeof parsed.hash !== "string" || kindOfHash(parsed.hash) !== kind) return null;
-    return { hash: parsed.hash, forAuthorId: typeof parsed.forAuthorId === "string" ? parsed.forAuthorId : null, stashedAt: typeof parsed.stashedAt === "number" ? parsed.stashedAt : 0 };
-  } catch {
-    return null;
-  }
-};
-
-const dropStash = (kind: "post" | "chat" | "connect") => {
-  try {
-    window.sessionStorage.removeItem(pendingKey(kind));
-  } catch {
-    // Best effort.
-  }
-};
 
 export default function App() {
   const vault = useSessionStore((state) => state.vault);
@@ -123,26 +105,18 @@ export default function App() {
 
   // A link's payload lives in the URL hash, which route changes (like going to /unlock) drop.
   // Stash it on arrival, one slot per link kind, so the unlock flow cannot eat the message the
-  // link was carrying. The slot is keyed to the vault that was active when it arrived: a link
-  // stashed under one vault is never applied into a different vault unlocked in the same tab.
+  // link was carrying. A slot stashed before the vault rehydrates (the normal tap from a text
+  // is a full page load) starts UNBOUND and binds to the first vault that reads it after
+  // unlock; a slot bound to one vault is dropped, never applied, for any other vault.
   useEffect(() => {
-    try {
-      window.sessionStorage.removeItem(LEGACY_PENDING_LINK_KEY);
-    } catch {
-      // Best effort.
-    }
+    const store = sessionSlotStore();
+    store.remove(LEGACY_PENDING_LINK_KEY); // migrate the legacy pre-v2 single slot; v2 slots survive page loads until consumed, locked out, or read by another vault
     const stash = () => {
       const hash = window.location.hash;
       const kind = kindOfHash(hash);
       if (!kind) return;
       const active = useSessionStore.getState().vault;
-      const write = (forAuthorId: string | null) => {
-        try {
-          window.sessionStorage.setItem(pendingKey(kind), JSON.stringify({ hash, forAuthorId, stashedAt: Date.now() } satisfies StashedLink));
-        } catch {
-          // Private mode: the live hash still works while it survives.
-        }
-      };
+      const write = (forAuthorId: string | null) => writeStash(store, kind, { hash, forAuthorId, stashedAt: Date.now() });
       if (!active) {
         write(null);
         return;
@@ -155,6 +129,27 @@ export default function App() {
     window.addEventListener("hashchange", stash);
     return () => window.removeEventListener("hashchange", stash);
   }, []);
+
+  // Locking drops every pending slot: no stashed prompt survives into another session.
+  // Unlocking binds every unbound slot to this vault: the primary tap path stashes while
+  // the vault is still rehydrating (forAuthorId null), so the slot must bind as soon as
+  // the vault arrives or the cross-vault guard never engages for it.
+  const hadVault = useRef(false);
+  useEffect(() => {
+    if (vault) {
+      hadVault.current = true;
+      let cancelled = false;
+      loadSettings(vault).then((settings) => {
+        if (!cancelled && settings.authorId) bindStashesToVault(sessionSlotStore(), settings.authorId);
+      });
+      return () => {
+        cancelled = true;
+      };
+    } else if (hadVault.current) {
+      hadVault.current = false;
+      dropAllStashes(sessionSlotStore());
+    }
+  }, [vault]);
 
   return (
     <>
@@ -202,18 +197,13 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
       let kind = kindOfHash(hash);
       if (!kind) {
         // Fall back to stashed slots - connect first, so a pending connection is added before
-        // a stashed chat link tries to apply. A slot keyed to another vault is dropped, never
-        // applied: a stashed link must not leak across vaults on a shared device.
+        // a stashed chat link tries to apply. An unbound slot binds to this vault (first unlock
+        // after the tap); a slot keyed to another vault is dropped, never applied.
+        const store = sessionSlotStore();
+        const settings = await loadSettings(vault);
         for (const slot of ["connect", "chat", "post"] as const) {
-          const entry = readStash(slot);
+          const entry = resolveStashForVault(store, slot, settings.authorId ?? null);
           if (!entry) continue;
-          if (entry.forAuthorId) {
-            const settings = await loadSettings(vault);
-            if (settings.authorId !== entry.forAuthorId) {
-              dropStash(slot);
-              continue;
-            }
-          }
           hash = entry.hash;
           kind = slot;
           break;
@@ -223,6 +213,17 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
       try {
         const link = readPendingLink(hash);
         if (link === null) return;
+        if (link.kind === "connect") {
+          // Reject your own card up front instead of confirming first and failing after.
+          const author = peekConnectCardAuthor(link.text);
+          const settings = await loadSettings(vault);
+          if (author && settings.authorId && author.id === settings.authorId) {
+            dropStash(sessionSlotStore(), "connect");
+            stripUrlHash();
+            setMessage("That is your own connect link - text it to a friend, not yourself.");
+            return;
+          }
+        }
         setPending((current) => current ?? link);
         if (link.kind === "chat" && !openingChat.current) {
           openingChat.current = true;
@@ -273,12 +274,12 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
     }
   };
 
-  const consumeHash = (kind: "post" | "chat" | "connect") => {
-    dropStash(kind);
+  const consumeHash = (kind: PendingKind) => {
+    dropStash(sessionSlotStore(), kind);
     stripUrlHash();
   };
 
-  const dismiss = (kind?: "post" | "chat" | "connect") => {
+  const dismiss = (kind?: PendingKind) => {
     if (kind) consumeHash(kind);
     else stripUrlHash();
     setPending(null);
@@ -309,9 +310,13 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
       const result = await importConnectCard(vault, pending.text, { settings, newId: newItemId, now: new Date() });
       consumeHash("connect");
       setPending(null);
-      navigate(`/chat/${result.authorId}`);
       // A chat link that arrived before the connection existed has been waiting in its slot.
+      // When one is waiting, let its apply own the navigation: the chat route loads its
+      // messages on mount, so navigating here first would mount an empty conversation and
+      // never show the message the link carried.
+      const waitingChat = resolveStashForVault(sessionSlotStore(), "chat", settings.authorId ?? null);
       setConnectTick((tick) => tick + 1);
+      if (!waitingChat) navigate(`/chat/${result.authorId}`);
     } catch (caught) {
       setMessage(caught instanceof AppError ? caught.message : "That connect link could not be used.");
     } finally {
@@ -328,7 +333,10 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
       <div className="w-full max-w-md">
         {pending?.kind === "chat" && message === null ? (
           <Window title="You've got mail 💌">
-            <p className="text-[12px]">Opening your chat…</p>
+            <div className="flex flex-col gap-2 text-[12px]">
+              <p>Opening your chat…</p>
+              <div><Button95 onClick={() => dismiss("chat")} disabled={busy}>Close</Button95></div>
+            </div>
           </Window>
         ) : pending?.kind === "connect" && message === null ? (
           <Window title="A friend wants to connect">
