@@ -82,15 +82,16 @@ function chatLink(authorId: string, handle: string, envelopes: SyncEnvelope[], b
  * Builds a link carrying my most recent sealed chat envelopes for this connection, newest
  * first, as many as fit under the cap. The envelopes were sealed to the connection's key at
  * send time, so only their vault can open them; anyone else holding the link sees ciphertext.
- * `skip` excludes that many of my newest messages, so the caller can offer the older batch in
- * a second link instead of silently dropping whatever did not fit.
+ * `before` is a stable cursor: the id of the oldest message the previous link carried, so the
+ * next link carries strictly older messages. A cursor stays correct when new messages arrive
+ * between batches - no duplicates, no silently skipped message.
  */
 export async function buildChatShareLink(
   vault: UnlockedVault,
   connection: { id: string; pubkey: string | null },
   baseUrl: string,
-  opts: { skip?: number } = {},
-): Promise<{ link: string; messageCount: number; leftOut: number }> {
+  opts: { before?: string } = {},
+): Promise<{ link: string; messageCount: number; leftOut: number; oldestCarriedId: string | null }> {
   if (!connection.pubkey) {
     throw new AppError("Chat links need a verified connection. Re-import their signed share file first.");
   }
@@ -101,7 +102,14 @@ export async function buildChatShareLink(
   const all = (await listChatThread(vault, connection.id)).filter(
     (message) => message.direction === "out" && message.envelope !== null,
   );
-  const outbound = all.slice(0, Math.max(0, all.length - (opts.skip ?? 0)));
+  let outbound = all;
+  if (opts.before) {
+    const marker = all.findIndex((message) => message.id === opts.before);
+    if (marker === -1) {
+      throw new AppError("That older-batch marker is stale. Start again from the latest messages.");
+    }
+    outbound = all.slice(0, marker);
+  }
   if (outbound.length === 0) {
     throw new AppError(
       all.length === 0
@@ -109,12 +117,12 @@ export async function buildChatShareLink(
         : "No older messages left to carry.",
     );
   }
-  const picked: SyncEnvelope[] = [];
+  const picked: { id: string; envelope: SyncEnvelope }[] = [];
   for (const message of [...outbound].reverse()) {
-    picked.unshift(message.envelope as SyncEnvelope);
+    picked.unshift({ id: message.id, envelope: message.envelope as SyncEnvelope });
     const over =
       picked.length > MAX_LINK_ENVELOPES ||
-      chatLink(settings.authorId, settings.handle, picked, baseUrl).length > MAX_CHAT_LINK_CHARS;
+      chatLink(settings.authorId, settings.handle, picked.map((m) => m.envelope), baseUrl).length > MAX_CHAT_LINK_CHARS;
     if (over) {
       picked.shift();
       break;
@@ -124,9 +132,10 @@ export async function buildChatShareLink(
     throw new AppError("Your latest message is too big for a link. Try a shorter one.");
   }
   return {
-    link: chatLink(settings.authorId, settings.handle, picked, baseUrl),
+    link: chatLink(settings.authorId, settings.handle, picked.map((m) => m.envelope), baseUrl),
     messageCount: picked.length,
     leftOut: outbound.length - picked.length,
+    oldestCarriedId: picked[0].id,
   };
 }
 
@@ -269,7 +278,7 @@ export async function importConnectCard(
   const keep = prior.success ? prior.data : null;
   if (keep && keep.pubkey && keep.pubkey !== author.pubkey) {
     throw new AppError(
-      `@${keep.handle} already connected with a different key, and a link must never replace a verified key quietly. If they really started over, confirm it in person, remove the old connection on the Connections screen, then open their new link.`,
+      `@${keep.handle} already connected with a different key, so this link was not applied and your trusted key is unchanged. Only replace it if they told you they rebuilt their vault - and then by re-importing their new signed share file from the Connections screen, where the key change asks for your explicit okay. A link alone never replaces a key.`,
     );
   }
   await vault.putJson("connection", connectionId, {
