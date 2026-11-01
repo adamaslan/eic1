@@ -22,7 +22,7 @@ import {
   verifyVaultKey,
 } from "@veil/crypto";
 
-export type JsonRecordKind = Extract<RecordKind, "settings" | "connection" | "note" | "journal" | "identity" | "chat" | "profile">;
+export type JsonRecordKind = Extract<RecordKind, "settings" | "connection" | "note" | "journal" | "identity" | "chat" | "profile" | "playlist">;
 
 export interface VaultDeps {
   store: VaultStore;
