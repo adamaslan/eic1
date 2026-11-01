@@ -7,9 +7,11 @@ import {
   PHOTO_CATEGORY,
   saveComposedItem,
   TEXT_SIZES,
+  strokeColor,
   textFont,
   textSizePx,
   type ComposedMedia,
+  type PaintTool,
   type TextSizeId,
 } from "@veil/features";
 import type { Route } from "./+types/draw";
@@ -66,7 +68,7 @@ async function encodeCanvas(canvas: HTMLCanvasElement, mime: string, quality?: n
 
 const formatKb = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
 
-type Tool = "brush" | "text";
+type Tool = PaintTool;
 
 export default function Draw() {
   const vault = useSessionStore((state) => state.vault);
@@ -267,7 +269,7 @@ export default function Draw() {
     if (!canvas || !context) return;
     const point = canvasPoint(event);
     const from = last.current ?? point;
-    context.strokeStyle = color;
+    context.strokeStyle = strokeColor(tool, color);
     context.lineWidth = brush;
     context.lineCap = "round";
     context.lineJoin = "round";
@@ -375,10 +377,13 @@ export default function Draw() {
             <Button95 pressed={tool === "brush"} onClick={() => selectTool("brush")} disabled={saving}>
               Brush
             </Button95>
+            <Button95 pressed={tool === "eraser"} onClick={() => selectTool("eraser")} disabled={saving}>
+              Eraser
+            </Button95>
             <Button95 pressed={tool === "text"} onClick={() => selectTool("text")} disabled={saving}>
               Text
             </Button95>
-            {tool === "brush" &&
+            {(tool === "brush" || tool === "eraser") &&
               BRUSHES.map((option) => (
                 <Button95 key={option} pressed={brush === option} onClick={() => setBrush(option)}>
                   {option}px
