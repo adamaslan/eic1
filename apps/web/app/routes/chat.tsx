@@ -5,6 +5,7 @@ import {
   CHAT_BODY_MAX,
   listChatThread,
   markThreadRead,
+  describeSendError,
   sendChatMessage,
   type ChatMessage,
 } from "@veil/features";
@@ -149,10 +150,21 @@ export default function Chat({ params }: Route.ComponentProps) {
     setError(null);
     try {
       await sendChatMessage(vault, connection, draft, { newId: newItemId, now: () => new Date() });
-      setDraft("");
+    } catch (caught) {
+      // Send transaction failed: the draft is untouched, so "still in the box" stays true.
+      // AppError messages are user-written; anything else is logged for diagnosis.
+      if (!(caught instanceof AppError)) console.error("chat send failed", caught);
+      setError(describeSendError(caught));
+      setBusy(false);
+      return;
+    }
+    // The message is persisted from here on: a refresh failure must not suggest resending.
+    setDraft("");
+    try {
       setMessages(await listChatThread(vault, connection.id));
     } catch (caught) {
-      setError(caught instanceof AppError ? caught.message : "That did not send. Please try again.");
+      console.error("chat refresh after send failed", caught);
+      setError("Sent and stored on this device. The thread could not refresh - reload to see it.");
     } finally {
       setBusy(false);
     }

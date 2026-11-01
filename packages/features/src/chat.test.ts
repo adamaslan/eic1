@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SubtleCryptoPort } from "@veil/crypto";
+import { AppError } from "@veil/core";
 import { createVault, type UnlockedVault } from "@veil/vault";
 import { MemoryStore } from "../../vault/src/memory-store";
 import { buildShareBundle, importShareBundle } from "./sharing";
@@ -11,6 +12,7 @@ import {
   sendChatMessage,
   unreadCounts,
   type ChatDeps,
+  describeSendError,
 } from "./chat";
 
 const NOW = new Date("2026-10-30T12:00:00Z");
@@ -86,5 +88,18 @@ describe("chat over pull", () => {
     const thread = await listChatThread(alice, "bob-id");
     expect(thread.map((m) => m.body)).toEqual(["one", "two"]);
     expect(thread.every((m) => m.readAt !== null)).toBe(true);
+  });
+});
+
+describe("describeSendError", () => {
+  it("passes user-written AppError messages through unchanged", () => {
+    expect(describeSendError(new AppError("Chat needs a verified connection."))).toBe("Chat needs a verified connection.");
+  });
+
+  it("gives a generic honest message for unexpected failures (crypto, IndexedDB, etc.)", () => {
+    expect(describeSendError(new TypeError("crypto.subtle is undefined"))).toBe(
+      "That did not send. Your message is still in the box - please try again.",
+    );
+    expect(describeSendError("weird non-error")).toBe("That did not send. Your message is still in the box - please try again.");
   });
 });
