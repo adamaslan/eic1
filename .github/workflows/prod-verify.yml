@@ -1,0 +1,71 @@
+name: prod-verify
+
+# Post-publish production gate. Preview CI never sees Netlify's production HTML rewrite,
+# so after every merge to main this runs the zero-console/page-error Playwright pass
+# against the deployed site (e2e/prod.spec.ts). EXPECT_BUILD_SHA makes the suite wait for
+# the publish of THIS commit via the footer's build stamp before asserting. A failure
+# marks the merge commit red; it cannot block a deploy (branch protection is unchanged).
+#
+# The daily schedule catches regressions that arrive BETWEEN merges: Netlify can change
+# its production HTML rewrite at any time, and merge-triggered runs only see publishes.
+# Daily is the grounded cadence - every publish already gets a run, the site is static
+# between publishes except Netlify-side changes, and each run costs ~3 min of compute
+# plus a few page loads. workflow_dispatch allows a manual verification pass and the
+# seeded-failure control (dispatch with a bogus expect_build_sha must go red).
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # 11:17 UTC, off the top-of-hour rush. Cron is UTC-fixed, so local time shifts
+    # seasonally: 06:17 EST in winter, 07:17 EDT in summer.
+    - cron: "17 11 * * *"
+  workflow_dispatch:
+    inputs:
+      expect_build_sha:
+        description: "Override EXPECT_BUILD_SHA (control runs only)"
+        required: false
+        default: ""
+
+concurrency:
+  # Two lanes, chosen per run:
+  # - AUTOMATIC (push, schedule, manual dispatch WITHOUT an override): one group per
+  #   ref with cancel-in-progress:true. A newer automatic run supersedes a stale one
+  #   (e.g. push B's deploy verification cancels push A's, which was still polling for
+  #   a stamp the site has already moved past). GitHub labels the stale run
+  #   "cancelled" - an honest third state, never counted as passed or failed.
+  # - MANUAL CONTROL (dispatch WITH expect_build_sha): its own group per explicit
+  #   expectation with cancel-in-progress:false. The bogus-SHA seeded-failure control
+  #   can never be canceled or delayed by an unrelated push and still fails honestly
+  #   for a wrong expectation.
+  # Residual race, disclosed: if the superseding run were delayed past the stale run's
+  #   stamp-poll timeout, the stale run could still red; the window is seconds vs a
+  #   minutes-long poll. Descendant-aware served-build checking was considered and
+  #   rejected: it would let a superseded expectation report success without the
+  #   pinned build ever having been verified, and an unknown/unrelated stamp must
+  #   never pass.
+  group: ${{ (github.event_name == 'workflow_dispatch' && inputs.expect_build_sha != '' && format('prod-verify-manual-{0}', inputs.expect_build_sha)) || format('prod-verify-auto-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || inputs.expect_build_sha == '' }}
+
+jobs:
+  prod-zero-error:
+    name: playwright zero-error pass - production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run production gate against the deployed site
+        run: npx playwright test e2e/prod.spec.ts
+        env:
+          EIC_TARGET_URL: https://everybodyiscool.netlify.app
+          EXPECT_BUILD_SHA: ${{ inputs.expect_build_sha || github.sha }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: prod-verify-report
+          path: playwright-report/
+          retention-days: 7

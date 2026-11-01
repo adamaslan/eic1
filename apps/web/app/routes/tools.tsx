@@ -8,6 +8,16 @@ export function meta(_args: Route.MetaArgs) {
 
 const TOOLS = [
   { to: "/tools/journal", name: "Journal", blurb: "Write private entries. Each one is encrypted in your vault." },
+  {
+    to: "/tools/music",
+    name: "Music",
+    blurb: "Play MP3s from a folder on your device. Goes to the next song and loops. Nothing is uploaded.",
+  },
+  {
+    to: "/draw",
+    name: "Paint",
+    blurb: "Draw with brushes, an eraser, and text on a chunky canvas, with undo. Saves as an encrypted photo post.",
+  },
 ];
 
 export default function Tools() {

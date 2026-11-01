@@ -7,15 +7,17 @@ export const POST_LINK_PREFIX = "#import=";
  */
 export const MAX_POST_LINK_CHARS = 8000;
 
-const toBase64Url = (text: string): string =>
+export const toBase64Url = (text: string): string =>
   encodeBase64(new TextEncoder().encode(text))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/, "");
 
-const fromBase64Url = (encoded: string): string => {
+export const fromBase64Url = (encoded: string): string => {
   const base64 = encoded.replaceAll("-", "+").replaceAll("_", "/");
-  return new TextDecoder().decode(decodeBase64(base64));
+  // decodeBase64 requires padding; the URL-safe form strips it.
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  return new TextDecoder().decode(decodeBase64(padded));
 };
 
 /**
@@ -26,6 +28,18 @@ export function buildPostShareLink(bundleText: string, baseUrl: string): string 
   const link = `${baseUrl}${POST_LINK_PREFIX}${toBase64Url(bundleText)}`;
   if (link.length > MAX_POST_LINK_CHARS) {
     throw new AppError("That post is too big for a link. Send it as a share file instead.");
+  }
+  return link;
+}
+
+/**
+ * Builds a chat-key invite link from a key-card bundle. Same fragment channel as post links:
+ * the key travels after the '#', so it never reaches a server.
+ */
+export function buildChatInviteLink(bundleText: string, baseUrl: string): string {
+  const link = `${baseUrl}${POST_LINK_PREFIX}${toBase64Url(bundleText)}`;
+  if (link.length > MAX_POST_LINK_CHARS) {
+    throw new AppError("That chat key is too large for a link. Send it as a share file instead.");
   }
   return link;
 }

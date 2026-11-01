@@ -168,6 +168,15 @@ export default function Compose() {
             <Button95 onClick={() => fileInput.current?.click()} disabled={progress !== null || images.length >= MAX_MEDIA_PER_ITEM}>
               Add photos…
             </Button95>
+            <Button95
+              onClick={() => {
+                const dirty = images.length > 0 || title.trim() !== "" || description.trim() !== "";
+                if (!dirty || window.confirm("Discard this post and start a drawing?")) navigate("/draw");
+              }}
+              disabled={saving || progress !== null}
+            >
+              Draw a picture…
+            </Button95>
           </div>
           <span className="text-[11px] text-[#404040]">Resized and compressed on this device before encryption.</span>
           {progress && (

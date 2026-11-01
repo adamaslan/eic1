@@ -2,7 +2,11 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { AppError, HANDLE_MAX, timeAgo, type Connection } from "@veil/core";
 import {
+  KeyRotationError,
   MAX_SHARE_FILE_BYTES,
+  buildConnectLink,
+  buildChatInviteBundle,
+  buildChatInviteLink,
   buildShareBundle,
   ensureAuthorId,
   importShareBundle,
@@ -111,6 +115,9 @@ export default function Connections() {
   // Synchronous guard: drop events and the import buttons can fire faster than setBusy renders.
   // Must stay above the early returns below - hooks may not be conditional (React error #310).
   const importing = useRef(false);
+  // A key-change import holds here until the user explicitly confirms the replacement.
+  const pendingRotation = useRef<{ read: () => Promise<string> } | null>(null);
+  const [rotationPrompt, setRotationPrompt] = useState<string | null>(null);
 
   if (items.status === "loading") return <p className="text-[12px]">Loading…</p>;
   if (items.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{items.message}</p>;
@@ -156,18 +163,68 @@ export default function Connections() {
     });
   }
 
-  function importText(read: () => Promise<string>): Promise<boolean> {
+  function copyConnectLink() {
+    void run(async () => {
+      if (!vault || !social.settingsReady) return "";
+      const link = await buildConnectLink(vault, `${window.location.origin}/`, new Date());
+      const text = `eic 💌 ${link}`;
+      if (typeof navigator.share === "function") {
+        try {
+          await navigator.share({ text });
+          return "Connect link shared - one tap adds you and opens your chat.";
+        } catch (shareError) {
+          if (shareError instanceof DOMException && shareError.name === "AbortError") return "Share cancelled - the link was not sent.";
+        }
+      }
+      await navigator.clipboard.writeText(text);
+      return "Connect link copied - text it to a friend. One tap adds you and opens your chat; no file to download.";
+    });
+  }
+
+  function exportChatKey() {
+    void run(async () => {
+      if (!vault || !social.settingsReady) return "";
+      const { text } = await buildChatInviteBundle(vault, settings, new Date());
+      const link = buildChatInviteLink(text, `${window.location.origin}/`);
+      await navigator.clipboard.writeText(link);
+      return "Chat key link copied. Send it to a friend whose chat with you is read-only - it carries your verified key only, no posts.";
+    });
+  }
+
+  function importText(read: () => Promise<string>, allowKeyRotation = false): Promise<boolean> {
     if (importing.current) return Promise.resolve(false);
     importing.current = true;
-    return run(async () => {
-      if (!vault || !social.settingsReady) return "";
-      const result = await importShareBundle(vault, await read(), { settings, newId: newItemId, now: new Date() });
-      social.refresh();
-      const basis = result.verified ? `Verified signature from @${result.handle}` : `Unsigned file - trust the sender (@${result.handle})`;
-      return `${basis}: ${result.added} new, ${result.updated} updated, ${result.likesReceived} new like${result.likesReceived === 1 ? "" : "s"} on your posts.`;
-    }).finally(() => {
-      importing.current = false;
-    });
+    return (async () => {
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        if (!vault || !social.settingsReady) return false;
+        const result = await importShareBundle(vault, await read(), { settings, newId: newItemId, now: new Date() }, { allowKeyRotation });
+        social.refresh();
+        const basis = result.verified ? `Verified signature from @${result.handle}` : `Unsigned file - trust the sender (@${result.handle})`;
+        const counts = `${result.added} new, ${result.updated} updated, ${result.likesReceived} new like${result.likesReceived === 1 ? "" : "s"} on your posts.`;
+        const upgrade = result.keyAdded
+          ? ` Chat unlocked with @${result.handle} - verified key saved.`
+          : result.keyChanged
+            ? ` Key replaced for @${result.handle} - future chat seals to the new key.`
+            : "";
+        setNotice(`${basis}: ${counts}${upgrade}`);
+        return true;
+      } catch (caught) {
+        if (caught instanceof KeyRotationError) {
+          // Hold the import: replacing a trusted key needs its own explicit confirmation.
+          pendingRotation.current = { read };
+          setRotationPrompt(caught.message);
+        } else {
+          setError(caught instanceof AppError ? caught.message : "That did not work. Please try again.");
+        }
+        return false;
+      } finally {
+        setBusy(false);
+        importing.current = false;
+      }
+    })();
   }
 
   function importFile(file: File | undefined) {
@@ -331,10 +388,16 @@ export default function Connections() {
             A share file is <b>not encrypted</b>. It holds your shareable posts, their photos, your handle, and the posts you liked.
             Private posts, notes, and settings are never in an exported file - but pressing ↗ Share on one of your own posts sends just that post, even a private one.
           </p>
+          <p>
+            Or skip the file: a connect link carries just your signed card (handle + key, no posts). Text it - your
+            friend taps it, adds you, and lands right in your chat.
+          </p>
           <div className="flex flex-wrap items-center gap-2">
+            <Button95 onClick={copyConnectLink} disabled={busy || !social.settingsReady || !settings.handle}>Text my connect link</Button95>
             <Button95 onClick={exportFile} disabled={busy || !social.settingsReady || !settings.handle}>Export share file ({Math.min(shareable, 100)} post{Math.min(shareable, 100) === 1 ? "" : "s"})</Button95>
             <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(e) => importFile(e.target.files?.[0])} aria-label="Choose a share file" />
             <Button95 onClick={() => fileInput.current?.click()} disabled={busy || !social.settingsReady || !settings.handle}>Import a share file…</Button95>
+            <Button95 onClick={exportChatKey} disabled={busy || !social.settingsReady || !settings.handle}>Copy my chat key link</Button95>
           </div>
           <label className="flex flex-col gap-1">
             <span className="font-bold">Or paste what a friend sent you</span>
@@ -350,6 +413,33 @@ export default function Connections() {
             <Button95 onClick={importPasted} disabled={busy || !social.settingsReady || !settings.handle || !pasted.trim()}>Import pasted text</Button95>
           </div>
           {!settings.handle && <p className="text-[#404040]">Choose a handle first.</p>}
+          {rotationPrompt && (
+            <div className="flex flex-col gap-1 bg-[#ffffe1] px-1.5 py-1">
+              <p role="alert">{rotationPrompt}</p>
+              <div className="flex gap-1">
+                <Button95
+                  onClick={() => {
+                    const pending = pendingRotation.current;
+                    pendingRotation.current = null;
+                    setRotationPrompt(null);
+                    if (pending) void importText(pending.read, true);
+                  }}
+                  disabled={busy}
+                >
+                  Replace saved key
+                </Button95>
+                <Button95
+                  onClick={() => {
+                    pendingRotation.current = null;
+                    setRotationPrompt(null);
+                  }}
+                  disabled={busy}
+                >
+                  Cancel
+                </Button95>
+              </div>
+            </div>
+          )}
           {notice && <p role="status">{notice}</p>}
           {error && <p role="alert" className="text-[#800000]">{error}</p>}
         </div>

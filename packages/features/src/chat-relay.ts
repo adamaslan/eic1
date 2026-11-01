@@ -33,7 +33,6 @@ export const RELAY_MAX_CHUNK_BYTES = 1024 * 1024;
 /** The one chunk-id schema shared by publish admission here and chunk reads in
  * relay-adapter.ts. Ids outside it are rejected on BOTH paths. */
 export const CHUNK_ID_PATTERN = /^chat-[a-zA-Z0-9_-]{1,128}\.json$/;
-
 async function sha256Base64(text: string): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return encodeBase64(new Uint8Array(digest));

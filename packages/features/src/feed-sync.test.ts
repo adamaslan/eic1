@@ -178,8 +178,9 @@ describe("pull sync", () => {
     const items = await freshBob.listItems();
     expect(items.some((i) => i.title === "old post" && i.authorId === "alice-id")).toBe(true);
 
-    // A new message sealed to the current key applies on the next pull.
-    await importShareBundle(alice, (await buildShareBundle(freshBob, settingsFor("bob-id", "bob"), [], NOW)).text, { settings: settingsFor("alice-id", "alice"), newId: deps.newId, now: NOW });
+    // A new message sealed to the current key applies on the next pull. Bob rebuilt his
+    // vault, so Alice explicitly accepts his new key (rotation is never silent).
+    await importShareBundle(alice, (await buildShareBundle(freshBob, settingsFor("bob-id", "bob"), [], NOW)).text, { settings: settingsFor("alice-id", "alice"), newId: deps.newId, now: NOW }, { allowKeyRotation: true });
     const freshBobConn = (await listConnections(alice)).find((c) => c.id === "bob-id")!;
     await sendChatMessage(alice, freshBobConn, "sealed to the new key", deps);
     const feed2 = await aliceFeed(alice, [shareable("p1", "old post")], 13, "https://feeds.example/alice");
@@ -451,7 +452,8 @@ it("defers truthfully on unknown connectivity instead of claiming cellular", asy
   const alice = await open();
   await saveSettings(alice, settingsFor("alice-id", "alice"));
   const { host } = await aliceFeed(alice, [shareable("itm-u", "held back")], 1, feedUrl);
-  await importShareBundle(bob, (await buildShareBundle(alice, { ...settingsFor("alice-id", "alice"), feedUrl }, [], NOW)).text, { settings: settingsFor("bob-id", "bob"), newId: deps.newId, now: NOW });
+  // Alice's bundle here comes from a rebuilt vault (new key): explicit rotation consent.
+  await importShareBundle(bob, (await buildShareBundle(alice, { ...settingsFor("alice-id", "alice"), feedUrl }, [], NOW)).text, { settings: settingsFor("bob-id", "bob"), newId: deps.newId, now: NOW }, { allowKeyRotation: true });
 
   // Browser cannot report a transport: sync defers without fetching anything, and the
   // persisted status says the connection type is unknown - it never claims "cellular".

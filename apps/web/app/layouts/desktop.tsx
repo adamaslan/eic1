@@ -9,6 +9,7 @@ const TABS = [
   { id: "feed", label: "Feed" },
   { id: "market", label: "Market" },
   { id: "compose", label: "+ Post" },
+  { id: "draw", label: "Paint" },
   { id: "tools", label: "Tools" },
   { id: "connections", label: "Connections" },
   { id: "vault", label: "Vault" },
@@ -31,6 +32,8 @@ export default function DesktopLayout() {
 
   const active = pathname === "/" ? "home" : pathname.startsWith("/market") ? "market" : pathname.startsWith("/compose")
       ? "compose"
+      : pathname.startsWith("/draw")
+        ? "draw"
       : pathname.startsWith("/tools")
         ? "tools"
       : pathname.startsWith("/connections")
@@ -41,7 +44,11 @@ export default function DesktopLayout() {
   const clock = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#008080]">
+    // The shell is exactly the viewport height and never scrolls itself: the main region
+// is the scroll container, so the taskbar below it always reserves its space and page
+// content can never slide underneath it (the old fixed taskbar overlapped the bottom
+// of slightly-taller-than-viewport pages with no way to scroll clear).
+    <div className="flex h-screen h-dvh flex-col bg-[#008080]">
       <header className="p-2 pb-0">
         <nav aria-label="Main navigation" className="flex flex-wrap gap-1">
           {TABS.map((tab) => (
@@ -57,7 +64,7 @@ export default function DesktopLayout() {
           ))}
         </nav>
       </header>
-      <main className="flex-1 p-2 pb-16">
+      <main className="min-h-0 flex-1 overflow-y-auto p-2">
         <Outlet />
       </main>
       <Taskbar startLabel="Lock" onStart={lock} clock={clock}>

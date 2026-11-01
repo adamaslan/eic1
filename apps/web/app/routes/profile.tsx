@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { HANDLE_MAX, timeAgo } from "@veil/core";
+import { timeAgo } from "@veil/core";
 import {
-  defaultProfile,
+  loadSettings,
+  loadProfileDraft,
+  type ProfileDraft,
   getProfile,
   type Decoration,
   type Profile,
@@ -10,6 +12,7 @@ import {
 import type { Route } from "./+types/profile";
 import { Window } from "~/ui95/Window";
 import { useSessionStore } from "~/platform/session";
+import { ProfileStudio } from "~/components/profile-studio";
 import { useSocial } from "~/platform/use-social";
 
 export function meta(_args: Route.MetaArgs) {
@@ -31,7 +34,7 @@ const SCHEME_INK: Record<Profile["theme"]["colorScheme"], string> = {
 };
 const ACCENT_COLOR: Record<Profile["theme"]["windowAccent"], string> = {
   blue: "#000080",
-  silver: "#c0c0c0",
+  silver: "#404040",
   magenta: "#800080",
   lime: "#008000",
 };
@@ -72,6 +75,7 @@ export function ProfileView({
   return (
     <div
       className="relative min-h-[240px] overflow-hidden p-3"
+      data-testid="profile-canvas"
       style={{ background: WALLPAPER_STYLE[profile.theme.wallpaper], color: SCHEME_INK[profile.theme.colorScheme], fontFamily: FONT_STACK[profile.theme.fontChoice] }}
     >
       {sorted.map((decoration) => (
@@ -88,7 +92,7 @@ export function ProfileView({
         />
       ))}
       <Window title={isOwn ? "My Profile" : `${nickname ?? handle ?? profile.displayName}'s profile`} className="relative mx-auto max-w-[420px]">
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" style={{ fontFamily: FONT_STACK[profile.theme.fontChoice] }}>
           {profile.avatar && (
             <img src={`data:${profile.avatar.mime};base64,${profile.avatar.data}`} alt={`${profile.displayName}'s avatar`} className="h-16 w-16 border border-[#808080] object-cover" />
           )}
@@ -118,49 +122,67 @@ export default function ProfileRoute() {
   const social = useSocial(vault);
   const { authorId } = useParams();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [draft, setDraft] = useState<ProfileDraft | null>(null);
+  const [failure, setFailure] = useState("");
+  const [ownerHandle, setOwnerHandle] = useState<string | null>(null);
+  const [classic, setClassic] = useState(false);
   const [missing, setMissing] = useState(false);
 
   useEffect(() => {
     let live = true;
     if (!vault) return;
+    setProfile(null); setDraft(null); setMissing(false); setFailure("");
     void (async () => {
-      const settings = social.settings;
+      const settings = await loadSettings(vault);
+      if (!live) return;
+      setOwnerHandle(settings.handle);
       const targetId = authorId ?? settings.authorId;
       if (!targetId) {
         if (live) setMissing(true);
+        return;
+      }
+      if (!authorId || authorId === settings.authorId) {
+        const ownDraft = await loadProfileDraft(vault);
+        if (live) { setDraft(ownDraft); setProfile(ownDraft.profile); }
         return;
       }
       const stored = await getProfile(vault, targetId);
       if (!live) return;
       if (stored) {
         setProfile(stored);
-      } else if (!authorId && settings.handle) {
-        setProfile(defaultProfile(targetId, settings.handle.slice(0, HANDLE_MAX), new Date()));
       } else {
         setMissing(true);
       }
-    })();
+    })().catch((e) => { if (live) setFailure(e instanceof Error ? e.message : "Could not load this profile. Try again later."); });
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vault, authorId]);
 
   if (!vault) return <p className="text-[12px]">Unlock your vault to view profiles.</p>;
+  if (failure) return <p role="alert" className="text-[12px]">{failure} <Link to="/connections" className="underline">Connections</Link></p>;
   if (missing) return <p className="text-[12px]">No profile stored here yet.</p>;
   if (!profile) return <p className="text-[12px]">Loading…</p>;
 
-  const isOwn = !authorId || authorId === social.settings.authorId;
+  const isOwn = !!draft;
   const connection = authorId ? social.connections.find((c) => c.id === authorId) : undefined;
+  const preview = (value: Profile) => <ProfileView profile={value} handle={ownerHandle} nickname={null} isOwn verified={null} importedAt={null} now={new Date()} />;
   return (
+    <div className="flex flex-col gap-3">
+    {isOwn && <div className="flex gap-2 text-[12px]"><label><input type="checkbox" checked={classic} onChange={e => setClassic(e.target.checked)} /> Classic profile view (hide editor, keep saved data)</label><Link to="/" className="underline">Home</Link></div>}
+    {isOwn && !classic && draft && ownerHandle && <ProfileStudio key={draft.profile.authorId} initial={draft} vault={vault} handle={ownerHandle} renderPreview={preview} onSaved={(next) => { setDraft(next); setProfile(next.profile); }} />}
+    {isOwn && <p className="text-[12px]">Saved private draft (not your selected feed preview)</p>}
     <ProfileView
       profile={profile}
-      handle={isOwn ? social.settings.handle : (connection?.handle ?? null)}
+      handle={isOwn ? ownerHandle : (connection?.handle ?? null)}
       nickname={connection?.nickname ?? null}
       isOwn={isOwn}
       verified={isOwn ? null : Boolean(connection?.pubkey)}
       importedAt={connection?.lastImportAt ?? null}
       now={new Date()}
     />
+    {isOwn && draft?.song && <p className="text-[12px]">Favorite song (private draft): {draft.song}</p>}
+    {isOwn && draft?.book && <p className="text-[12px]">Favorite book (private draft): {draft.book}</p>}
+    </div>
   );
 }

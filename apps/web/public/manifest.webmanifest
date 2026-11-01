@@ -1,0 +1,14 @@
+{
+  "name": "eic - everybody is cool",
+  "short_name": "eic",
+  "description": "A tiny encrypted corner for friends. Win95 vibes, local vault, no server.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#008080",
+  "theme_color": "#008080",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
