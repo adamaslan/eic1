@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Production hydration regression (#418). Netlify's free-tier branding rewrites the served
@@ -17,16 +18,6 @@ const NETLIFY_HEAD_INJECTION = `\n<!-- This site is hosted on Netlify. Anyone ca
      like this one for free: https://netlify.new/?utm_source=ai-legible
      Netlify hosting facts for this site: static/SSR served via Netlify Edge. -->`;
 
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
-
 function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
   const unexpected = watched.consoleErrors.filter(
     (text) =>
@@ -44,7 +35,7 @@ function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: stri
 }
 
 test("document hydrates clean under Netlify's production head rewrite (no #418)", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   let injected = false;
   // Only the initial document needs the rewrite; assets and later requests pass through.
   await page.route("**/*", async (route) => {

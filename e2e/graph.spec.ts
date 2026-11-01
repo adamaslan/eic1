@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Social graph: maps the vault's connections, posts, and listings; proves edge facts and
@@ -7,16 +8,6 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
-
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
 
 function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
   const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
@@ -63,7 +54,7 @@ async function composePost(page: Page, kind: "photo" | "listing", title: string)
 }
 
 test("graph maps composed posts and listings, selects nodes, and switches views", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
 
   await composePost(page, "photo", "Bridge at dawn");
@@ -171,7 +162,7 @@ const V1_BUNDLE = JSON.stringify({
 });
 
 test("graph maps a connection's authorship and likes, and honors hiding", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
 
   // My own items via the production compose UI.
@@ -221,7 +212,7 @@ test("graph maps a connection's authorship and likes, and honors hiding", async 
 });
 
 test("graph stays consistent when the graph tab is opened during the hide write", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await composePost(page, "photo", "My rooftop tomatoes");
 
@@ -244,7 +235,7 @@ test("graph stays consistent when the graph tab is opened during the hide write"
 });
 
 test("graph shows an honest error, not an empty map, when the vault read fails", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await composePost(page, "photo", "Bridge at dawn");
 
@@ -288,7 +279,7 @@ test("graph shows an honest error, not an empty map, when the vault read fails",
 });
 
 test("graph filters and search narrow the map honestly, and clear restores it", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
 
   await composePost(page, "photo", "My rooftop tomatoes");
@@ -345,7 +336,7 @@ test("graph filters and search narrow the map honestly, and clear restores it", 
 });
 
 test("connections Map link preselects the person on the graph, and hiding keeps them off it", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
 
   await page.goto("/connections");
