@@ -42,8 +42,12 @@ export async function updateJournalEntry(vault: UnlockedVault, id: string, text:
   return updated;
 }
 
-/** Deletes one entry by id. Deleting an entry that is not there is a no-op. */
+/** Deletes one entry by id. Only journal records can be deleted: any other record id is
+ * rejected, so a caller can never use this to delete non-journal data. A missing entry is a no-op. */
 export async function deleteJournalEntry(vault: UnlockedVault, id: string): Promise<void> {
+  const existing = await vault.getJson(id);
+  if (existing === null) return;
+  if (!JournalEntrySchema.safeParse(existing).success) throw new AppError("That entry does not exist.");
   await vault.deleteRecords([id]);
 }
 
