@@ -41,7 +41,9 @@ async function stubShareCapture(page: Page) {
 async function createVault(page: Page, handle?: string) {
   vaultCounter += 1;
   const passphrase = `journal-share-passphrase-${Date.now()}-${vaultCounter}`;
-  await page.goto("/");
+  // Preserve an arrival link captured in this document's memory. The actual landing CTA
+  // is client-side navigation; reloading / here would intentionally discard that memory.
+  if (new URL(page.url()).pathname !== "/") await page.goto("/");
   await page.getByRole("link", { name: "Create or open your vault" }).first().click();
   await page.getByLabel("Passphrase", { exact: true }).fill(passphrase);
   await page.getByLabel("Confirm passphrase").fill(passphrase);
@@ -92,15 +94,11 @@ test("a shared journal entry opens for the recipient and saves only on their exp
   // DOMContentLoaded guarantees deferred module scripts ran; React effects have NOT run at
   // this point, so an effect-based stash would deterministically fail here.
   await bob.goto(link, { waitUntil: "domcontentloaded" });
-  // Deterministic, no settling wait: at DOMContentLoaded the parse is complete, so the
-  // shell's synchronous inline script has parked the raw hash. (The typed slot is promoted
-  // by the entry module before hydration finishes - i.e. before anything is tappable - so
-  // asserting the raw key here is the exact boundary the fix guarantees. Pre-fix, NOTHING
-  // was captured until a post-hydration effect and this assertion fails.)
-  expect(
-    await bob.evaluate(() => window.sessionStorage.getItem("eic.arrivalHash")),
-    "link payload must be parked at parse time - no paint, effect, or settling wait involved",
-  ).toContain("#import=");
+  // Journal text remains in document memory only; it is removed from the address bar and
+  // never written to sessionStorage, including either pending-link slot.
+  await expect.poll(() => new URL(bob.url()).hash).toBe("");
+  expect(await bob.evaluate(() => window.sessionStorage.getItem("eic.arrivalHash"))).toBeNull();
+  expect(await bob.evaluate(() => window.sessionStorage.getItem("eic.pendingLink.v2.post"))).toBeNull();
   await createVault(bob);
   await expect(bob.getByText("A friend shared a journal entry")).toBeVisible();
   await expect(bob.getByText("Bridge at dawn, worth the cold")).toBeVisible();
