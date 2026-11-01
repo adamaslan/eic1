@@ -45,8 +45,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         {/* Link previews (iMessage fetches these without running JavaScript) get the cute
-            static card; message content never leaves the URL fragment, so no unfurler or
-            server can see it. */}
+            static card. Message content rides in the URL fragment, which browsers keep out of
+            HTTP requests to the app host and preview fetchers; the link text itself still
+            travels through whatever messaging app carries it. */}
         <meta property="og:type" content="website" />
         <meta property="og:title" content="You've got mail 💌" />
         <meta property="og:site_name" content="eic - everybody is cool" />
@@ -137,7 +138,7 @@ function readPendingLink(hash: string): PendingLink | null {
 
 /**
  * Watches for eic links (`#import=`, `#chat=`, `#connect=...`). The payload travels in the URL
- * fragment, so it never reaches a server. Chat links apply and open the conversation on their
+ * fragment, which browsers never put into an HTTP request to the app host. Chat links apply and open the conversation on their
  * own (they are sealed, signed, and idempotent); connect links ask first because they create a
  * connection from a bearer link; post links keep the original import prompt. Handled hashes are
  * stripped once consumed.
