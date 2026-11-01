@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const clearSession = vi.hoisted(() => vi.fn<() => Promise<void>>());
 
 vi.mock("./session-persist", () => ({
-  SESSION_MS: 3_600_000,
+  SESSION_MS: 28_800_000,
   clearSession,
 }));
 
@@ -54,4 +54,13 @@ describe("session store", () => {
     useSessionStore.getState().setVault(fakeVault());
     expect(useSessionStore.getState().revision).toBe(start + 3);
   });
+  it("blocks expired vault operations even before a delayed expiry timer fires", () => {
+    const read = vi.fn();
+    const vault = { lock: vi.fn(), getJson: read } as unknown as import("@veil/vault").UnlockedVault;
+    useSessionStore.getState().setVault(vault, Date.now() - 1);
+    expect(() => useSessionStore.getState().vault!.getJson("private")).toThrow("The vault is locked.");
+    expect(read).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().vault).toBeNull();
+  });
+
 });
