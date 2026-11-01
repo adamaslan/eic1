@@ -29,7 +29,7 @@ export default function Feed() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search posts"
-          className="w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px]"
+          className="min-w-0 flex-1 bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px] sm:flex-none"
         />
         <Link to="/draw" className="shrink-0 text-[12px] font-bold text-[#0000cc] underline">
           🎨 Paint
