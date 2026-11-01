@@ -200,6 +200,9 @@ export default function Draw() {
   };
 
   // Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z or Ctrl+Y redoes - not while typing into a field.
+  // No dependency array: the listener re-registers every render so it always calls the
+  // current undo/redo closures (an empty-deps version froze first-render state, e.g. a
+  // stale image format in refreshSize after switching PNG/JPG).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey)) return;
@@ -219,8 +222,7 @@ export default function Draw() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  });
 
   const downloadImage = async () => {
     const canvas = canvasRef.current;
@@ -317,6 +319,9 @@ export default function Draw() {
     event.preventDefault();
     const canvas = canvasRef.current;
     if (!vault || !canvas || saving) return;
+    // An uncommitted text preview is not part of the drawing: restore the base pixels
+    // before the snapshot below so saving never bakes in text the user did not place.
+    discardTextPreview();
     const trimmed = title.trim();
     if (!trimmed) {
       setNotice("Give the drawing a title.");
