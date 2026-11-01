@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { selectFeed, useVaultItems } from "@veil/features";
 import type { Route } from "./+types/feed";
 import { PhotoCard } from "~/components/cards";
+import { NowPlayingStrip } from "~/components/now-playing-strip";
 import { DemoSeed } from "~/components/demo-seed";
 import { useSessionStore } from "~/platform/session";
 
@@ -23,6 +24,7 @@ export default function Feed() {
 
   return (
     <div className="flex flex-col gap-2">
+      <NowPlayingStrip />
       <div className="flex items-center gap-2">
         <input
           type="search"
