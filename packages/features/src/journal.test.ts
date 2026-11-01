@@ -84,3 +84,40 @@ describe("journal editing", () => {
     expect(filterJournal(entries, "zzz")).toHaveLength(0);
   });
 });
+
+describe("journal date filters", () => {
+  it("keeps entries inside the rolling window and drops older ones, boundary inclusive", async () => {
+    const { filterJournalByDate } = await import("./journal");
+    const vault = await open();
+    const now = new Date("2026-10-30T12:00:00Z");
+    const recent = await addJournalEntry(vault, "recent", { newId, now: new Date("2026-10-29T13:00:00Z") });
+    const boundary = await addJournalEntry(vault, "boundary", { newId, now: new Date("2026-10-29T12:00:00Z") });
+    const old = await addJournalEntry(vault, "old", { newId, now: new Date("2026-10-29T11:59:59Z") });
+    const entries = await listJournal(vault);
+    expect(filterJournalByDate(entries, "all", now)).toHaveLength(3);
+    expect(filterJournalByDate(entries, "day", now).map((e) => e.text)).toEqual(["recent", "boundary"]);
+    expect(filterJournalByDate(entries, "week", now)).toHaveLength(3);
+    expect(filterJournalByDate(entries, "month", now)).toHaveLength(3);
+    expect([recent, boundary, old]).toHaveLength(3);
+  });
+
+  it("applies text first, then date, and reports the unfiltered total", async () => {
+    const { applyJournalFilters, isJournalFilterActive, emptyJournalFilter } = await import("./journal");
+    const vault = await open();
+    const now = new Date("2026-10-30T12:00:00Z");
+    await addJournalEntry(vault, "bridge at dawn", { newId, now: new Date("2026-10-30T09:00:00Z") });
+    await addJournalEntry(vault, "bridge last month", { newId, now: new Date("2026-09-15T09:00:00Z") });
+    await addJournalEntry(vault, "gym today", { newId, now: new Date("2026-10-30T10:00:00Z") });
+    const entries = await listJournal(vault);
+
+    const combined = applyJournalFilters(entries, { query: "bridge", range: "week" }, now);
+    expect(combined.entries.map((e) => e.text)).toEqual(["bridge at dawn"]);
+    expect(combined.total).toBe(3);
+
+    expect(applyJournalFilters(entries, { query: "", range: "day" }, now).entries).toHaveLength(2);
+    expect(applyJournalFilters(entries, emptyJournalFilter, now).entries).toHaveLength(3);
+    expect(isJournalFilterActive(emptyJournalFilter)).toBe(false);
+    expect(isJournalFilterActive({ query: "x", range: "all" })).toBe(true);
+    expect(isJournalFilterActive({ query: "", range: "month" })).toBe(true);
+  });
+});
