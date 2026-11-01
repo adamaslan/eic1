@@ -12,6 +12,7 @@ import {
   type GraphPoint,
   type GraphPreset,
   type SocialGraph,
+  graphBodyState,
 } from "@veil/features";
 import type { Route } from "./+types/graph";
 import { Bevel } from "~/ui95/Bevel";
@@ -99,7 +100,7 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
 
 export default function Graph() {
   const vault = useSessionStore((state) => state.vault);
-  const { items, settings, settingsReady, connections } = useSocial(vault);
+  const { items, settings, settingsReady, connections, refresh } = useSocial(vault);
 
   const graph = useMemo(() => {
     const list = items.status === "ready" ? items.items : [];
@@ -264,7 +265,7 @@ export default function Graph() {
   const posts = graph.nodes.filter((node) => node.kind === "post").length;
   const listings = graph.nodes.filter((node) => node.kind === "listing").length;
   const likes = graph.edges.filter((edge) => edge.kind === "likes").length;
-  const empty = graph.nodes.length === 1;
+  const bodyState = graphBodyState(items.status, graph.nodes.length);
 
   return (
     <div className="flex flex-col gap-3">
@@ -297,7 +298,16 @@ export default function Graph() {
             </Button95>
           </div>
 
-          {empty ? (
+          {bodyState === "loading" ? (
+            <p>Loading your map…</p>
+          ) : bodyState === "error" ? (
+            <p role="alert" className="text-[#800000]">
+              {items.status === "error" ? items.message : "This vault could not be read."}{" "}
+              <button type="button" onClick={refresh} className="text-[#0000cc] underline">
+                Try again
+              </button>
+            </p>
+          ) : bodyState === "empty" ? (
             <p>
               Nothing to map yet. Add a connection or a post and it shows up here.{" "}
               <Link to="/connections" className="text-[#0000cc] underline">Connections</Link>
