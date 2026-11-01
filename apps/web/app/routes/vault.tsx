@@ -7,7 +7,7 @@ import { Window } from "~/ui95/Window";
 import { Button95 } from "~/ui95/Button95";
 import { downloadTextFile } from "~/platform/download";
 import { useSessionStore } from "~/platform/session";
-import { AUTO_LOCK_MS } from "~/platform/use-auto-lock";
+
 import { vaultExport, vaultWipe } from "~/platform/vault-service";
 
 export function meta(_args: Route.MetaArgs) {
@@ -63,7 +63,7 @@ export default function VaultScreen() {
           <dt>Key derivation</dt>
           <dd className="font-mono">PBKDF2 · SHA-256</dd>
           <dt>Auto-lock</dt>
-          <dd>after {AUTO_LOCK_MS / 60_000} minutes idle, or one hour after unlocking (a reload within that hour stays unlocked)</dd>
+          <dd>After 60 minutes idle, or 8 hours from unlocking. Activity resets the idle timer, not the 8-hour limit. Reload does not extend that limit. Lock ends it sooner. This browser may clear or refuse saved sessions.</dd>
         </dl>
 
         {notice && <p role="status">{notice}</p>}

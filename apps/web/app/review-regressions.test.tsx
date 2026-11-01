@@ -148,7 +148,7 @@ describe("dashboard navigation", () => {
   it("navigates to the dashboard after successfully unlocking", async () => {
     mocks.vault = null;
     mocks.states = [true, "pass phrase", "", null, false, null];
-    vi.mocked(vaultUnlock).mockResolvedValue({} as UnlockedVault);
+    vi.mocked(vaultUnlock).mockResolvedValue({ vault: {} as UnlockedVault, expiresAt: Date.now() + 28_800_000 });
     const form = findForm(Unlock());
     expect(form).toBeDefined();
     await form!.props.onSubmit({ preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>);
