@@ -76,7 +76,7 @@ export function ProfileView({
     <div
       className="relative min-h-[240px] overflow-hidden p-3"
       data-testid="profile-canvas"
-      style={{ background: WALLPAPER_STYLE[profile.theme.wallpaper], color: SCHEME_INK[profile.theme.colorScheme], fontFamily: FONT_STACK[profile.theme.fontChoice] }}
+      style={{ paddingTop: profile.decorations.length ? 52 : undefined, background: WALLPAPER_STYLE[profile.theme.wallpaper], color: SCHEME_INK[profile.theme.colorScheme], fontFamily: FONT_STACK[profile.theme.fontChoice] }}
     >
       {sorted.map((decoration) => (
         <img
