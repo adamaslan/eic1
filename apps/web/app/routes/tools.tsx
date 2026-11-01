@@ -14,6 +14,16 @@ const TOOLS = [
     blurb: "Play MP3s from a folder on your device. Goes to the next song and loops. Nothing is uploaded.",
   },
   {
+    to: "/tools/calendar",
+    name: "Calendar",
+    blurb: "A month grid for your plans. Events are encrypted in your vault and never shared.",
+  },
+  {
+    to: "/tools/chores",
+    name: "Chore chart",
+    blurb: "A weekly chart of chores with check-offs per day. Encrypted in your vault.",
+  },
+  {
     to: "/draw",
     name: "Paint",
     blurb: "Draw with brushes, an eraser, and text on a chunky canvas, with undo. Saves as an encrypted photo post.",
