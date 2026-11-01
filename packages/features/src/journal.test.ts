@@ -65,6 +65,14 @@ describe("journal editing", () => {
     expect((await listJournal(vault)).map((entry) => entry.id)).toEqual([keep.id]);
   });
 
+  it("refuses to delete a non-journal record", async () => {
+    const { deleteJournalEntry } = await import("./journal");
+    const vault = await open();
+    await vault.putJson("connection", "connection:alice", { id: "alice", handle: "alice", addedAt: "2026-10-29T12:00:00Z", schemaVersion: 1 });
+    await expect(deleteJournalEntry(vault, "connection:alice")).rejects.toBeInstanceOf(AppError);
+    expect(await vault.getJson("connection:alice")).not.toBeNull();
+  });
+
   it("filters case-insensitively and returns everything on a blank query", async () => {
     const { filterJournal } = await import("./journal");
     const vault = await open();

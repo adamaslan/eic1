@@ -1,4 +1,5 @@
 import {
+  AppError,
   VaultAlreadyExistsError,
   VaultCorruptError,
   VaultLockedError,
@@ -30,9 +31,17 @@ export class MemoryStore implements VaultStore {
       this.records.set(record.id, record);
     }
   }
-  async putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[], options?: { requireSameKind?: boolean }) {
+  async putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[], options?: { requireSameKind?: boolean; expectedRecord?: EncryptedRecord | null }) {
     if (!this.meta || !sameBytes(vaultGeneration(this.meta), expectedGeneration)) {
       throw new VaultLockedError("This vault session is no longer valid. Unlock the current vault to continue.");
+    }
+    if (options && "expectedRecord" in options) {
+      const current = this.records.get(records[0]?.id) ?? null;
+      const expected = options.expectedRecord ?? null;
+      if (records.length !== 1 || (expected && expected.id !== records[0].id) ||
+        (current === null ? expected !== null : expected === null || current.kind !== expected.kind || !sameBytes(current.iv, expected.iv) || !sameBytes(current.ciphertext, expected.ciphertext))) {
+        throw new AppError("The saved profile changed. Review the latest feed profile before updating. Nothing was overwritten.");
+      }
     }
     // Validate the entire batch before mutating; no awaits may separate this check and write.
     if (options?.requireSameKind) {

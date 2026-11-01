@@ -15,3 +15,6 @@ export * from "./feed";
 export * from "./sync";
 export * from "./profile";
 export * from "./paint";
+export * from "./graph";
+export * from "./profile-studio";
+export * from "./music";
