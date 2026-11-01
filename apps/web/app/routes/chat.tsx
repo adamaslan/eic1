@@ -133,7 +133,7 @@ export default function Chat({ params }: Route.ComponentProps) {
   const authorId = params.authorId;
   const connection = social.connections.find((candidate) => candidate.id === authorId);
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
-  const [olderSkip, setOlderSkip] = useState(0);
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [olderLeftOut, setOlderLeftOut] = useState(0);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -192,22 +192,27 @@ export default function Chat({ params }: Route.ComponentProps) {
     }
   }
 
-  async function shareLink(skip: number) {
+  async function shareLink(before: string | null) {
     if (!vault || !connection) return;
     setBusy(true);
     setLinkNotice(null);
     try {
-      const { link, messageCount, leftOut } = await buildChatShareLink(vault, connection, `${window.location.origin}/`, { skip });
+      const { link, messageCount, leftOut, oldestCarriedId } = await buildChatShareLink(
+        vault,
+        connection,
+        `${window.location.origin}/`,
+        before ? { before } : {},
+      );
       // One URL, at the end of the text: that is what phones need to render the cute preview.
       const text = `eic 💌 ${link}`;
-      // Honest contents: what the link carries, what it leaves out. Automatic delivery is not
-      // built, so a message outside the link is not delivered - offer the older batch instead
-      // of dropping it. Never claim the friend received or opened anything.
-      setOlderSkip(skip + messageCount);
+      // Honest contents: what this link carries, what this link leaves out. "Not included"
+      // describes this link only - an earlier link may already have carried a message. Never
+      // claim the friend received or opened anything.
+      setOlderCursor(oldestCarriedId);
       setOlderLeftOut(leftOut);
-      const batch = skip > 0 ? `the next ${messageCount} older message${messageCount === 1 ? "" : "s"}` : `your latest ${messageCount} message${messageCount === 1 ? "" : "s"}`;
+      const batch = before ? `the next ${messageCount} older message${messageCount === 1 ? "" : "s"}` : `your latest ${messageCount} message${messageCount === 1 ? "" : "s"}`;
       const carries = `The link carries ${batch}`;
-      const left = leftOut > 0 ? `; ${leftOut} older one${leftOut === 1 ? "" : "s"} not included and not delivered by it - use "Text the older ones" to carry them too` : "";
+      const left = leftOut > 0 ? `; ${leftOut} older one${leftOut === 1 ? "" : "s"} not included in this link, which therefore cannot deliver them - "Text the older ones" carries them in another link` : "";
       if (typeof navigator.share === "function") {
         try {
           await navigator.share({ text });
@@ -241,9 +246,9 @@ export default function Chat({ params }: Route.ComponentProps) {
       linkNotice={linkNotice}
       onDraft={setDraft}
       onSend={send}
-      onShareLink={() => void shareLink(0)}
+      onShareLink={() => void shareLink(null)}
       olderLeftOut={olderLeftOut}
-      onOlderLink={() => void shareLink(olderSkip)}
+      onOlderLink={olderCursor ? () => void shareLink(olderCursor) : undefined}
     />
   );
 }
