@@ -136,7 +136,9 @@ function ShareLinkImport({ vault }: { vault: ReturnType<typeof useSessionStore.g
         result.keyChanged
           ? `Key replaced for @${result.handle} - future chat seals to the new key. Your connection and history are unchanged.`
           : result.keyAdded
-            ? `Chat unlocked with @${result.handle} - verified key saved. Your connection and history are unchanged.`
+            ? isKeyCard
+              ? `Chat unlocked with @${result.handle} - verified key saved. Your connection and history are unchanged.`
+              : `Imported from @${result.handle}: ${result.added} new, ${result.updated} updated. Chat unlocked with @${result.handle} - the verified key was saved with it. The post is in your vault and renders offline from here on.`
             : isKeyCard
               ? `Chat already unlocked with @${result.handle} - the saved verified key is unchanged. Nothing new to import.`
               : `Imported from @${result.handle}: ${result.added} new, ${result.updated} updated. The post is in your vault and renders offline from here on.`,
