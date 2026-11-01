@@ -10,7 +10,7 @@ import {
   type VaultDeps,
 } from "@veil/vault";
 import { IndexedDbVaultStore } from "./indexeddb-store";
-import { SESSION_MS, clearSession, loadSession, saveSession } from "./session-persist";
+import { SESSION_MS, clearSession, currentLockMarker, loadSession, saveSession } from "./session-persist";
 
 // One app-wide set of platform adapters. Shared packages receive these by
 // argument and never import browser globals themselves.
@@ -48,7 +48,7 @@ export async function vaultResume(): Promise<{ vault: UnlockedVault; expiresAt: 
     const saved = await loadSession(Date.now());
     if (!saved) return null;
     const vault = await resumeVault(deps, saved.key);
-    if (saved.expiresAt <= Date.now()) {
+    if (saved.expiresAt <= Date.now() || (saved.lockMarker ?? null) !== currentLockMarker()) {
       vault.lock();
       await clearSession();
       return null;

@@ -53,7 +53,7 @@ export async function clearSession(): Promise<void> {
   await database.delete(STORE, KEY);
 }
 
-function currentLockMarker(): string | null {
+export function currentLockMarker(): string | null {
   if (typeof window === "undefined") return null;
   try { return localStorage.getItem("eic.vault-lock"); } catch { return "storage-unavailable"; }
 }
