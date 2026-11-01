@@ -19,7 +19,12 @@ import { promoteArrivalHash, sessionSlotStore } from "~/pending-links";
 // with a synchronous inline script at parse time, so even the fastest tap into vault
 // creation cannot lose the link to a still-loading module graph. Vault binding is
 // unchanged: slots park unbound; the vault-arrival binding/read paths take it from there.
-promoteArrivalHash(sessionSlotStore(), window.location.hash);
+const journalArrival = promoteArrivalHash(sessionSlotStore(), window.location.hash);
+if (journalArrival) {
+  // The fragment includes the journal text. Once captured in module memory, remove it from
+  // the address bar and current history entry so it is not retained in browser navigation.
+  window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
+}
 
 function stripNetlifyInjections() {
   document.querySelectorAll('script[src*=".netlify/"]').forEach((node) => node.remove());

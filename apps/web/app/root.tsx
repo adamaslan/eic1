@@ -72,13 +72,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta property="og:image" content="https://everybodyiscool.netlify.app/og-image.png" />
         <meta name="theme-color" content="#008080" />
         {/* Parse-time link capture: a synchronous classic script, so the tapped link's hash
-            is parked before any paint and before anything is tappable - no module graph, no
-            React, no effect to outrun. Parked on window first (survives denied storage for
-            this document's life), then sessionStorage (survives reloads). entry.client.tsx
-            promotes both into a typed slot and in-memory retention. */}
+            is parked in this document before anything is tappable. Keep it off sessionStorage:
+            journal links contain plaintext entry text. entry.client.tsx classifies the link
+            and retains journal links in memory only. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: "try{var h=window.location.hash;if(h&&h.length>1){window.__eicArrivalHash=h;try{window.sessionStorage.setItem('eic.arrivalHash',h)}catch(e2){}}}catch(e){}",
+            __html: "try{var h=window.location.hash;if(h&&h.length>1){window.__eicArrivalHash=h}}catch(e){}",
           }}
         />
         <Meta />
@@ -453,7 +452,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
                   <p className="bg-white px-1.5 py-1 whitespace-pre-wrap [overflow-wrap:anywhere] max-h-40 overflow-y-auto">{journalShare.entry.text}</p>
                   <p className="text-[#404040]">
                     @{journalShare.author.handle}, {new Date(journalShare.entry.createdAt).toLocaleString()} -
-                    this came through their link, not a server. It is not in your vault unless you keep a copy.
+                    This entry came through their link, not a server. The link text stays in this tab's memory, not browser storage or the address bar, until you save or dismiss it; it will be offered to the vault you unlock next.
                   </p>
                   <div className="flex gap-1">
                     <Button95 onClick={() => void doSaveJournalCopy()} disabled={busy}>Save a copy to my journal</Button95>

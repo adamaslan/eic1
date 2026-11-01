@@ -165,6 +165,7 @@ test("a long unbroken shared entry stays bounded and its actions stay reachable 
   await bob.goto(link, { waitUntil: "domcontentloaded" });
   await createVault(bob);
   await expect(bob.getByText("A friend shared a journal entry")).toBeVisible();
+  expect(new URL(bob.url()).hash).toBe("");
 
   // The preview is a bounded scroll region, and both actions are reachable without
   // scrolling the page - the dialog never grows past the viewport.
