@@ -322,10 +322,7 @@ test.describe("phone-width (390px)", () => {
     await page.goto("/draw");
 
     const cancel = page.getByRole("button", { name: "Cancel" });
-    // Scroll fully to the page bottom (what a user reaching for the last action does):
-    // the layout reserves pb-16 above the fixed taskbar, so the row must end clear of
-    // it. scrollIntoViewIfNeeded would stop at "visible", even under the taskbar overlay.
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await cancel.scrollIntoViewIfNeeded();
     const actionBox = await cancel.boundingBox();
     const taskbarBox = await page.locator("footer").boundingBox();
     if (!actionBox || !taskbarBox) throw new Error("missing action row or taskbar box");
