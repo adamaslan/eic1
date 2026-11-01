@@ -8,6 +8,7 @@ export default [
     route("compose", "routes/compose.tsx"),
     route("draw", "routes/draw.tsx"),
     route("connections", "routes/connections.tsx"),
+    route("graph", "routes/graph.tsx"),
     route("chat/:authorId", "routes/chat.tsx"),
     route("profile", "routes/profile.tsx"),
     route("profile/:authorId", "routes/profile.tsx", { id: "profile-author" }),
