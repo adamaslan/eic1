@@ -117,3 +117,40 @@ test("a corrupted backup fails honestly and leaves the vault absent", async ({ p
   await expect(page.getByRole("button", { name: "Create vault" })).toBeVisible();
   expectCleanRuntime(watched);
 });
+
+test("readable export downloads chosen categories only, with an honest confirmation", async ({ page }) => {
+  const watched = watchRuntime(page);
+  const passphrase = `ci-export-passphrase-${Date.now()}-${vaultCounter}`;
+  await createVault(page, passphrase);
+
+  // Seed a journal entry via the production journal UI.
+  await page.goto("/tools/journal");
+  await page.getByLabel("What is on your mind?").fill("export probe entry");
+  await page.getByRole("button", { name: /Save entry|Add entry/ }).click();
+  await expect(page.getByText("export probe entry")).toBeVisible();
+
+  await page.goto("/vault");
+  // Deselect connections (none exist anyway) and export items+journal.
+  await page.getByLabel("Connections").uncheck();
+  await page.getByRole("button", { name: "Review readable export…" }).click();
+  await expect(page.getByRole("group", { name: "Confirm readable export" })).toContainText("1 journal entry");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download readable JSON" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^eic-export-.*\.json$/);
+  const path = await download.path();
+  const bundle = JSON.parse(await readFile(path, "utf8")) as {
+    format: string; items: unknown[]; journal: { text: string }[]; connections: unknown[];
+  };
+  expect(bundle.format).toBe("eic-export");
+  expect(bundle.journal.map((j) => j.text)).toContain("export probe entry");
+  expect(bundle.connections).toHaveLength(0);
+  await expect(page.getByText(/Exported .*1 journal entry.*only in this device's downloads/)).toBeVisible();
+
+  // Deselecting everything disables the export.
+  await page.getByLabel("Posts and listings").uncheck();
+  await page.getByLabel("Journal entries").uncheck();
+  await expect(page.getByRole("button", { name: "Review readable export…" })).toBeDisabled();
+
+  expectCleanRuntime(watched);
+});
