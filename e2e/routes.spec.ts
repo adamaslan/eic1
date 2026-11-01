@@ -75,6 +75,8 @@ test("every desktop route mounts clean on an unlocked vault", async ({ page }) =
     ["/connections", "Connections — Everybody is Cool"],
     ["/tools", "Tools — Everybody is Cool"],
     ["/tools/journal", "Journal — Everybody is Cool"],
+    ["/tools/calendar", "Calendar — Everybody is Cool"],
+    ["/tools/chores", "Chore chart — Everybody is Cool"],
     ["/vault", "Vault — Everybody is Cool"],
     ["/profile", "Profile — Everybody is Cool"],
   ];
