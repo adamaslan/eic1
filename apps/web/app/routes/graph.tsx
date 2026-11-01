@@ -442,4 +442,4 @@ export default function Graph() {
       )}
     </div>
   );
-                    }
+}
