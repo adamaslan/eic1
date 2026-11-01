@@ -36,7 +36,11 @@ test("reload, new tab and activity preserve the same eight-hour deadline; manual
   const now = await page.evaluate(() => Date.now());
   expect(expiresAt - now).toBeGreaterThan(EIGHT_HOURS - 60_000);
   expect(expiresAt - now).toBeLessThanOrEqual(EIGHT_HOURS);
-  await page.clock.setSystemTime(expiresAt - 60_000);
+  for (let halfHour = 0; halfHour < 15; halfHour += 1) {
+    await page.clock.fastForward(30 * 60_000);
+    await page.mouse.click(380, 500);
+  }
+  await page.clock.fastForward(29 * 60_000);
   await page.reload();
   await expect(page.getByText("eight-hour persisted data")).toBeVisible();
   expect(await savedDeadline(page)).toBe(expiresAt);
@@ -110,4 +114,37 @@ test("missed lock events: returning tab checks durable revocation before showing
   await tab.goto("/market");
   await expect(tab.getByText("eight-hour persisted data")).toBeVisible();
   await tab.close();
+});
+
+test("idle lock stays at one hour, activity resets idle only, and delayed return locks", async ({ page }) => {
+  await page.clock.install();
+  await create(page);
+  const deadline = await savedDeadline(page);
+  await page.clock.fastForward(59 * 60_000);
+  await expect(page.getByText("eight-hour persisted data")).toBeVisible();
+  await page.mouse.click(380, 500);
+  await page.clock.fastForward(59 * 60_000);
+  await expect(page.getByText("eight-hour persisted data")).toBeVisible();
+  expect(await savedDeadline(page)).toBe(deadline);
+  await page.clock.fastForward(60_000);
+  await expect(page).toHaveURL(/\/unlock/);
+  await expect.poll(() => savedDeadline(page)).toBeNull();
+  await page.getByLabel("Passphrase", { exact: true }).fill(passphrase);
+  await page.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+  await page.goto("/market");
+  await page.clock.setSystemTime((await page.evaluate(() => Date.now())) + 60 * 60_000);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page).toHaveURL(/\/unlock/);
+});
+
+test("blocked localStorage never resumes a saved vault even when IndexedDB works", async ({ page }) => {
+  await create(page);
+  await page.addInitScript(() => {
+    Storage.prototype.getItem = () => { throw new DOMException("blocked", "SecurityError"); };
+  });
+  await page.reload();
+  await expect(page).toHaveURL(/\/unlock/);
+  await expect(page.getByText("eight-hour persisted data")).toHaveCount(0);
+  await expect.poll(() => savedDeadline(page)).toBeNull();
 });
