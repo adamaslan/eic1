@@ -46,8 +46,9 @@ describe("chat links", () => {
     await sendChatMessage(bob, bobConn, "first hello", deps);
     await sendChatMessage(bob, bobConn, "second hello 📡", deps);
 
-    const { link, messageCount } = await buildChatShareLink(bob, bobConn, BASE);
+    const { link, messageCount, leftOut } = await buildChatShareLink(bob, bobConn, BASE);
     expect(messageCount).toBe(2);
+    expect(leftOut).toBe(0);
     expect(link.startsWith(`${BASE}${CHAT_LINK_PREFIX}`)).toBe(true);
     expect(link.length).toBeLessThanOrEqual(MAX_CHAT_LINK_CHARS);
     expect(link).not.toContain("hello");
@@ -76,10 +77,12 @@ describe("chat links", () => {
     for (let i = 0; i < 8; i++) {
       await sendChatMessage(bob, conn, `message ${i} ${"x".repeat(1800)}`, deps);
     }
-    const { link, messageCount } = await buildChatShareLink(bob, conn, BASE);
+    const { link, messageCount, leftOut } = await buildChatShareLink(bob, conn, BASE);
     expect(link.length).toBeLessThanOrEqual(MAX_CHAT_LINK_CHARS);
     expect(messageCount).toBeGreaterThanOrEqual(1);
     expect(messageCount).toBeLessThan(8);
+    // Honesty: what did not fit is reported, never silently dropped.
+    expect(leftOut).toBe(8 - messageCount);
     const parsed = readChatShareLink(new URL(link).hash)!;
     // The newest message is always the last envelope.
     expect(parsed.envelopes.at(-1)!.ciphertext).toBeTruthy();
@@ -154,6 +157,32 @@ describe("connect links", () => {
     expect(after.nickname).toBe(before.nickname);
     expect(after.syncSeq).toBe(before.syncSeq);
     expect(after.pubkey).toBe(before.pubkey);
+  });
+
+  it("refuses to silently replace a verified key with a different one", async () => {
+    const { bob } = await pairedVaults();
+    const carol = await open();
+    await saveSettings(carol, settingsFor("carol-id", "carol"));
+    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
+
+    // A second "bob" with the same id and handle but a fresh key must not rotate the old one.
+    const bob2 = await open();
+    await saveSettings(bob2, settingsFor("bob-id", "bob"));
+    const text2 = readConnectLink(new URL(await buildConnectLink(bob2, BASE, NOW)).hash)!;
+    await expect(importConnectCard(carol, text2, importDeps(settingsFor("carol-id", "carol")))).rejects.toThrow(/different key/);
+    expect((await connectionFor(carol, "bob-id")).pubkey).toBe(JSON.parse(text).author.pubkey);
+  });
+
+  it("refreshes a connection when the key matches, and upgrades a keyless one", async () => {
+    const { bob } = await pairedVaults();
+    const carol = await open();
+    await saveSettings(carol, settingsFor("carol-id", "carol"));
+    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
+    // Same card again: fine, key unchanged.
+    const again = await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
+    expect(again.isNew).toBe(false);
   });
 
   it("rejects damaged connect links", async () => {
