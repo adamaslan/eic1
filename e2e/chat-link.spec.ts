@@ -48,6 +48,7 @@ test("connect link + chat link: tap opens straight into the conversation", async
   const bobContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const alice = await aliceContext.newPage();
   const bob = await bobContext.newPage();
+  await alice.clock.install();
   await stubShareCapture(alice);
   await stubShareCapture(bob);
 
@@ -86,6 +87,9 @@ test("connect link + chat link: tap opens straight into the conversation", async
   await bob.screenshot({ path: testInfo.outputPath("2-bob-chat-mobile.png"), fullPage: true });
   const chatLink = await lastSharedLink(bob);
   expect(chatLink).toContain("#chat=");
+
+  // More than the previous one-hour session, but within the new fixed eight hours.
+  await alice.clock.setSystemTime((await alice.evaluate(() => Date.now())) + 2 * 60 * 60_000);
 
   // 4. Alice taps the link in her text thread: eic opens straight into the conversation.
   await alice.goto(chatLink);
