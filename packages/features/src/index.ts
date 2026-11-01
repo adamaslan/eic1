@@ -16,3 +16,4 @@ export * from "./profile";
 export * from "./paint";
 export * from "./graph";
 export * from "./graph-filters";
+export * from "./export";
