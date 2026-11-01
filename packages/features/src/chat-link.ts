@@ -15,6 +15,12 @@ import { loadOrCreateShareIdentity } from "./sharing";
 import { addNote, listConnections, loadSettings } from "./social";
 import { fromBase64Url, toBase64Url } from "./share-link";
 
+// decodeBase64 (inside fromBase64Url) is strict about padding, and link encoding strips it.
+// Re-pad here so chat and connect links decode today; PR #41 moves the same fix into
+// fromBase64Url itself, after which this is a harmless no-op on already-padded input.
+const fromPaddedBase64Url = (encoded: string): string =>
+  fromBase64Url(encoded + "=".repeat((4 - (encoded.length % 4)) % 4));
+
 /**
  * Chat and connect links: a textable URL that opens eic straight into a conversation, so a
  * friend never handles a JSON file. Everything travels in the URL fragment (after '#'), which
@@ -81,7 +87,7 @@ export async function buildChatShareLink(
   vault: UnlockedVault,
   connection: { id: string; pubkey: string | null },
   baseUrl: string,
-): Promise<{ link: string; messageCount: number }> {
+): Promise<{ link: string; messageCount: number; leftOut: number }> {
   if (!connection.pubkey) {
     throw new AppError("Chat links need a verified connection. Re-import their signed share file first.");
   }
@@ -109,7 +115,11 @@ export async function buildChatShareLink(
   if (picked.length === 0) {
     throw new AppError("Your latest message is too big for a link. Try a shorter one.");
   }
-  return { link: chatLink(settings.authorId, settings.handle, picked, baseUrl), messageCount: picked.length };
+  return {
+    link: chatLink(settings.authorId, settings.handle, picked, baseUrl),
+    messageCount: picked.length,
+    leftOut: outbound.length - picked.length,
+  };
 }
 
 /**
@@ -119,7 +129,7 @@ export async function buildChatShareLink(
 export function readChatShareLink(hash: string): ChatLink | null {
   if (!hash.startsWith(CHAT_LINK_PREFIX)) return null;
   try {
-    return ChatLinkSchema.parse(JSON.parse(fromBase64Url(hash.slice(CHAT_LINK_PREFIX.length))));
+    return ChatLinkSchema.parse(JSON.parse(fromPaddedBase64Url(hash.slice(CHAT_LINK_PREFIX.length))));
   } catch {
     throw new AppError("That chat link is damaged. Ask your friend for a fresh one.");
   }
@@ -194,7 +204,7 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
 export function readConnectLink(hash: string): string | null {
   if (!hash.startsWith(CONNECT_LINK_PREFIX)) return null;
   try {
-    return fromBase64Url(hash.slice(CONNECT_LINK_PREFIX.length));
+    return fromPaddedBase64Url(hash.slice(CONNECT_LINK_PREFIX.length));
   } catch {
     throw new AppError("That connect link is damaged. Ask your friend for a fresh one.");
   }
@@ -249,6 +259,11 @@ export async function importConnectCard(
   const connectionId = `connection:${author.id}`;
   const prior = ConnectionSchema.safeParse(await vault.getJson(connectionId));
   const keep = prior.success ? prior.data : null;
+  if (keep && keep.pubkey && keep.pubkey !== author.pubkey) {
+    throw new AppError(
+      `@${keep.handle} already connected with a different key. A connect link must never replace a verified key quietly - ask them in person, and if they really started over, re-import their new signed share file instead.`,
+    );
+  }
   await vault.putJson("connection", connectionId, {
     id: author.id,
     handle: author.handle,
