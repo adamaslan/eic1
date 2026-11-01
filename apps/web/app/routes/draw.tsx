@@ -399,8 +399,10 @@ export default function Draw() {
             height={CANVAS_SIZE}
             className="touch-none bg-white"
             style={{
-              width: DISPLAY_SIZE,
-              height: DISPLAY_SIZE,
+              // Fit phones: 320px preferred, shrink before the window overflows
+              // (toolbar column + window padding reserve ~120px of the viewport).
+              width: `min(${DISPLAY_SIZE}px, calc(100vw - 120px))`,
+              height: "auto",
               imageRendering: "pixelated",
               cursor: tool === "text" ? "text" : "crosshair",
               borderTop: "2px solid #808080",
@@ -493,7 +495,7 @@ export default function Draw() {
           </span>
         </label>
         {notice && <p role="alert" className="text-[#800000]">{notice}</p>}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 pb-4">
           <Button95 type="submit" disabled={saving}>
             {saving ? "Encrypting…" : "🔒 Encrypt & save"}
           </Button95>
