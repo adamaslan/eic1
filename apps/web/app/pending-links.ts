@@ -46,6 +46,13 @@ export const sessionSlotStore = (): SlotStore => ({
 });
 
 export const LEGACY_PENDING_LINK_KEY = "eic.pendingLinkHash";
+
+/**
+ * Where the shell's parse-time inline script parks a tapped link's raw hash. Dumb capture
+ * only - typed slot routing happens in entry.client.tsx. A plain sessionStorage key, read
+ * and removed exactly once per load.
+ */
+export const ARRIVAL_HASH_KEY = "eic.arrivalHash";
 export const PENDING_KINDS: PendingKind[] = ["connect", "chat", "post"];
 export const pendingKey = (kind: PendingKind) => `eic.pendingLink.v2.${kind}`;
 
@@ -74,11 +81,15 @@ export function writeStash(store: SlotStore, kind: PendingKind, entry: StashedLi
 
 export function dropStash(store: SlotStore, kind: PendingKind): void {
   store.remove(pendingKey(kind));
+  // Consumed or dismissed: the memory retention for a link of this kind goes with the slot,
+  // so a saved or declined link cannot resurface on a later read in this document.
+  if (memoryArrival && kindOfHash(memoryArrival) === kind) memoryArrival = null;
 }
 
 export function dropAllStashes(store: SlotStore): void {
   for (const kind of PENDING_KINDS) dropStash(store, kind);
   store.remove(LEGACY_PENDING_LINK_KEY);
+  memoryArrival = null; // locking drops every pending link, retained copies included
 }
 
 /**
@@ -114,6 +125,55 @@ export function resolveStashForVault(store: SlotStore, kind: PendingKind, author
  * the tap stashes while the vault is still rehydrating, then the vault arrives).
  * Keyed slots are untouched - cross-vault drops only happen on read.
  */
+/**
+ * In-memory retention for a tapped link. sessionStorage can be denied (private mode), and a
+ * denied store loses the link the moment client-side navigation drops the URL hash - the
+ * original fast-tapper race, still live for that tapper. Module state survives every
+ * in-document navigation (landing -> unlock -> vault creation), so the arrival hash is kept
+ * here until the link is consumed, dismissed, or locked away. A reload wipes it, same as the
+ * vault itself: only sessionStorage carries a link across loads.
+ */
+let memoryArrival: string | null = null;
+
+/** The parse-time inline script parks the raw hash here when (and before) storage answers. */
+const WINDOW_ARRIVAL_KEY = "__eicArrivalHash";
+
+export function readMemoryArrival(): string | null {
+  return memoryArrival;
+}
+
+export function clearMemoryArrival(): void {
+  memoryArrival = null;
+}
+
+function readWindowArrival(): string | null {
+  const holder = globalThis as Record<string, unknown>;
+  const value = holder[WINDOW_ARRIVAL_KEY];
+  delete holder[WINDOW_ARRIVAL_KEY]; // one read: the module copy owns it from here
+  return typeof value === "string" && value.length > 1 ? value : null;
+}
+
+/**
+ * Promotes the shell's parse-time capture (ARRIVAL_HASH_KEY and the window global the inline
+ * script sets first) into a typed, unbound slot, and retains it in memory until consumed.
+ * entry.client.tsx runs this before hydration, so before anything on the page is tappable.
+ * The raw key is always removed after the read: one promotion per load, no stale leftovers.
+ * Unrelated hashes (route fragments, anchors) are dropped, never stashed. When storage is
+ * denied the capture reads back null, the window global and then the LIVE hash are the
+ * fallbacks, and the memory copy is the only retention - enough for the whole in-document
+ * unlock path, never a cross-load promise. Vault binding is untouched: the slot is unbound,
+ * exactly like the pre-vault stash the mount effect writes.
+ */
+export function promoteArrivalHash(store: SlotStore, liveHash: string): void {
+  const captured = store.get(ARRIVAL_HASH_KEY);
+  store.remove(ARRIVAL_HASH_KEY);
+  const hash = captured ?? readWindowArrival() ?? liveHash;
+  const kind = kindOfHash(hash);
+  if (!kind) return;
+  memoryArrival = hash;
+  writeStash(store, kind, { hash, forAuthorId: null, stashedAt: Date.now() });
+}
+
 export function bindStashesToVault(store: SlotStore, authorId: string): void {
   for (const kind of PENDING_KINDS) {
     const entry = readStash(store, kind);
