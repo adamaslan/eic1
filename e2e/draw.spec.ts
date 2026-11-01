@@ -203,3 +203,69 @@ test("keyboard shortcut ctrl+z undoes a stroke outside text fields", async ({ pa
   expect(await inkPixels(page)).toBeGreaterThan(0);
   expectCleanRuntime(watched);
 });
+
+test.describe("phone-width (390px)", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("paint fits the viewport with no horizontal overflow", async ({ page }) => {
+    const watched = watchRuntime(page);
+    await createVault(page);
+    await page.goto("/draw");
+
+    // No sideways scroll: page content never exceeds the 390px viewport.
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+
+    // Canvas shrinks to fit and keeps working at its scaled display size.
+    const canvasBox = await page.locator("canvas").first().boundingBox();
+    if (!canvasBox) throw new Error("canvas has no bounding box");
+    expect(canvasBox.x + canvasBox.width).toBeLessThanOrEqual(390);
+    expect(canvasBox.width).toBeLessThan(320);
+
+    await drawStroke(page);
+    expect(await inkPixels(page)).toBeGreaterThan(0);
+    await page.getByRole("button", { name: "Undo" }).click();
+    expect(await inkPixels(page)).toBe(0);
+
+    // Text tool works at the scaled size too.
+    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await page.mouse.click(canvasBox.x + canvasBox.width / 4, canvasBox.y + canvasBox.height / 4);
+    await page.getByLabel("Text to place").fill("eic");
+    await page.getByRole("button", { name: "Place text" }).click();
+    expect(await inkPixels(page)).toBeGreaterThan(0);
+    await page.getByRole("button", { name: "Undo" }).click();
+    expect(await inkPixels(page)).toBe(0);
+    expectCleanRuntime(watched);
+  });
+
+  test("bottom actions scroll fully clear of the fixed taskbar", async ({ page }) => {
+    const watched = watchRuntime(page);
+    await createVault(page);
+    await page.goto("/draw");
+
+    const cancel = page.getByRole("button", { name: "Cancel" });
+    await cancel.scrollIntoViewIfNeeded();
+    const actionBox = await cancel.boundingBox();
+    const taskbarBox = await page.locator("footer").boundingBox();
+    if (!actionBox || !taskbarBox) throw new Error("missing action row or taskbar box");
+    expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(taskbarBox.y);
+    expectCleanRuntime(watched);
+  });
+
+  test("feed header link fits and reaches paint", async ({ page }) => {
+    const watched = watchRuntime(page);
+    await createVault(page);
+    await page.goto("/feed");
+
+    const link = page.getByRole("link", { name: "🎨 Paint" });
+    const box = await link.boundingBox();
+    if (!box) throw new Error("feed paint link has no bounding box");
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    await link.click();
+    await expect(page).toHaveURL(/\/draw$/);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    expectCleanRuntime(watched);
+  });
+});
