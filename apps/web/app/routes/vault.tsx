@@ -63,7 +63,7 @@ export default function VaultScreen() {
           <dt>Key derivation</dt>
           <dd className="font-mono">PBKDF2 · SHA-256</dd>
           <dt>Auto-lock</dt>
-          <dd>8 hours from unlocking, not extended by activity or reload. Lock ends it sooner. This browser may clear or refuse saved sessions.</dd>
+          <dd>After 60 minutes idle, or 8 hours from unlocking. Activity resets the idle timer, not the 8-hour limit. Reload does not extend that limit. Lock ends it sooner. This browser may clear or refuse saved sessions.</dd>
         </dl>
 
         {notice && <p role="status">{notice}</p>}
