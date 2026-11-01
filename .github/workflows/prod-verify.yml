@@ -1,0 +1,38 @@
+name: prod-verify
+
+# Post-publish production gate. Preview CI never sees Netlify's production HTML rewrite,
+# so after every merge to main this runs the zero-console/page-error Playwright pass
+# against the deployed site (e2e/prod.spec.ts). EXPECT_BUILD_SHA makes the suite wait for
+# the publish of THIS commit via the footer's build stamp before asserting. A failure
+# marks the merge commit red; it cannot block a deploy (branch protection is unchanged).
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: prod-verify-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prod-zero-error:
+    name: playwright zero-error pass - production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run production gate against the deployed site
+        run: npx playwright test e2e/prod.spec.ts
+        env:
+          EIC_TARGET_URL: https://everybodyiscool.netlify.app
+          EXPECT_BUILD_SHA: ${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: prod-verify-report
+          path: playwright-report/
+          retention-days: 7
