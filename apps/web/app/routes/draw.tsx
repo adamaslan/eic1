@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { AppError, type Bytes } from "@veil/core";
 import { encodePalettePng, PHOTO_CATEGORY, saveComposedItem, type ComposedMedia } from "@veil/features";
 import type { Route } from "./+types/draw";
@@ -71,6 +71,7 @@ export default function Draw() {
   const [sizeBytes, setSizeBytes] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const sizeRequest = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -94,11 +95,12 @@ export default function Draw() {
   const refreshSize = async (targetFormat: FormatId = format) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const request = ++sizeRequest.current;
     try {
       const bytes = await encodeCanvas(canvas, mimeFor(targetFormat), targetFormat === "jpeg" ? JPEG_QUALITY : undefined);
-      setSizeBytes(bytes.length);
+      if (request === sizeRequest.current) setSizeBytes(bytes.length);
     } catch {
-      setSizeBytes(null);
+      if (request === sizeRequest.current) setSizeBytes(null);
     }
   };
 
@@ -176,7 +178,15 @@ export default function Draw() {
     try {
       const mime = mimeFor(format);
       const quality = format === "jpeg" ? JPEG_QUALITY : undefined;
-      const bytes = await encodeCanvas(canvas, mime, quality);
+      // Snapshot before the first await: encoding yields to the event loop, and the live
+      // canvas must not change between the full image and its thumbnail.
+      const snapshot = document.createElement("canvas");
+      snapshot.width = canvas.width;
+      snapshot.height = canvas.height;
+      const snapshotContext = snapshot.getContext("2d");
+      if (!snapshotContext) throw new AppError("This browser could not encode the drawing.");
+      snapshotContext.drawImage(canvas, 0, 0);
+      const bytes = await encodeCanvas(snapshot, mime, quality);
       const thumbCanvas = document.createElement("canvas");
       thumbCanvas.width = THUMB_SIZE;
       thumbCanvas.height = THUMB_SIZE;
@@ -184,7 +194,7 @@ export default function Draw() {
       if (!thumbContext) throw new AppError("This browser could not encode the drawing.");
       thumbContext.fillStyle = "#ffffff";
       thumbContext.fillRect(0, 0, THUMB_SIZE, THUMB_SIZE);
-      thumbContext.drawImage(canvas, 0, 0, THUMB_SIZE, THUMB_SIZE);
+      thumbContext.drawImage(snapshot, 0, 0, THUMB_SIZE, THUMB_SIZE);
       const thumb = await encodeCanvas(thumbCanvas, mime, quality);
       const media: ComposedMedia[] = [{ bytes, thumb, mime }];
       await saveComposedItem(
@@ -213,7 +223,7 @@ export default function Draw() {
                 {option}px
               </Button95>
             ))}
-            <Button95 onClick={clearCanvas}>Clear</Button95>
+            <Button95 onClick={clearCanvas} disabled={saving}>Clear</Button95>
           </div>
           <canvas
             ref={canvasRef}
@@ -221,8 +231,9 @@ export default function Draw() {
             height={CANVAS_SIZE}
             className="touch-none bg-white"
             style={{
-              width: CANVAS_SIZE,
-              height: CANVAS_SIZE,
+              width: DISPLAY_SIZE,
+              height: DISPLAY_SIZE,
+              imageRendering: "pixelated",
               cursor: "crosshair",
               borderTop: "2px solid #808080",
               borderLeft: "2px solid #808080",
@@ -298,9 +309,9 @@ export default function Draw() {
           <Button95 type="button" disabled={saving} onClick={() => void downloadImage()}>
             Download {format === "jpeg" ? "JPG" : "PNG"}
           </Button95>
-          <Link to="/compose">
-            <Button95 disabled={saving}>Cancel</Button95>
-          </Link>
+          <Button95 disabled={saving} onClick={() => navigate("/compose")}>
+            Cancel
+          </Button95>
         </div>
       </form>
     </Window>
