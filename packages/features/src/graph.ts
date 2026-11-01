@@ -356,3 +356,14 @@ export function createGraphLayout(graph: SocialGraph, options: GraphLayoutOption
     },
   };
 }
+
+/**
+ * Resolves a ?focus= connection id (from the connections screen's Map link) to a graph node id.
+ * Returns null when the connection is not on the map - hidden connections stay off it, so a
+ * focus link can never surface one.
+ */
+export function resolveGraphFocus(graph: SocialGraph, focusConnectionId: string | null): string | null {
+  if (!focusConnectionId) return null;
+  const nodeId = connectionNodeId(focusConnectionId);
+  return graph.nodes.some((node) => node.id === nodeId) ? nodeId : null;
+}

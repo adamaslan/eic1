@@ -46,6 +46,7 @@ test("journal entries can be saved, edited, searched, and deleted with confirmat
   await page.getByLabel("What is on your mind?").fill("Bridge at dawn, worth the cold");
   await page.getByRole("button", { name: "🔒 Save entry" }).click();
   await expect(page.getByText("Bridge at dawn, worth the cold")).toBeVisible();
+  await expect(page.getByLabel("What is on your mind?")).toBeEnabled();
   await page.getByLabel("What is on your mind?").fill("Gym, then gallery paperwork");
   await page.getByRole("button", { name: "🔒 Save entry" }).click();
   await expect(page.getByText("Entries (2)")).toBeVisible();

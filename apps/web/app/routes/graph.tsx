@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import {
   buildSocialGraph,
   createGraphLayout,
@@ -11,6 +11,7 @@ import {
   GRAPH_SPREAD_MAX,
   GRAPH_SPREAD_MIN,
   ME_NODE_ID,
+  resolveGraphFocus,
   type GraphLayout,
   type GraphNode,
   type GraphPoint,
@@ -141,6 +142,9 @@ export default function Graph() {
   const [positions, setPositions] = useState<Record<string, GraphPoint>>({});
   const [pinned, setPinned] = useState<PinMap>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const focusParam = searchParams.get("focus");
+  const [focusMissed, setFocusMissed] = useState(false);
   const [showList, setShowList] = useState(false);
   const [compact, setCompact] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : false,
@@ -304,6 +308,25 @@ export default function Graph() {
   const likes = shownGraph.edges.filter((edge) => edge.kind === "likes").length;
   const bodyState = graphBodyState(items.status, graph.nodes.length);
 
+  // A ?focus= link from the connections screen preselects that person once the map is built.
+  // A hidden or unknown connection resolves to nothing and says so - hiding always wins.
+  useEffect(() => {
+    if (!focusParam) {
+      setFocusMissed(false);
+      return;
+    }
+    if (bodyState === "loading" || bodyState === "error") return;
+    const target = resolveGraphFocus(shownGraph, focusParam);
+    if (target) {
+      setSelectedId(target);
+      setFocusMissed(false);
+    } else {
+      setFocusMissed(true);
+    }
+    // Only react to a new focus target, not to every graph rebuild.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusParam, bodyState]);
+
   return (
     <div className="flex flex-col gap-3">
       <Window title="Social graph">
@@ -360,6 +383,11 @@ export default function Graph() {
             )}
           </div>
 
+          {focusMissed && (
+            <p role="status" className="bg-[#ffffe1] px-1 text-[#800000]">
+              That connection is not on the map. Hidden connections stay off it.
+            </p>
+          )}
           {bodyState === "loading" ? (
             <p>Loading your map…</p>
           ) : bodyState === "error" ? (
@@ -385,16 +413,29 @@ export default function Graph() {
             </p>
           ) : showList ? (
             <ul className="flex flex-col gap-1">
-              {shownGraph.nodes.map((node) => (
-                <li key={node.id} className="bg-white px-1.5 py-1">
-                  <Link to={node.href} className="font-bold text-[#0000cc] underline">
-                    {node.label}
-                  </Link>
-                  <span className="text-[#404040]">
-                    {" "}— {KIND_LABEL[node.kind]}, {degree.get(node.id) ?? 0} {(degree.get(node.id) ?? 0) === 1 ? "link" : "links"}
-                  </span>
-                </li>
-              ))}
+              {shownGraph.nodes.map((node) => {
+                const isSelected = node.id === selectedId;
+                return (
+                  <li key={node.id} className={isSelected ? "bg-[#c0c0c0] px-1.5 py-1" : "bg-white px-1.5 py-1"}>
+                    <Link to={node.href} className="font-bold text-[#0000cc] underline">
+                      {node.label}
+                    </Link>
+                    <span className="text-[#404040]">
+                      {" "}— {KIND_LABEL[node.kind]}, {degree.get(node.id) ?? 0} {(degree.get(node.id) ?? 0) === 1 ? "link" : "links"}
+                    </span>
+                    {" "}
+                    <button
+                      type="button"
+                      aria-pressed={isSelected}
+                      aria-label={`Details for ${node.label}`}
+                      onClick={() => setSelectedId(isSelected ? null : node.id)}
+                      className="text-[#0000cc] underline outline-none focus:outline-2 focus:outline-dotted focus:outline-[#0a0a0a]"
+                    >
+                      Details
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <Bevel variant="in">

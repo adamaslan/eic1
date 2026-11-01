@@ -134,6 +134,7 @@ export default function Journal() {
             rows={5}
             maxLength={JOURNAL_ENTRY_MAX}
             value={text}
+            disabled={saving}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={saveOnShortcut}
             className="w-full bg-white px-1.5 py-1 text-[12px] outline-none"
