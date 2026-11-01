@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { AppError, HANDLE_MAX, timeAgo, type Connection } from "@veil/core";
 import {
   MAX_SHARE_FILE_BYTES,
+  buildConnectLink,
   buildShareBundle,
   ensureAuthorId,
   importShareBundle,
@@ -153,6 +154,24 @@ export default function Connections() {
       const { text, postCount } = await buildShareBundle(vault, settings, allItems, new Date());
       downloadTextFile(`eic-share-${new Date().toISOString().slice(0, 10)}.json`, text);
       return `Share file downloaded with ${postCount} post${postCount === 1 ? "" : "s"}. Anyone who gets it can read them.`;
+    });
+  }
+
+  function copyConnectLink() {
+    void run(async () => {
+      if (!vault || !social.settingsReady) return "";
+      const link = await buildConnectLink(vault, `${window.location.origin}/`, new Date());
+      const text = `eic 💌 ${link}`;
+      if (typeof navigator.share === "function") {
+        try {
+          await navigator.share({ text });
+          return "Connect link shared - one tap adds you and opens your chat.";
+        } catch (shareError) {
+          if (shareError instanceof DOMException && shareError.name === "AbortError") return "Share cancelled - the link was not sent.";
+        }
+      }
+      await navigator.clipboard.writeText(text);
+      return "Connect link copied - text it to a friend. One tap adds you and opens your chat; no file to download.";
     });
   }
 
@@ -331,7 +350,12 @@ export default function Connections() {
             A share file is <b>not encrypted</b>. It holds your shareable posts, their photos, your handle, and the posts you liked.
             Private posts, notes, and settings are never in an exported file - but pressing ↗ Share on one of your own posts sends just that post, even a private one.
           </p>
+          <p>
+            Or skip the file: a connect link carries just your signed card (handle + key, no posts). Text it - your
+            friend taps it, adds you, and lands right in your chat.
+          </p>
           <div className="flex flex-wrap items-center gap-2">
+            <Button95 onClick={copyConnectLink} disabled={busy || !social.settingsReady || !settings.handle}>Text my connect link</Button95>
             <Button95 onClick={exportFile} disabled={busy || !social.settingsReady || !settings.handle}>Export share file ({Math.min(shareable, 100)} post{Math.min(shareable, 100) === 1 ? "" : "s"})</Button95>
             <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(e) => importFile(e.target.files?.[0])} aria-label="Choose a share file" />
             <Button95 onClick={() => fileInput.current?.click()} disabled={busy || !social.settingsReady || !settings.handle}>Import a share file…</Button95>
