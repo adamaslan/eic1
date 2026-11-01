@@ -24,7 +24,7 @@ export interface VaultStore {
   /** Writes every record in one transaction, only if the vault's generation still matches.
    * With requireSameKind, atomically rejects ids already used by a different kind.
    */
-  putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[], options?: { requireSameKind?: boolean }): Promise<void>;
+  putRecordsForVault(expectedGeneration: Bytes, records: EncryptedRecord[], options?: { requireSameKind?: boolean; expectedRecord?: EncryptedRecord | null }): Promise<void>;
   /** Removes the vault only if its current generation matches the session. */
   clearForVault(expectedGeneration: Bytes): Promise<void>;
   /** Removes records by id in one transaction, only if the vault's generation still matches. Unknown ids are skipped. */

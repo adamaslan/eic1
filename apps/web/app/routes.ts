@@ -14,6 +14,7 @@ export default [
     route("profile/:authorId", "routes/profile.tsx", { id: "profile-author" }),
     route("tools", "routes/tools.tsx"),
     route("tools/journal", "routes/journal.tsx"),
+    route("tools/music", "routes/music.tsx"),
     route("vault", "routes/vault.tsx"),
     route("item/:id", "routes/item.tsx"),
   ]),

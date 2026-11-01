@@ -181,9 +181,12 @@ describe("createGraphLayout", () => {
     expect(layout.positions()["item:i2"]).toEqual({ x: 100, y: 100 });
     for (let i = 0; i < 400; i += 1) layout.tick();
     expect(layout.settled()).toBe(true);
+    const settledPositions = layout.positions();
     layout.reheat(0.5);
     expect(layout.settled()).toBe(false);
     expect(layout.positions()["item:i2"]).toEqual({ x: 100, y: 100 });
+    layout.tick();
+    expect(layout.positions()[ME_NODE_ID]).not.toEqual(settledPositions[ME_NODE_ID]);
   });
 
   it("is deterministic for identical inputs", async () => {
