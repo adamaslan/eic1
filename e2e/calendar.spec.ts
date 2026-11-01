@@ -60,6 +60,9 @@ test("calendar: add an event, it marks the grid, survives lock/unlock, and delet
   await page.getByPlaceholder("Note (optional)").fill("bring the insurance card");
   await page.getByRole("button", { name: "🔒 Save event" }).click();
 
+  // Explicit post-write confirmation: only after the awaited encrypted write lands.
+  await expect(page.getByRole("status")).toHaveText("Event saved to your encrypted vault.");
+
   // Day panel shows the event and its note; the grid cell now carries the marker.
   await expect(page.getByText(title)).toBeVisible();
   await expect(page.getByText("bring the insurance card")).toBeVisible();
@@ -73,6 +76,8 @@ test("calendar: add an event, it marks the grid, survives lock/unlock, and delet
 
   // Delete is real: panel empties and the marker is gone.
   await page.getByRole("button", { name: `Delete ${title}` }).click();
+  // Delete feedback is honest wording - a removal, never phrased as a save.
+  await expect(page.getByRole("status")).toHaveText("Event deleted.");
   await expect(page.getByText(title)).toHaveCount(0);
   await expect(page.getByText("Nothing planned for this day.")).toBeVisible();
   await expect(page.getByRole("gridcell", { name: `${label}, no events` })).toBeVisible();
@@ -90,11 +95,13 @@ test("chore chart: add a chore, check off today, it survives lock/unlock, unchec
   await page.goto("/tools/chores");
   await page.getByPlaceholder("e.g. Water plants").fill(name);
   await page.getByRole("button", { name: "🔒 Save chore" }).click();
+  await expect(page.getByRole("status")).toHaveText("Chore saved to your encrypted vault.");
   await expect(page.getByText(name)).toBeVisible();
   await expect(page.getByText("0/7 this week")).toBeVisible();
 
   // Check off today: the cell flips to pressed and the weekly counter moves.
   await page.getByRole("button", { name: `Check off ${name} for ${weekday} ${now.getDate()}` }).click();
+  await expect(page.getByRole("status")).toHaveText("Check-off saved to your encrypted vault.");
   await expect(page.getByRole("button", { name: `Uncheck ${name} for ${weekday} ${now.getDate()}` })).toBeVisible();
   await expect(page.getByText("1/7 this week")).toBeVisible();
 
@@ -107,6 +114,7 @@ test("chore chart: add a chore, check off today, it survives lock/unlock, unchec
   await page.getByRole("button", { name: `Uncheck ${name} for ${weekday} ${now.getDate()}` }).click();
   await expect(page.getByText("0/7 this week")).toBeVisible();
   await page.getByRole("button", { name: `Delete chore ${name}` }).click();
+  await expect(page.getByRole("status")).toHaveText("Chore deleted.");
   await expect(page.getByText("No chores yet. Add one below to start the chart.")).toBeVisible();
   expectCleanRuntime(watched);
 });
@@ -214,6 +222,9 @@ test("storage failures surface honest errors, never false success, and preserve 
   // Honest failure: the alert names the failure, the button leaves its saving state,
   // and the ghost never appears in the list.
   await expect(page.getByRole("alert")).toContainText("The event could not be saved. Please try again.");
+  // No false success: the status line never appears, and the input is preserved for retry.
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.getByPlaceholder("Title")).toHaveValue("ghost");
   await expect(page.getByText("ghost")).toHaveCount(0);
   await expect(page.getByRole("gridcell", { name: `${label}, 1 event` })).toBeVisible();
 
@@ -245,6 +256,49 @@ test("storage failures surface honest errors, never false success, and preserve 
   await page.goto("/tools/calendar");
   await expect(page.getByText(kept)).toBeVisible();
   await expect(page.getByText("ghost")).toBeVisible();
+  expectCleanRuntime(watched);
+});
+
+test("save feedback clears on a new edit and stays honest when the refresh fails after a successful write", async ({ page }) => {
+  const watched = watchRuntime(page);
+  const passphrase = `cal-notice-${Date.now()}`;
+  const first = `notice one ${Date.now()}`;
+  const second = `notice two ${Date.now()}`;
+  await createVault(page, passphrase);
+
+  // Save once: explicit confirmation appears.
+  await page.goto("/tools/calendar");
+  await page.getByPlaceholder("Title").fill(first);
+  await page.getByRole("button", { name: "🔒 Save event" }).click();
+  await expect(page.getByRole("status")).toHaveText("Event saved to your encrypted vault.");
+
+  // Starting a new edit clears the confirmation - it never lingers over new input.
+  await page.getByPlaceholder("Title").fill("typing");
+  await expect(page.getByRole("status")).toHaveCount(0);
+
+  // Write succeeds but the refresh read fails: the wording must say SAVED (no
+  // duplicate-tempting failure hint) AND that the list couldn't refresh.
+  await page.evaluate(() => {
+    const original = IDBIndex.prototype.getAll;
+    (window as unknown as { __restoreGetAll: () => void }).__restoreGetAll = () => {
+      IDBIndex.prototype.getAll = original;
+    };
+    IDBIndex.prototype.getAll = function () {
+      throw new DOMException("injected read failure", "UnknownError");
+    } as typeof IDBObjectStore.prototype.getAll;
+  });
+  await page.getByPlaceholder("Title").fill(second);
+  await page.getByRole("button", { name: "🔒 Save event" }).click();
+  await expect(page.getByRole("status")).toHaveText("Event saved to your encrypted vault, but the list couldn't refresh.");
+  // The form still cleared - the write landed - so a retry cannot duplicate the record.
+  await expect(page.getByPlaceholder("Title")).toHaveValue("");
+
+  // Real persistence: clear the fault, reload fully, both events are sealed in the vault.
+  await page.evaluate(() => (window as unknown as { __restoreGetAll: () => void }).__restoreGetAll());
+  await page.reload();
+  await page.goto("/tools/calendar");
+  await expect(page.getByText(first)).toBeVisible();
+  await expect(page.getByText(second)).toBeVisible();
   expectCleanRuntime(watched);
 });
 
