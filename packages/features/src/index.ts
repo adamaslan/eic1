@@ -8,6 +8,7 @@ export * from "./sharing";
 export * from "./journal";
 export * from "./chat";
 export * from "./share-link";
+export * from "./chat-link";
 export * from "./palette-png";
 export * from "./feed";
 export * from "./sync";

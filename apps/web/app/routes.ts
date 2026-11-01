@@ -17,5 +17,6 @@ export default [
     route("item/:id", "routes/item.tsx"),
   ]),
   route("unlock", "routes/unlock.tsx"),
+  route("*", "routes/not-found.tsx"),
   route("showcase", "routes/home.tsx"),
 ] satisfies RouteConfig;
