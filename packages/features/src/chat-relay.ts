@@ -30,6 +30,9 @@ import {
 export const RELAY_MAX_FILES_PER_PUBLISH = 100;
 export const RELAY_MAX_CHUNK_BYTES = 1024 * 1024;
 
+/** The one chunk-id schema shared by publish admission here and chunk reads in
+ * relay-adapter.ts. Ids outside it are rejected on BOTH paths. */
+export const CHUNK_ID_PATTERN = /^chat-[a-zA-Z0-9_-]{1,128}\.json$/;
 async function sha256Base64(text: string): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return encodeBase64(new Uint8Array(digest));
@@ -76,6 +79,10 @@ export async function buildChatFeedSnapshot(
   for (const [recipientId, envelopes] of [...outbound.entries()].sort()) {
     const chunk = { format: "eic-feed-chunk", version: 1, kind: "chat", envelopes } as const;
     const id = `chat-${recipientId}.json`;
+    if (!CHUNK_ID_PATTERN.test(id)) throw new AppError("A chat recipient id cannot be published as a relay chunk.");
+    if (files.length + 2 > RELAY_MAX_FILES_PER_PUBLISH) {
+      throw new AppError(`The chat backlog exceeds the relay limit of ${RELAY_MAX_FILES_PER_PUBLISH - 1} threads per publish.`);
+    }
     const text = JSON.stringify(chunk);
     const bytes = new TextEncoder().encode(text).byteLength;
     if (bytes > RELAY_MAX_CHUNK_BYTES) throw new AppError("The chat backlog is too large to publish in one chunk.");
@@ -149,6 +156,7 @@ export async function verifyRelayPublish(
   for (const ref of manifest.chunks) {
     if (ref.kind !== "chat") throw new VaultCorruptError("The chat relay does not store posts, likes, or profile chunks.");
     if (ref.bytes > RELAY_MAX_CHUNK_BYTES) throw new VaultCorruptError("That feed chunk is too large.");
+    if (!CHUNK_ID_PATTERN.test(ref.id)) throw new VaultCorruptError("That feed chunk's name is not allowed.");
   }
 
   // Every uploaded file must be feed.json or a manifest-pinned chunk with matching bytes+hash.

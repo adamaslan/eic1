@@ -12,6 +12,7 @@ const TABS = [
   { id: "draw", label: "Paint" },
   { id: "tools", label: "Tools" },
   { id: "connections", label: "Connections" },
+  { id: "graph", label: "Graph" },
   { id: "vault", label: "Vault" },
 ];
 
@@ -38,6 +39,8 @@ export default function DesktopLayout() {
         ? "tools"
       : pathname.startsWith("/connections")
         ? "connections"
+        : pathname.startsWith("/graph")
+          ? "graph"
         : pathname.startsWith("/vault")
           ? "vault"
           : "feed";
