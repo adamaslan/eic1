@@ -21,7 +21,10 @@ import {
   peekConnectCardHandle,
   readChatShareLink,
   readConnectLink,
+  isJournalShareBundle,
+  parseJournalShareBundle,
   readPostShareLink,
+  saveSharedJournalEntry,
   type ChatLink,
 } from "@veil/features";
 
@@ -30,6 +33,7 @@ import stylesheet from "./app.css?url";
 import {
   bindStashesToVault,
   dropAllStashes,
+  readMemoryArrival,
   dropStash,
   kindOfHash,
   readStash,
@@ -67,6 +71,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta property="og:description" content="A tiny encrypted hello. Tap to open it - nothing to download, no account wall." />
         <meta property="og:image" content="https://everybodyiscool.netlify.app/og-image.png" />
         <meta name="theme-color" content="#008080" />
+        {/* Parse-time link capture: a synchronous classic script, so the tapped link's hash
+            is parked in this document before anything is tappable. Keep it off sessionStorage:
+            journal links contain plaintext entry text. entry.client.tsx classifies the link
+            and retains journal links in memory only. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: "try{var h=window.location.hash;if(h&&h.length>1){window.__eicArrivalHash=h}}catch(e){}",
+          }}
+        />
         <Meta />
         <Links />
       </head>
@@ -163,13 +176,14 @@ export default function App() {
 
 type PendingLink =
   | { kind: "post"; text: string }
+  | { kind: "journal"; text: string }
   | { kind: "chat"; link: ChatLink }
   | { kind: "connect"; text: string };
 
 function readPendingLink(hash: string): PendingLink | null {
   if (hash.length > MAX_CHAT_LINK_CHARS) throw new AppError("That link is too long to be an eic link.");
   const post = readPostShareLink(hash);
-  if (post) return { kind: "post", text: post };
+  if (post) return isJournalShareBundle(post) ? { kind: "journal", text: post } : { kind: "post", text: post };
   const chat = readChatShareLink(hash);
   if (chat) return { kind: "chat", link: chat };
   const card = readConnectLink(hash);
@@ -217,6 +231,15 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
           hash = entry.hash;
           kind = slot;
           break;
+        }
+      }
+      if (!kind) {
+        // Denied-storage path: the link survives only in memory, for this document's life.
+        const retained = readMemoryArrival();
+        const retainedKind = retained ? kindOfHash(retained) : null;
+        if (retained && retainedKind) {
+          hash = retained;
+          kind = retainedKind;
         }
       }
       if (!kind) return;
@@ -366,13 +389,38 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
     }
   };
 
+  const doSaveJournalCopy = async () => {
+    if (!vault || pending?.kind !== "journal") return;
+    setBusy(true);
+    try {
+      const bundle = parseJournalShareBundle(pending.text);
+      await saveSharedJournalEntry(vault, bundle, { newId: newItemId });
+      setPending(null);
+      consumeHash("post"); // journal links ride the #import= channel and its stash slot
+      setMessage(`A copy of @${bundle.author.handle}'s entry is in your journal - yours to keep even if they delete theirs.`);
+    } catch (caught) {
+      setMessage(caught instanceof AppError ? caught.message : "That shared entry could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const journalShare = (() => {
+    if (pending?.kind !== "journal") return null;
+    try {
+      return parseJournalShareBundle(pending.text);
+    } catch {
+      return null;
+    }
+  })();
+
   const connectHandle = pending?.kind === "connect" ? peekConnectCardHandle(pending.text) : null;
 
   if (!vault || (pending === null && message === null)) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md max-h-full overflow-y-auto">
         {pending?.kind === "chat" && message === null ? (
           <Window title="You've got mail 💌">
             <div className="flex flex-col gap-2 text-[12px]">
@@ -394,6 +442,30 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
                 <Button95 onClick={() => void doConnect()} disabled={busy}>Add and open chat</Button95>
                 <Button95 onClick={() => dismiss("connect")} disabled={busy}>Not now</Button95>
               </div>
+            </div>
+          </Window>
+        ) : pending?.kind === "journal" ? (
+          <Window title="A friend shared a journal entry">
+            <div className="flex flex-col gap-2 text-[12px]">
+              {journalShare ? (
+                <>
+                  <p className="bg-white px-1.5 py-1 whitespace-pre-wrap [overflow-wrap:anywhere] max-h-40 overflow-y-auto">{journalShare.entry.text}</p>
+                  <p className="text-[#404040]">
+                    @{journalShare.author.handle}, {new Date(journalShare.entry.createdAt).toLocaleString()} -
+                    This entry came through their link, not a server. The link text stays in this tab's memory, not browser storage or the address bar, until you save or dismiss it; it will be offered to the vault you unlock next.
+                  </p>
+                  <div className="flex gap-1">
+                    <Button95 onClick={() => void doSaveJournalCopy()} disabled={busy}>Save a copy to my journal</Button95>
+                    <Button95 onClick={() => dismiss("post")} disabled={busy}>Not now</Button95>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p role="alert">That shared entry is damaged. Ask your friend for a fresh link.</p>
+                  <div><Button95 onClick={() => dismiss("post")} disabled={busy}>Close</Button95></div>
+                </>
+              )}
+              {message ? <p role="alert">{message}</p> : null}
             </div>
           </Window>
         ) : pending?.kind === "post" ? (

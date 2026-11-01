@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { AppError, JOURNAL_ENTRY_MAX, timeAgo, type JournalEntry } from "@veil/core";
-import { addJournalEntry, deleteJournalEntry, filterJournal, listJournal, updateJournalEntry } from "@veil/features";
+import { addJournalEntry, buildJournalShareBundle, buildJournalShareLink, deleteJournalEntry, filterJournal, listJournal, loadSettings, updateJournalEntry } from "@veil/features";
 import type { Route } from "./+types/journal";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
@@ -22,6 +22,30 @@ export default function Journal() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [shareNote, setShareNote] = useState<{ id: string; note: string } | null>(null);
+
+  // Sharing one entry is always the owner's explicit per-entry choice. The entry travels inside
+  // the link fragment; the recipient opens the app and sees it, no server involved.
+  async function shareEntry(entry: JournalEntry) {
+    if (!vault) return;
+    setShareNote(null);
+    try {
+      const settings = await loadSettings(vault);
+      if (!settings.authorId || !settings.handle) throw new AppError("Choose a handle before sharing.");
+      const bundle = buildJournalShareBundle({
+        authorId: settings.authorId,
+        authorHandle: settings.handle,
+        text: entry.text,
+        createdAt: entry.createdAt,
+        now: new Date(),
+      });
+      const link = buildJournalShareLink(bundle, `${window.location.origin}/`);
+      await navigator.clipboard.writeText(link);
+      setShareNote({ id: entry.id, note: "Link copied. It opens the app and shows this entry - it travels in the link itself, no server involved." });
+    } catch (caught) {
+      setShareNote({ id: entry.id, note: caught instanceof AppError ? caught.message : "That entry could not be shared. Please try again." });
+    }
+  }
 
   const reload = useCallback(async () => {
     if (!vault) return;
@@ -112,7 +136,7 @@ export default function Journal() {
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button95 type="submit" className="shrink-0 whitespace-nowrap" disabled={saving || !text.trim()}>{saving ? "Encrypting…" : "🔒 Save entry"}</Button95>
-            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay in this vault and are never put in a share file.</span>
+            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay in this vault: share files never include them. An entry leaves only when you tap its Share link, one entry at a time.</span>
           </div>
           {error && <p role="alert" className="text-[#800000]">{error}</p>}
         </form>
@@ -162,6 +186,9 @@ export default function Journal() {
                       <button type="button" onClick={() => startEdit(entry)} className="text-[#0000cc] underline">
                         Edit
                       </button>
+                      <button type="button" onClick={() => void shareEntry(entry)} className="text-[#0000cc] underline">
+                        Share
+                      </button>
                       {confirmingId === entry.id ? (
                         <>
                           <span>Delete this entry?</span>
@@ -178,6 +205,9 @@ export default function Journal() {
                         </button>
                       )}
                     </div>
+                    {shareNote?.id === entry.id && (
+                      <p className="mt-0.5 text-[11px] text-[#404040]">{shareNote.note}</p>
+                    )}
                   </>
                 )}
               </li>
