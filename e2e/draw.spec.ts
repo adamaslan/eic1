@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Paint editing and discoverability. Canvas behavior is asserted by counting inked
@@ -9,16 +10,6 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
-
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
 
 function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
   const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
@@ -65,7 +56,7 @@ async function drawStroke(page: Page) {
 }
 
 test("brush stroke can be undone and redone", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -87,7 +78,7 @@ test("brush stroke can be undone and redone", async ({ page }) => {
 });
 
 test("a new stroke clears the redo lane", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -106,7 +97,7 @@ test("a new stroke clears the redo lane", async ({ page }) => {
 });
 
 test("text tool places text on the canvas and undo removes it", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -130,7 +121,7 @@ test("text tool places text on the canvas and undo removes it", async ({ page })
 });
 
 test("uncommitted text preview never enters the undo history", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -156,7 +147,7 @@ test("uncommitted text preview never enters the undo history", async ({ page }) 
 });
 
 test("tools page lists Paint and links into the canvas", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/tools");
 
@@ -171,7 +162,7 @@ test("tools page lists Paint and links into the canvas", async ({ page }) => {
 });
 
 test("desktop nav and feed header both reach Paint", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   // The desktop shell (with the Paint tab) mounts on app routes like /feed; the
   // unlocked landing page carries its own navigation.
@@ -189,7 +180,7 @@ test("desktop nav and feed header both reach Paint", async ({ page }) => {
 });
 
 test("keyboard shortcut ctrl+z undoes a stroke outside text fields", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -205,7 +196,7 @@ test("keyboard shortcut ctrl+z undoes a stroke outside text fields", async ({ pa
 });
 
 test("eraser removes ink without adding any, and undo restores it", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -233,7 +224,7 @@ test("eraser removes ink without adding any, and undo restores it", async ({ pag
 });
 
 test("text crosshairs aim placement without touching the bitmap or history", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -286,7 +277,7 @@ test.describe("phone-width (390px)", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test("paint fits the viewport with no horizontal overflow", async ({ page }) => {
-    const watched = watchRuntime(page);
+    const watched = await watchRuntime(page);
     await createVault(page);
     await page.goto("/draw");
 
@@ -317,7 +308,7 @@ test.describe("phone-width (390px)", () => {
   });
 
   test("bottom actions scroll fully clear of the fixed taskbar", async ({ page }) => {
-    const watched = watchRuntime(page);
+    const watched = await watchRuntime(page);
     await createVault(page);
     await page.goto("/draw");
 
@@ -331,7 +322,7 @@ test.describe("phone-width (390px)", () => {
   });
 
   test("feed header link fits and reaches paint", async ({ page }) => {
-    const watched = watchRuntime(page);
+    const watched = await watchRuntime(page);
     await createVault(page);
     await page.goto("/feed");
 
@@ -349,7 +340,7 @@ test.describe("phone-width (390px)", () => {
 });
 
 test("saving never bakes an uncommitted text preview into the post", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -435,7 +426,7 @@ async function inkHeight(page: Page): Promise<number> {
 }
 
 test("fill background paints the paper color as one undoable edit", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -455,7 +446,7 @@ test("fill background paints the paper color as one undoable edit", async ({ pag
 });
 
 test("eraser reveals the paper color, not fixed white", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -485,7 +476,7 @@ test("eraser reveals the paper color, not fixed white", async ({ page }) => {
 });
 
 test("multiline text stacks lines and undo removes the whole placement", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -507,7 +498,7 @@ test("multiline text stacks lines and undo removes the whole placement", async (
 });
 
 test("word wrap narrows and tallies text, wider wrap flattens it", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -544,7 +535,7 @@ test("word wrap narrows and tallies text, wider wrap flattens it", async ({ page
 });
 
 test("tiny 8px text marks fewer pixels than large text and undoes cleanly", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -573,7 +564,7 @@ test("tiny 8px text marks fewer pixels than large text and undoes cleanly", asyn
 });
 
 test("save preview shows the exact encoded bytes and skips uncommitted text", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -637,7 +628,7 @@ test("save preview shows the exact encoded bytes and skips uncommitted text", as
 });
 
 test("text overflow warns visibly instead of silently clipping", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -674,7 +665,7 @@ test("text overflow warns visibly instead of silently clipping", async ({ page }
 });
 
 test("classic toggle hides the new options and the original flow still works", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
@@ -714,7 +705,7 @@ test("classic toggle hides the new options and the original flow still works", a
 });
 
 test("classic toggle preserves paper semantics: eraser still reveals paper", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/draw");
 
