@@ -46,9 +46,26 @@ test("journal entries can be saved, edited, searched, and deleted with confirmat
   await page.getByLabel("What is on your mind?").fill("Bridge at dawn, worth the cold");
   await page.getByRole("button", { name: "🔒 Save entry" }).click();
   await expect(page.getByText("Bridge at dawn, worth the cold")).toBeVisible();
+  await expect(page.getByLabel("What is on your mind?")).toBeEnabled();
   await page.getByLabel("What is on your mind?").fill("Gym, then gallery paperwork");
   await page.getByRole("button", { name: "🔒 Save entry" }).click();
   await expect(page.getByText("Entries (2)")).toBeVisible();
+
+  // Date filters narrow by a rolling window and show the honest count line.
+  await page.getByRole("button", { name: "Last 24 hours" }).click();
+  await expect(page.getByText("Showing 2 of 2 entries.")).toBeVisible();
+  await page.getByRole("button", { name: "All time" }).click();
+  await expect(page.getByText("Showing", { exact: false })).toHaveCount(0);
+
+  // Text and date combine; a combined miss says so honestly.
+  await page.getByRole("button", { name: "Last 7 days" }).click();
+  await page.getByLabel("Search entries").fill("gallery");
+  await expect(page.getByText("Showing 1 of 2 entries.")).toBeVisible();
+  await page.getByLabel("Search entries").fill("zzz");
+  await expect(page.getByText("No entries match that search in that date range.")).toBeVisible();
+  await page.getByRole("button", { name: "Clear filter" }).click();
+  await expect(page.getByText("Bridge at dawn", { exact: false })).toHaveCount(1);
+  await expect(page.getByText("Gym, then gallery paperwork")).toBeVisible();
 
   // Edit the first entry in place.
   await page.getByRole("button", { name: "Edit" }).last().click();
