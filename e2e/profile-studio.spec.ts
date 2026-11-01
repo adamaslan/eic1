@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type TestInfo } from "@playwright/test";
 async function setup(page: Page) {
   await page.goto("/unlock");
   await page.getByLabel("Passphrase", { exact: true }).fill("profile-studio-test-passphrase");
@@ -41,7 +41,7 @@ test("Home opens studio; private draft persists, selection preview excludes priv
   await expect(page.getByLabel("Background color")).toHaveValue("clouds");
   expect(errors).toEqual([]);
 });
-test("phone controls and selected preview stay reachable above taskbar without horizontal overflow", async ({ page }) => {
+test("phone controls and selected preview stay reachable above taskbar without horizontal overflow", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 }); await setup(page);
   await page.getByLabel("Favorite book", { exact: true }).first().fill("The Left Hand of Darkness");
   await page.getByRole("checkbox", { name: "Favorite book", exact: true }).check();
@@ -51,10 +51,10 @@ test("phone controls and selected preview stay reachable above taskbar without h
   const box = await save.boundingBox(); const taskbar = await page.getByRole("button", { name: "Lock", exact: true }).boundingBox();
   expect(box!.y + box!.height).toBeLessThanOrEqual(taskbar!.y);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.screenshot({ path: "/downloads/profile-studio-phone.png" });
-  await previewBottom(page);
+  await page.screenshot({ path: testInfo.outputPath("profile-studio-phone.png") });
+  await previewBottom(page, testInfo);
   await page.getByLabel("Background color").scrollIntoViewIfNeeded();
-  await page.screenshot({ path: "/downloads/profile-studio-editor-phone.png" });
+  await page.screenshot({ path: testInfo.outputPath("profile-studio-editor-phone.png") });
 });
 test("selected content cap blocks update without truncating, while private save still works", async ({ page }) => {
   await setup(page);
@@ -67,7 +67,7 @@ test("selected content cap blocks update without truncating, while private save 
   await page.getByRole("button", { name: "Save private draft" }).click();
   await expect(page.getByRole("status")).toContainText("Private draft saved");
 });
-test("background changes persist visually, classic view hides editor without losing saved draft", async ({ page }) => {
+test("background changes persist visually, classic view hides editor without losing saved draft", async ({ page }, testInfo) => {
   await setup(page);
   await page.getByLabel("Background color").selectOption("clouds");
   await page.getByRole("button", { name: "Save private draft" }).click();
@@ -80,10 +80,10 @@ test("background changes persist visually, classic view hides editor without los
   await page.getByRole("button", { name: "Customize profile" }).click();
   await expect(page.getByLabel("Background color")).toHaveValue("clouds");
   await page.setViewportSize({ width: 1280, height: 1000 });
-  await page.screenshot({ path: "/downloads/profile-studio-desktop.png" });
+  await page.screenshot({ path: testInfo.outputPath("profile-studio-desktop.png") });
 });
 
-async function previewBottom(page: Page) {
+async function previewBottom(page: Page, testInfo: TestInfo) {
   const preview = page.getByRole("region", { name: "Selected feed profile preview" });
   await preview.scrollIntoViewIfNeeded();
   await preview.locator("p").last().scrollIntoViewIfNeeded();
@@ -91,5 +91,5 @@ async function previewBottom(page: Page) {
   const box = await preview.boundingBox();
   const taskbar = await page.getByRole("button", { name: "Lock", exact: true }).boundingBox();
   expect(box!.y + box!.height).toBeLessThanOrEqual(taskbar!.y);
-  await page.screenshot({ path: "/downloads/profile-studio-preview-bottom-phone.png" });
+  await page.screenshot({ path: testInfo.outputPath("profile-studio-preview-bottom-phone.png") });
 }
