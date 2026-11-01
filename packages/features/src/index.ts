@@ -20,3 +20,5 @@ export * from "./graph-filters";
 export * from "./export";
 export * from "./profile-studio";
 export * from "./music";
+export * from "./zip-store";
+export * from "./playlists";
