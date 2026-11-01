@@ -31,8 +31,19 @@ export async function listPlaylists(vault: UnlockedVault): Promise<SavedPlaylist
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+
+/** Names starting with @ are reserved for the player's own internal records
+    (the resume-session record lives at "playlist:@session"). A user playlist
+    with such a name would silently overwrite them, so refuse it up front. */
+export function assertPlaylistNameAllowed(name: string): void {
+  if (name.startsWith("@")) {
+    throw new AppError(`Playlist names starting with @ are reserved for the player itself. Pick another name.`);
+  }
+}
+
 export async function savePlaylist(vault: UnlockedVault, playlist: SavedPlaylist): Promise<void> {
   const parsed = SavedPlaylistSchema.parse(playlist);
+  assertPlaylistNameAllowed(parsed.name);
   const clash = (await listPlaylists(vault)).some(
     (p) => p.name.toLowerCase() === parsed.name.toLowerCase() && p.savedAt !== parsed.savedAt,
   );
@@ -52,6 +63,7 @@ export async function renamePlaylist(vault: UnlockedVault, from: string, to: str
   const clean = to.trim();
   if (!clean) throw new AppError("Give the playlist a name.");
   if (clean.length > MAX_PLAYLIST_NAME) throw new AppError(`Keep the name under ${MAX_PLAYLIST_NAME} characters.`);
+  assertPlaylistNameAllowed(clean);
   if ((await listPlaylists(vault)).some((p) => p.name.toLowerCase() === clean.toLowerCase())) {
     throw new AppError(`A playlist named "${clean}" already exists.`);
   }
