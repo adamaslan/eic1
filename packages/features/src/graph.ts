@@ -40,6 +40,20 @@ export interface SocialGraph {
   hiddenConnections: number;
 }
 
+/**
+ * What the graph screen shows for the current vault read. Loading and error are their own
+ * states: neither may claim the map is empty, and an error must surface with a way to retry.
+ */
+export type GraphBodyState = "loading" | "error" | "empty" | "content";
+export function graphBodyState(
+  itemsStatus: "loading" | "ready" | "error",
+  nodeCount: number,
+): GraphBodyState {
+  if (itemsStatus === "loading") return "loading";
+  if (itemsStatus === "error") return "error";
+  return nodeCount <= 1 ? "empty" : "content"; // nodeCount 1 = only the "you" node
+}
+
 export const ME_NODE_ID = "me";
 export const connectionNodeId = (connectionId: string) => `connection:${connectionId}`;
 export const itemNodeId = (itemId: string) => `item:${itemId}`;
