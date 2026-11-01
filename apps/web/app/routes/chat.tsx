@@ -187,13 +187,17 @@ export default function Chat({ params }: Route.ComponentProps) {
     setBusy(true);
     setLinkNotice(null);
     try {
-      const { link, messageCount } = await buildChatShareLink(vault, connection, `${window.location.origin}/`);
+      const { link, messageCount, leftOut } = await buildChatShareLink(vault, connection, `${window.location.origin}/`);
       // One URL, at the end of the text: that is what phones need to render the cute preview.
       const text = `eic 💌 ${link}`;
+      // Honest contents: what the link carries, what it leaves out. Never imply the friend
+      // received or opened anything - a link is hand delivery, not a transport with receipts.
+      const carries = `The link carries your latest ${messageCount} message${messageCount === 1 ? "" : "s"}`;
+      const left = leftOut > 0 ? `; ${leftOut} older one${leftOut === 1 ? "" : "s"} not included - they still travel by feed sync` : "";
       if (typeof navigator.share === "function") {
         try {
           await navigator.share({ text });
-          setLinkNotice("Shared - one tap opens right into this chat.");
+          setLinkNotice(`Shared - one tap opens right into this chat. ${carries}${left}.`);
           return;
         } catch (shareError) {
           // A cancelled share sheet is not an error; anything else falls through to clipboard.
@@ -201,9 +205,7 @@ export default function Chat({ params }: Route.ComponentProps) {
         }
       }
       await navigator.clipboard.writeText(text);
-      setLinkNotice(
-        `Copied ${messageCount} message${messageCount === 1 ? "" : "s"} as a link - paste it into a text. One tap opens right into this chat.`,
-      );
+      setLinkNotice(`Copied a chat link - paste it into a text. One tap opens right into this chat. ${carries}${left}.`);
     } catch (caught) {
       setLinkNotice(caught instanceof AppError ? caught.message : "The chat link could not be built.");
     } finally {
