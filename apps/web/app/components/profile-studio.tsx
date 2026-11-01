@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { FONT_CHOICES, WALLPAPERS, WINDOW_ACCENTS, selectedProfile, saveProfileDraft, updateFeedProfile, type ProfileDraft, type Profile } from "@veil/features";
+import { FONT_CHOICES, WALLPAPERS, WINDOW_ACCENTS, reviewLatestFeedProfile, selectedProfile, saveProfileDraft, updateFeedProfile, type ProfileDraft, type Profile } from "@veil/features";
 import type { UnlockedVault } from "@veil/vault";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
@@ -16,6 +16,7 @@ export function ProfileStudio({ initial, vault, handle, renderPreview, onSaved }
   const [editing, setEditing] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [latest, setLatest] = useState<Profile | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(false);
   const profile = draft.profile;
@@ -27,7 +28,9 @@ export function ProfileStudio({ initial, vault, handle, renderPreview, onSaved }
     setBusy(true); setError(""); setMessage("");
     try {
       if (shared) {
-        await updateFeedProfile(vault, draft, new Date());
+        const updated = await updateFeedProfile(vault, draft, new Date());
+        setDraft({ ...draft, feedBaseline: updated });
+        setLatest(undefined);
         setMessage("Feed profile updated locally. Nothing was uploaded. Exporting a feed later includes exactly the selected preview. Old copies cannot be recalled.");
       } else {
         await saveProfileDraft(vault, draft); setSaved(draft); onSaved(draft);
@@ -59,10 +62,17 @@ export function ProfileStudio({ initial, vault, handle, renderPreview, onSaved }
           <Button95 onClick={() => void act(false)}>Save private draft</Button95>
           <Button95 onClick={() => { setDraft(saved); setError(""); setMessage("Unsaved changes discarded. Feed profile unchanged."); }}>Discard unsaved changes</Button95>
           <Button95 pressed={preview} onClick={() => setPreview(!preview)}>Preview selected feed profile</Button95>
+          <Button95 onClick={async () => {
+            setBusy(true); setError("");
+            try { const reviewed = await reviewLatestFeedProfile(vault, draft); setDraft(reviewed); setLatest(reviewed.feedBaseline); setMessage("Latest saved feed profile shown below. Your private fields are unchanged. Compare it with your selected preview before updating; update replaces it, not merges it."); }
+            catch (e) { setError(e instanceof Error ? e.message : "Could not load the latest feed profile."); }
+            finally { setBusy(false); }
+          }}>Review latest saved feed profile</Button95>
           <Button95 disabled={!projected} onClick={() => void act(true)}>Update selected feed profile</Button95>
         </div>
       </fieldset>}
       {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
+      {latest !== undefined && <section aria-label="Latest saved feed profile"><p>Latest saved feed profile (not your private draft)</p>{latest ? renderPreview(latest) : <p>No saved feed profile yet.</p>}</section>}
       {editing && preview && projected && <section aria-label="Selected feed profile preview"><p>Exact selected content. Not uploaded.</p>{renderPreview(projected)}</section>}
     </div>
   </Window>;
