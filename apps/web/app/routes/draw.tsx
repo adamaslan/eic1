@@ -664,6 +664,9 @@ export default function Draw() {
           <Button95 onClick={fillBackground} disabled={saving}>
             Fill background
           </Button95>
+          <span className="basis-full text-[11px] text-[#404040]">
+            Changing paper does not repaint existing pixels. Erasing uses the selected paper color, so older erased areas keep their previous color; use Fill background to repaint the whole canvas.
+          </span>
         </div>
         <div className="flex items-center gap-3">
           <fieldset className="flex items-center gap-2">
