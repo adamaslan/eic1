@@ -39,15 +39,18 @@ export default function Calendar() {
   const [time, setTime] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    if (!vault) return;
+  const reload = useCallback(async (): Promise<boolean> => {
+    if (!vault) return false;
     try {
       setEvents(await listCalendarEvents(vault));
+      return true;
     } catch {
       setError("The calendar could not be read.");
+      return false;
     }
   }, [vault]);
 
@@ -86,13 +89,19 @@ export default function Calendar() {
     if (!vault || saving) return;
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       await addCalendarEvent(vault, { title, date: selectedKey, time: time || null, note }, { newId: newItemId, now: new Date() });
+      // The encrypted write landed: clear the form, then confirm explicitly.
+      // If the refresh read fails afterwards the record is still saved - say so
+      // rather than hinting at a failure that would tempt a duplicate submit.
       setTitle("");
       setTime("");
       setNote("");
-      await reload();
+      const refreshed = await reload();
+      setNotice(refreshed ? "Event saved to your encrypted vault." : "Event saved to your encrypted vault, but the list couldn't refresh.");
     } catch (caught) {
+      // Pre-write failure: the input stays untouched so nothing is lost.
       setError(caught instanceof AppError ? caught.message : "The event could not be saved. Please try again.");
     } finally {
       setSaving(false);
@@ -103,9 +112,11 @@ export default function Calendar() {
     if (!vault || deletingId) return;
     setDeletingId(id);
     setError(null);
+    setNotice(null);
     try {
       await deleteCalendarEvent(vault, id);
-      await reload();
+      const refreshed = await reload();
+      setNotice(refreshed ? "Event deleted." : "Event deleted, but the list couldn't refresh.");
     } catch (caught) {
       setError(caught instanceof AppError ? caught.message : "The event could not be deleted. Please try again.");
     } finally {
@@ -192,7 +203,7 @@ export default function Calendar() {
             type="text"
             maxLength={CALENDAR_TITLE_MAX}
             value={title}
-            onChange={(change) => setTitle(change.target.value)}
+            onChange={(change) => { setTitle(change.target.value); setNotice(null); }}
             placeholder="Title"
             className="w-full bg-white px-1.5 py-1 text-[12px] outline-none"
           />
@@ -202,7 +213,7 @@ export default function Calendar() {
               id="calendar-time"
               type="time"
               value={time}
-              onChange={(change) => setTime(change.target.value)}
+              onChange={(change) => { setTime(change.target.value); setNotice(null); }}
               className="bg-white px-1.5 py-1 text-[12px] outline-none"
             />
             <span className="text-[11px] text-[#404040]">optional</span>
@@ -213,13 +224,14 @@ export default function Calendar() {
             rows={2}
             maxLength={CALENDAR_NOTE_MAX}
             value={note}
-            onChange={(change) => setNote(change.target.value)}
+            onChange={(change) => { setNote(change.target.value); setNotice(null); }}
             placeholder="Note (optional)"
             className="w-full bg-white px-1.5 py-1 text-[12px] outline-none"
           />
           <div>
             <Button95 type="submit" disabled={saving || !title.trim()}>{saving ? "Encrypting…" : "🔒 Save event"}</Button95>
           </div>
+          {notice && <p role="status" className="text-[#008000]">{notice}</p>}
           {error && <p role="alert" className="text-[#800000]">{error}</p>}
         </form>
         <p className="mt-2 text-[12px]">
