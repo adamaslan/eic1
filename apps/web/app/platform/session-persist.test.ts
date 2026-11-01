@@ -50,4 +50,13 @@ describe("fixed eight-hour remembered session", () => {
     expect(storage.value).toBeUndefined();
   });
 
+  it("fails closed when localStorage is blocked but IndexedDB still returns a key", async () => {
+    storage.value = { key, expiresAt: 3_601_000, lockMarker: "storage-unavailable" };
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("localStorage", { getItem: () => { throw new Error("blocked"); } });
+    expect(await loadSession(2_000)).toBeNull();
+    expect(storage.value).toBeUndefined();
+    await expect(saveSession(key, 2_000)).rejects.toThrow(/unavailable/);
+  });
+
 });
