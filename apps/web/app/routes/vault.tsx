@@ -29,12 +29,17 @@ export default function VaultScreen() {
   const [confirming, setConfirming] = useState(false);
   const [phrase, setPhrase] = useState("");
   const [selection, setSelection] = useState<ExportSelection>({ items: true, journal: true, connections: true });
+  const [pendingReadableExport, setPendingReadableExport] = useState<{ text: string; day: string; description: string } | null>(null);
 
   async function handleReadableExport() {
     setError(null);
     if (!vault) return;
+    if (selection.items && state.status !== "ready") {
+      setError(state.status === "error" ? "Posts and listings could not be loaded. Try again before exporting." : "Wait for posts and listings to finish loading before exporting.");
+      return;
+    }
     try {
-      const items = state.status === "ready" ? state.items : [];
+      const items = selection.items && state.status === "ready" ? state.items : [];
       const [journal, connections, settings] = await Promise.all([
         listJournal(vault),
         listConnections(vault),
@@ -49,11 +54,17 @@ export default function VaultScreen() {
         now: new Date(),
       });
       const day = new Date().toISOString().slice(0, 10);
-      downloadTextFile(`eic-export-${day}.json`, JSON.stringify(bundle, null, 2));
-      setNotice(`Exported ${describeExport(bundle)}. The file is readable by anyone who has it - it is only in this device's downloads.`);
+      setPendingReadableExport({ text: JSON.stringify(bundle, null, 2), day, description: describeExport(bundle) });
     } catch (caught) {
       setError(caught instanceof AppError ? caught.message : "The export could not be created.");
     }
+  }
+
+  function confirmReadableExport() {
+    if (!pendingReadableExport) return;
+    downloadTextFile(`eic-export-${pendingReadableExport.day}.json`, pendingReadableExport.text);
+    setNotice(`Exported ${pendingReadableExport.description}. The file is readable by anyone who has it - it is only in this device's downloads.`);
+    setPendingReadableExport(null);
   }
 
   async function handleExport() {
@@ -122,7 +133,7 @@ export default function VaultScreen() {
                 <input
                   type="checkbox"
                   checked={selection[key]}
-                  onChange={() => setSelection((current) => ({ ...current, [key]: !current[key] }))}
+                  onChange={() => { setPendingReadableExport(null); setSelection((current) => ({ ...current, [key]: !current[key] })); }}
                 />
                 {key === "items" ? "Posts and listings" : key === "journal" ? "Journal entries" : "Connections"}
               </label>
@@ -130,11 +141,20 @@ export default function VaultScreen() {
           </div>
           <Button95
             onClick={handleReadableExport}
-            disabled={!selection.items && !selection.journal && !selection.connections}
+            disabled={pendingReadableExport !== null || (!selection.items && !selection.journal && !selection.connections) || (selection.items && state.status !== "ready")}
             className="self-start"
           >
-            Export readable copy
+            Review readable export…
           </Button95>
+          {pendingReadableExport && (
+            <div role="group" aria-label="Confirm readable export" className="flex flex-col gap-2 border border-[#808080] bg-[#ffffe1] p-2">
+              <p><b>Confirm plaintext export:</b> {pendingReadableExport.description}. This JSON is unencrypted and anyone with the file can read it.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button95 onClick={confirmReadableExport}>Download readable JSON</Button95>
+                <Button95 onClick={() => setPendingReadableExport(null)}>Cancel</Button95>
+              </div>
+            </div>
+          )}
         </fieldset>
 
         <fieldset className="flex flex-col gap-2 border border-[#808080] p-2">

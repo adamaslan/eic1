@@ -132,8 +132,10 @@ test("readable export downloads chosen categories only, with an honest confirmat
   await page.goto("/vault");
   // Deselect connections (none exist anyway) and export items+journal.
   await page.getByLabel("Connections").uncheck();
+  await page.getByRole("button", { name: "Review readable export…" }).click();
+  await expect(page.getByRole("group", { name: "Confirm readable export" })).toContainText("1 journal entry");
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Export readable copy" }).click();
+  await page.getByRole("button", { name: "Download readable JSON" }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^eic-export-.*\.json$/);
   const path = await download.path();
@@ -148,7 +150,7 @@ test("readable export downloads chosen categories only, with an honest confirmat
   // Deselecting everything disables the export.
   await page.getByLabel("Posts and listings").uncheck();
   await page.getByLabel("Journal entries").uncheck();
-  await expect(page.getByRole("button", { name: "Export readable copy" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Review readable export…" })).toBeDisabled();
 
   expectCleanRuntime(watched);
 });
