@@ -282,3 +282,38 @@ test("graph filters and search narrow the map honestly, and clear restores it", 
 
   expectCleanRuntime(watched);
 });
+
+test("connections Map link preselects the person on the graph, and hiding keeps them off it", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+
+  await page.goto("/connections");
+  await page.getByLabel("Handle").fill("tester");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Handle saved.")).toBeVisible();
+  await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(V1_BUNDLE);
+  await page.getByRole("button", { name: "Import pasted text" }).click();
+  await expect(page.getByText(/Unsigned file - trust the sender \(@sunny\)/)).toBeVisible();
+
+  // The Map link lands on the graph with sunny preselected.
+  const mapLink = page.getByRole("link", { name: "Map" });
+  await expect(mapLink).toBeVisible();
+  const href = await mapLink.getAttribute("href");
+  expect(href).toMatch(/^\/graph\?focus=.+/);
+  await mapLink.click();
+  await expect(page).toHaveURL(/\/graph\?focus=.+/);
+  await expect(page.getByText("Details — Connection")).toBeVisible();
+  await expect(page.getByText(/is your connection/)).toBeVisible();
+
+  // Hide sunny: the Map link disappears, and opening the same focus URL says so honestly.
+  await page.goto("/connections");
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Map" })).toHaveCount(0);
+  await page.goto(href!);
+  await expect(page.getByText("That connection is not on the map. Hidden connections stay off it.")).toBeVisible();
+  await expect(page.getByText("Details — Connection")).toHaveCount(0);
+  await page.goto("/graph");
+  await expect(page.getByText("That connection is not on the map. Hidden connections stay off it.")).toHaveCount(0);
+
+  expectCleanRuntime(watched);
+});

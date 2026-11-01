@@ -9,7 +9,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
 
-function watchRuntime(page: Page) {
+async function watchRuntime(page: Page) {
+  // Netlify preview injects Segment analytics; it is external to app runtime and flaky in CI.
+  await page.route("https://cdn.segment.com/**", (route) => route.abort());
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
   page.on("console", (message) => {
@@ -68,8 +70,8 @@ test("a shared journal entry opens for the recipient and saves only on their exp
   const bobContext = await browser.newContext();
   const alice = await aliceContext.newPage();
   const bob = await bobContext.newPage();
-  const watchedAlice = watchRuntime(alice);
-  const watchedBob = watchRuntime(bob);
+  const watchedAlice = await watchRuntime(alice);
+  const watchedBob = await watchRuntime(bob);
   await stubShareCapture(alice);
 
   // Alice writes two entries and shares one of them, explicitly.
@@ -126,7 +128,7 @@ test("a shared journal entry opens for the recipient and saves only on their exp
 });
 
 test("an entry too big for a link fails honestly and shares nothing", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await stubShareCapture(page);
   await createVault(page, "carol");
   await page.goto("/tools/journal");
@@ -146,7 +148,7 @@ test("a long unbroken shared entry stays bounded and its actions stay reachable 
   const bobContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const alice = await aliceContext.newPage();
   const bob = await bobContext.newPage();
-  const watchedBob = watchRuntime(bob);
+  const watchedBob = await watchRuntime(bob);
   await stubShareCapture(alice);
 
   // One 4000-char unbroken token: fits the link cap (ASCII), breaks naive dialog layouts.
@@ -264,7 +266,7 @@ test("a fast tap with storage denied still keeps the link (in-memory retention)"
 });
 
 test("a damaged journal payload shows the honest damaged state, never a save affordance", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page, "dana");
   // type marker present (routes it to the journal dialog) but the bundle is incomplete.
   const damaged = JSON.stringify({ format: "eic-share", version: 1, type: "journal-entry" });
