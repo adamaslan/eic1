@@ -178,7 +178,7 @@ export async function admitRelayPublish(
       lastSeq: verified.seq,
       windowStartMs: inWindow && prev ? prev.windowStartMs : nowMs,
       // A resume re-claims the same seq: the crashed attempt already counted it.
-      windowCount: isResume ? prev.windowCount : (inWindow && prev ? prev.windowCount : 0) + 1,
+      windowCount: inWindow && prev ? prev.windowCount + (isResume ? 0 : 1) : 1,
       manifestSha,
       committed: false,
       // The last committed pointer survives every pending claim: a stalled, crashed,
@@ -250,6 +250,9 @@ export async function signRelayRead(
 }
 
 function validateReadFields(request: RelayReadRequest): void {
+  if (typeof request.ts !== "number" || !Number.isFinite(request.ts)) {
+    throw new VaultCorruptError("That read request is damaged.");
+  }
   if (typeof request.pubkey !== "string" || request.pubkey.length > RELAY_MAX_PUBKEY_CHARS) {
     throw new VaultCorruptError("That read request is damaged.");
   }
@@ -290,7 +293,7 @@ async function gateRelayRead(
   const { store, ops } = countingStore(rawStore);
   const readerDigest = await globalThis.crypto.subtle.digest("SHA-256", decodeBase64(request.pubkey));
   const nonceKey = `replay/${encodeBase64(new Uint8Array(readerDigest))}/${encodeURIComponent(objectPath)}/${request.nonce}`;
-  const fresh = await store.compareAndSet(nonceKey, String(opts.now.getTime()), { createOnly: true });
+  const fresh = await store.compareAndSet(nonceKey, String(request.ts), { createOnly: true });
   if (fresh === null) throw new AppError("That read request has already been used.");
   const entry = await store.get(`${request.feedPath}/.state.json`);
   if (!entry) throw new AppError("That feed is not on the relay.");
@@ -358,7 +361,7 @@ export async function sweepExpiredNonces(
     const entry = await store.get(key);
     if (!entry) continue;
     const ts = Number(entry.data);
-    if (Number.isFinite(ts) && now.getTime() - ts > maxAgeMs) {
+    if (Number.isFinite(ts) && Math.abs(now.getTime() - ts) > maxAgeMs) {
       await store.delete(key);
       deleted += 1;
     }

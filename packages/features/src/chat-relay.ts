@@ -80,6 +80,10 @@ export async function buildChatFeedSnapshot(
   for (const [recipientId, envelopes] of [...outbound.entries()].sort()) {
     const chunk = { format: "eic-feed-chunk", version: 1, kind: "chat", envelopes } as const;
     const id = `chat-${recipientId}.json`;
+    if (!CHUNK_ID_PATTERN.test(id)) throw new AppError("A chat recipient id cannot be published as a relay chunk.");
+    if (files.length + 2 > RELAY_MAX_FILES_PER_PUBLISH) {
+      throw new AppError(`The chat backlog exceeds the relay limit of ${RELAY_MAX_FILES_PER_PUBLISH - 1} threads per publish.`);
+    }
     const text = JSON.stringify(chunk);
     const bytes = new TextEncoder().encode(text).byteLength;
     if (bytes > RELAY_MAX_CHUNK_BYTES) throw new AppError("The chat backlog is too large to publish in one chunk.");

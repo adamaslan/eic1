@@ -182,6 +182,20 @@ describe("admitRelayPublish", () => {
     expect(data.has(`${path}/objects/4/feed.json`)).toBe(true);
   });
 
+  it("starts a fresh rate window at one when a crashed claim resumes after expiry", async () => {
+    const { store, data } = memStore();
+    const key = await generateSigningKeyPair();
+    const { request } = await signedPublish({ seq: 4, key });
+    const path = await publisherPath(encodeBase64(key.publicKey));
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(request.manifest));
+    await store.putObject(`${path}/.state.json`, JSON.stringify({
+      lastSeq: 4, windowStartMs: OPTS.now.getTime() - OPTS.windowMs, windowCount: 3,
+      manifestSha: encodeBase64(new Uint8Array(digest)), committed: false,
+    }));
+    await admitRelayPublish(store, request, OPTS);
+    expect(JSON.parse(data.get(`${path}/.state.json`)!.data).windowCount).toBe(1);
+  });
+
   it("rejects a same-seq retry with a DIFFERENT manifest (rollback attempt)", async () => {
     const { store } = memStore();
     const key = await generateSigningKeyPair();
@@ -225,6 +239,30 @@ describe("admitRelayPublish", () => {
 });
 
 describe("serveRelayRead", () => {
+  it("rejects non-finite timestamps before any store operation", async () => {
+    const { store } = memStore();
+    const { store: counted, ops } = countingStore(store);
+    const reader = await generateSigningKeyPair();
+    const req = await readRequest(reader, "feeds/abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst", Number.NaN, "nonce");
+    await expect(serveRelayRead(counted, req, { now: OPTS.now })).rejects.toThrow(/damaged/);
+    expect(ops).toEqual({ reads: 0, casAttempts: 0, writes: 0, lists: 0, deletes: 0 });
+  });
+
+  it("keeps a future-dated read nonce until the signed window closes", async () => {
+    const { store } = memStore();
+    const pub = await signedPublish({ seq: 1 });
+    await admitRelayPublish(store, pub.request, OPTS);
+    const path = await publisherPath(encodeBase64(pub.key.publicKey));
+    const reader = await generateSigningKeyPair();
+    const start = OPTS.now.getTime();
+    const requestTs = start + 5 * 60_000;
+    const req = await readRequest(reader, path, requestTs, "future-window-nonce");
+    await serveRelayRead(store, req, { now: new Date(start) });
+    const sweep = await sweepExpiredNonces(store, new Date(start + 6 * 60_000));
+    expect(sweep.deleted).toBe(0);
+    await expect(serveRelayRead(store, req, { now: new Date(start + 6 * 60_000) })).rejects.toThrow(/already been used/);
+  });
+
   it("serves a signed fresh read once, then denies the replay inside the window", async () => {
     const { store } = memStore();
     const pub = await signedPublish({ seq: 1 });
