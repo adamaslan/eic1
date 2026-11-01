@@ -88,6 +88,25 @@ describe("chat links", () => {
     expect(parsed.envelopes.at(-1)!.ciphertext).toBeTruthy();
   });
 
+  it("carries the older batch on request instead of silently dropping it", async () => {
+    const { bob } = await pairedVaults();
+    const conn = await connectionFor(bob, "alice-id");
+    for (let i = 0; i < 8; i++) {
+      await sendChatMessage(bob, conn, `message ${i} ${"x".repeat(1800)}`, deps);
+    }
+    const first = await buildChatShareLink(bob, conn, BASE);
+    expect(first.leftOut).toBeGreaterThan(0);
+    const second = await buildChatShareLink(bob, conn, BASE, { skip: first.messageCount });
+    expect(second.messageCount).toBeGreaterThanOrEqual(1);
+    // The second link carries older messages only, and reports what is still left over.
+    expect(second.leftOut).toBe(first.leftOut - second.messageCount);
+    const firstParsed = readChatShareLink(new URL(first.link).hash)!;
+    const secondParsed = readChatShareLink(new URL(second.link).hash)!;
+    expect(secondParsed.envelopes.at(-1)!.ciphertext).not.toBe(firstParsed.envelopes.at(-1)!.ciphertext);
+    // Skipping past everything says so honestly.
+    await expect(buildChatShareLink(bob, conn, BASE, { skip: 8 })).rejects.toThrow(/No older messages left/);
+  });
+
   it("rejects a chat link when there is nothing sent yet", async () => {
     const { bob } = await pairedVaults();
     await expect(buildChatShareLink(bob, await connectionFor(bob, "alice-id"), BASE)).rejects.toThrow(/Write a message first/);
