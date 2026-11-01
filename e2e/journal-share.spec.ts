@@ -96,7 +96,7 @@ test("a shared journal entry opens for the recipient and saves only on their exp
   await bob.goto(link, { waitUntil: "domcontentloaded" });
   // Journal text remains in document memory only; it is removed from the address bar and
   // never written to sessionStorage, including either pending-link slot.
-  expect(new URL(bob.url()).hash).toBe("");
+  await expect.poll(() => new URL(bob.url()).hash).toBe("");
   expect(await bob.evaluate(() => window.sessionStorage.getItem("eic.arrivalHash"))).toBeNull();
   expect(await bob.evaluate(() => window.sessionStorage.getItem("eic.pendingLink.v2.post"))).toBeNull();
   await createVault(bob);
