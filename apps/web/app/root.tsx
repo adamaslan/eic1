@@ -97,6 +97,7 @@ function ShareLinkImport({ vault }: { vault: ReturnType<typeof useSessionStore.g
         if (text) {
           const parsed = parseShareBundle(text);
           setBundleText(text);
+          setMessage(null);
           setIsKeyCard(parsed.version === 2 && parsed.posts.length === 0);
           setClaimed({
             handle: parsed.author.handle,
@@ -177,6 +178,7 @@ function ShareLinkImport({ vault }: { vault: ReturnType<typeof useSessionStore.g
                     ? `This link claims a chat key for @${claimed.handle}${claimed.pubkey ? ` (key ${fingerprint(claimed.pubkey)}…)` : ""} - no posts. The signature proves the sender holds that key, not that they are who they claim: only import a link that came from them directly. Importing it saves the key and unlocks chat; your connection and history stay as they are.`
                     : "This link carries a post from a friend. Import it into your vault?"}
                 </p>
+                {message ? <p role="alert">{message}</p> : null}
                 <div className="flex gap-1">
                   <Button95 onClick={() => void doImport()} disabled={busy}>Import</Button95>
                   <Button95 onClick={dismiss} disabled={busy}>Not now</Button95>
