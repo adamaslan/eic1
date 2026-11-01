@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Same-instance transition smoke. Each test mounts a route and watches THE SAME component
@@ -12,16 +13,6 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
-
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
 
 function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
   // Failed resource loads (e.g. favicon) are network noise, not runtime failures.
@@ -46,13 +37,13 @@ async function createVault(page: Page) {
 }
 
 test("landing -> create vault -> unlocked landing renders clean", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   expectCleanRuntime(watched);
 });
 
 test("connections mounts through loading -> loaded on one component instance", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   // Fresh navigation resumes the saved session, then mounts Connections: items load
   // async, so the one mounted instance passes loading -> loaded. The #310 crash fired
@@ -64,7 +55,7 @@ test("connections mounts through loading -> loaded on one component instance", a
 });
 
 test("compose listing -> market loads populated with the new listing", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.getByRole("link", { name: "+ Post" }).click();
   await page.getByRole("radio", { name: "Marketplace listing" }).check();
