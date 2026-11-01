@@ -2,7 +2,7 @@ import { openDB } from "idb";
 import type { VaultKey } from "@veil/core";
 
 /** How long an unlock survives a page reload. */
-export const SESSION_MS = 60 * 60_000;
+export const SESSION_MS = 8 * 60 * 60_000;
 
 const DB_NAME = "veil-session";
 const STORE = "session";
@@ -11,6 +11,7 @@ const KEY = "current";
 export interface PersistedSession {
   key: VaultKey;
   expiresAt: number;
+  lockMarker?: string | null;
 }
 
 const db = () =>
@@ -21,17 +22,18 @@ const db = () =>
   });
 
 // The key is a non-extractable CryptoKey, stored by structured clone: script on this page can
-// use it for the hour but can never read its bytes, and it is deleted on lock, wipe, or expiry.
+// use it within the fixed eight-hour window but can never read its bytes, and it is deleted on lock, wipe, or expiry.
 export async function saveSession(key: VaultKey, now: number): Promise<number> {
   const expiresAt = now + SESSION_MS;
-  await (await db()).put(STORE, { key, expiresAt } satisfies PersistedSession, KEY);
+  const lockMarker = currentLockMarker();
+  await (await db()).put(STORE, { key, expiresAt, lockMarker } satisfies PersistedSession, KEY);
   return expiresAt;
 }
 
 /** Returns the saved session, or null if there is none or it has expired (expired ones are deleted). */
 export async function loadSession(now: number): Promise<PersistedSession | null> {
   const saved = (await (await db()).get(STORE, KEY)) as PersistedSession | undefined;
-  if (!saved || typeof saved.expiresAt !== "number" || saved.expiresAt <= now) {
+  if (!saved || !Number.isFinite(saved.expiresAt) || saved.expiresAt > now + SESSION_MS || saved.expiresAt <= now || (saved.lockMarker ?? null) !== currentLockMarker()) {
     if (saved) await clearSession();
     return null;
   }
@@ -48,4 +50,9 @@ export async function clearSession(): Promise<void> {
   }
   // A failed delete means the key is still on disk - callers must hear about it.
   await database.delete(STORE, KEY);
+}
+
+function currentLockMarker(): string | null {
+  if (typeof window === "undefined") return null;
+  try { return localStorage.getItem("eic.vault-lock"); } catch { return "storage-unavailable"; }
 }
