@@ -332,6 +332,9 @@ export default function Connections() {
         <div className="flex flex-wrap gap-1">
           <Link to={`/profile/${connection.id}`} className="underline">Profile</Link>
           <Link to={`/chat/${connection.id}`} className="underline">Chat</Link>
+          {!connection.hidden && (
+            <Link to={`/graph?focus=${encodeURIComponent(connection.id)}`} className="underline">Map</Link>
+          )}
           <RetryFailedButton connection={connection} busy={busy} onRetry={() => retryFailedChunks(connection)} />
           <Button95 onClick={() => { setRenamingId(connection.id); setNicknameDraft(connection.nickname ?? ""); setRemovingId(null); }} disabled={busy}>Rename</Button95>
           <Button95 onClick={() => toggleHidden(connection)} disabled={busy}>{connection.hidden ? "Unhide" : "Hide"}</Button95>
