@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Social graph: seeded posts and listings appear as nodes on the force layout, selection
- * opens the detail window, and presets/list view work - all with a clean runtime, matching
- * the transition-smoke posture.
+ * Social graph: maps the vault's connections, posts, and listings; proves edge facts and
+ * hidden-connection exclusion. Seeds ONLY through production UI (compose, share-file import) -
+ * the "Load demo items" button exists only in dev builds, never on deploy previews.
  */
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
@@ -38,25 +38,48 @@ async function createVault(page: Page) {
   await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
 }
 
-test("graph maps seeded posts and listings, selects nodes, and switches views", async ({ page }) => {
+// 1x1 transparent PNG: enough for the compose photo pipeline to compress and store.
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+async function composePost(page: Page, kind: "photo" | "listing", title: string) {
+  await page.goto("/compose");
+  if (kind === "listing") await page.getByRole("radio", { name: "Marketplace listing" }).check();
+  await page.getByLabel("Title").fill(title);
+  await page.getByLabel("Notes").fill("seeded by the graph e2e");
+  if (kind === "photo") {
+    await page.getByLabel("Choose photos").setInputFiles({
+      name: "tiny.png",
+      mimeType: "image/png",
+      buffer: TINY_PNG,
+    });
+    await expect(page.getByText("tiny.png")).toBeVisible();
+  }
+  await page.getByRole("button", { name: /Encrypt & save/ }).click();
+  await page.waitForURL(kind === "photo" ? "**/feed" : "**/market");
+  await expect(page.getByText(title)).toBeVisible();
+}
+
+test("graph maps composed posts and listings, selects nodes, and switches views", async ({ page }) => {
   const watched = watchRuntime(page);
   await createVault(page);
 
-  await page.goto("/feed");
-  await page.getByRole("button", { name: "Load demo items" }).click();
-  await expect(page.getByText("Fog on 5th Street bridge")).toBeVisible();
+  await composePost(page, "photo", "Bridge at dawn");
+  await composePost(page, "listing", "Milk crate shelves");
 
   await page.goto("/graph");
   await expect(page.getByText("Social graph")).toBeVisible();
-  // Me + 4 photos + 4 listings from the demo seed.
-  await expect(page.getByText("0 people · 4 posts · 4 listings · 0 likes.")).toBeVisible();
+  // Me + the composed photo post and listing.
+  await expect(page.getByText("0 people · 1 post · 1 listing · 0 likes.")).toBeVisible();
 
   // Nodes render as keyboard-focusable buttons once the layout publishes positions.
   const me = page.getByRole("button", { name: "You (You)" });
-  const post = page.getByRole("button", { name: /Fog on 5th Street bridge/ });
+  const post = page.getByRole("button", { name: /Bridge at dawn/ });
   await expect(me).toBeVisible();
   await expect(post).toBeVisible();
-  await expect(page.getByRole("button", { name: /ThinkPad 701C/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Milk crate shelves/ })).toBeVisible();
 
   // Keyboard selection opens the detail window with real edge facts.
   await post.focus();
@@ -68,7 +91,7 @@ test("graph maps seeded posts and listings, selects nodes, and switches views", 
   await page.getByRole("button", { name: "Free", exact: true }).click();
   await expect(me).toBeVisible();
   await page.getByRole("button", { name: "List", exact: true }).click();
-  await expect(page.getByRole("link", { name: "Fog on 5th Street bridge" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Bridge at dawn" })).toBeVisible();
   await page.getByRole("button", { name: "Graph", exact: true }).click();
   await expect(me).toBeVisible();
 
@@ -116,10 +139,9 @@ test("graph maps a connection's authorship and likes, and honors hiding", async 
   const watched = watchRuntime(page);
   await createVault(page);
 
-  // My own posts via the demo seed first (the seed button only shows on an empty feed).
-  await page.goto("/feed");
-  await page.getByRole("button", { name: "Load demo items" }).click();
-  await expect(page.getByText("Fog on 5th Street bridge")).toBeVisible();
+  // My own items via the production compose UI.
+  await composePost(page, "photo", "My rooftop tomatoes");
+  await composePost(page, "listing", "My zip-tied crates");
 
   // Handle first (imports need one), then import a friend's share file by paste.
   await page.goto("/connections");
@@ -137,7 +159,7 @@ test("graph maps a connection's authorship and likes, and honors hiding", async 
   await expect(page.getByRole("button", { name: "♥ Liked" })).toBeVisible();
 
   await page.goto("/graph");
-  await expect(page.getByText("1 person · 5 posts · 5 listings · 1 like.")).toBeVisible();
+  await expect(page.getByText("1 person · 2 posts · 2 listings · 1 like.")).toBeVisible();
   const sunny = page.getByRole("button", { name: "sunny (Connection)" });
   await expect(sunny).toBeVisible();
   await expect(page.getByRole("button", { name: /Sunny's milk crate shelves/ })).toBeVisible();
@@ -153,7 +175,7 @@ test("graph maps a connection's authorship and likes, and honors hiding", async 
   await page.goto("/connections");
   await page.getByRole("button", { name: "Hide", exact: true }).click();
   await page.goto("/graph");
-  await expect(page.getByText("0 people · 4 posts · 4 listings · 0 likes.")).toBeVisible();
+  await expect(page.getByText("0 people · 1 post · 1 listing · 0 likes.")).toBeVisible();
   await expect(page.getByText("1 hidden connection stays out of the map.")).toBeVisible();
   await expect(page.getByRole("button", { name: /Sunny's/ })).toHaveCount(0);
 
