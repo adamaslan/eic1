@@ -18,3 +18,5 @@ export * from "./paint";
 export * from "./graph";
 export * from "./profile-studio";
 export * from "./music";
+export * from "./zip-store";
+export * from "./playlists";
