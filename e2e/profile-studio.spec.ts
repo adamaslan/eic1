@@ -93,3 +93,29 @@ async function previewBottom(page: Page, testInfo: TestInfo) {
   expect(box!.y + box!.height).toBeLessThanOrEqual(taskbar!.y);
   await page.screenshot({ path: testInfo.outputPath("profile-studio-preview-bottom-phone.png") });
 }
+test("stale second tab cannot overwrite a newer feed profile; reviewing latest recovers without sharing private fields", async ({ page, context }, testInfo) => {
+  await setup(page);
+  const other = await context.newPage(); await other.setViewportSize({ width: 390, height: 844 }); await other.goto("/profile");
+  await other.getByRole("button", { name: "Customize profile" }).click();
+  await page.getByLabel("Background color").selectOption("clouds");
+  await page.getByRole("checkbox", { name: "Background and theme", exact: true }).check();
+  await page.getByRole("button", { name: "Update selected feed profile", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Nothing was uploaded");
+  await other.getByLabel("Favorite song", { exact: true }).first().fill("must stay private");
+  await other.getByRole("button", { name: "Update selected feed profile", exact: true }).click();
+  await expect(other.getByRole("alert")).toContainText("saved profile changed");
+  await other.getByRole("alert").scrollIntoViewIfNeeded();
+  await other.screenshot({ path: testInfo.outputPath("profile-stale-conflict.png") });
+  await expect(other.getByLabel("Favorite song", { exact: true }).first()).toHaveValue("must stay private");
+  await other.getByRole("button", { name: "Review latest saved feed profile", exact: true }).click();
+  const latest = other.getByRole("region", { name: "Latest saved feed profile", exact: true });
+  await expect(latest.getByTestId("profile-canvas")).toHaveCSS("background-color", "rgb(95, 158, 160)");
+  await expect(latest).not.toContainText("must stay private");
+  await latest.scrollIntoViewIfNeeded();
+  await other.screenshot({ path: testInfo.outputPath("profile-stale-review-latest.png") });
+  await other.getByRole("button", { name: "Preview selected feed profile", exact: true }).click();
+  await expect(other.getByRole("region", { name: "Selected feed profile preview" })).not.toContainText("must stay private");
+  await other.getByRole("button", { name: "Update selected feed profile", exact: true }).click();
+  await expect(other.getByRole("status")).toContainText("Nothing was uploaded");
+  await other.close();
+});
