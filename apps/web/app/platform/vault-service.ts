@@ -10,7 +10,7 @@ import {
   type VaultDeps,
 } from "@veil/vault";
 import { IndexedDbVaultStore } from "./indexeddb-store";
-import { clearSession, loadSession, saveSession } from "./session-persist";
+import { SESSION_MS, clearSession, loadSession, saveSession } from "./session-persist";
 
 // One app-wide set of platform adapters. Shared packages receive these by
 // argument and never import browser globals themselves.
@@ -22,32 +22,38 @@ const deps: VaultDeps = {
 };
 
 // Keeping the session is a convenience. If storage refuses, the vault still opens and just locks on reload.
-async function remember(key: Parameters<typeof saveSession>[0]): Promise<void> {
+async function remember(key: Parameters<typeof saveSession>[0]): Promise<number> {
+  const now = Date.now();
   try {
-    await saveSession(key, Date.now());
+    return await saveSession(key, now);
   } catch {
-    // Not remembering is fine: the vault is open now and will ask for the passphrase after a reload.
+    // Storage may refuse persistence. The in-memory session still has the same deadline.
+    return now + SESSION_MS;
   }
 }
 
-export async function vaultCreate(passphrase: string): Promise<UnlockedVault> {
+export async function vaultCreate(passphrase: string): Promise<{ vault: UnlockedVault; expiresAt: number }> {
   const { vault, key } = await createVaultKeyed(deps, passphrase);
-  await remember(key);
-  return vault;
+  return { vault, expiresAt: await remember(key) };
 }
 
-export async function vaultUnlock(passphrase: string): Promise<UnlockedVault> {
+export async function vaultUnlock(passphrase: string): Promise<{ vault: UnlockedVault; expiresAt: number }> {
   const { vault, key } = await unlockVaultKeyed(deps, passphrase);
-  await remember(key);
-  return vault;
+  return { vault, expiresAt: await remember(key) };
 }
 
-/** Reopens the vault from a session saved in the last hour, or returns null. */
+/** Reopens the vault from a session saved in the last eight hours, or returns null. */
 export async function vaultResume(): Promise<{ vault: UnlockedVault; expiresAt: number } | null> {
   try {
     const saved = await loadSession(Date.now());
     if (!saved) return null;
-    return { vault: await resumeVault(deps, saved.key), expiresAt: saved.expiresAt };
+    const vault = await resumeVault(deps, saved.key);
+    if (saved.expiresAt <= Date.now()) {
+      vault.lock();
+      await clearSession();
+      return null;
+    }
+    return { vault, expiresAt: saved.expiresAt };
   } catch {
     await clearSession();
     return null;
