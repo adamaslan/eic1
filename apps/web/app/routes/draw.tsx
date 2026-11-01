@@ -9,7 +9,9 @@ import {
   TEXT_SIZES,
   strokeColor,
   textFont,
+  textLineHeight,
   textSizePx,
+  wrapTextLines,
   type ComposedMedia,
   type PaintTool,
   type TextSizeId,
@@ -68,6 +70,34 @@ async function encodeCanvas(canvas: HTMLCanvasElement, mime: string, quality?: n
 
 const formatKb = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
 
+// The exact encoding pipeline used when a drawing is saved to the vault. The preview
+// panel reuses it so the preview is byte-for-byte what save (and any later share of
+// that post) produces. Snapshot before the first await: encoding yields to the event
+// loop, and the live canvas must not change between the full image and its thumbnail.
+async function encodeDrawingMedia(
+  canvas: HTMLCanvasElement,
+  mime: string,
+  quality?: number,
+): Promise<{ bytes: Bytes; thumb: Bytes }> {
+  const snapshot = document.createElement("canvas");
+  snapshot.width = canvas.width;
+  snapshot.height = canvas.height;
+  const snapshotContext = snapshot.getContext("2d");
+  if (!snapshotContext) throw new AppError("This browser could not encode the drawing.");
+  snapshotContext.drawImage(canvas, 0, 0);
+  const bytes = await encodeCanvas(snapshot, mime, quality);
+  const thumbCanvas = document.createElement("canvas");
+  thumbCanvas.width = THUMB_SIZE;
+  thumbCanvas.height = THUMB_SIZE;
+  const thumbContext = thumbCanvas.getContext("2d");
+  if (!thumbContext) throw new AppError("This browser could not encode the drawing.");
+  thumbContext.fillStyle = "#ffffff";
+  thumbContext.fillRect(0, 0, THUMB_SIZE, THUMB_SIZE);
+  thumbContext.drawImage(snapshot, 0, 0, THUMB_SIZE, THUMB_SIZE);
+  const thumb = await encodeCanvas(thumbCanvas, mime, quality);
+  return { bytes, thumb };
+}
+
 type Tool = PaintTool;
 
 export default function Draw() {
@@ -83,11 +113,23 @@ export default function Draw() {
   const textBase = useRef<ImageData | null>(null);
 
   const [color, setColor] = useState<string>(PALETTE[0]);
+  // Paper is the background color the canvas starts in, Clear restores, and the eraser
+  // reveals. It defaults to white, so an untouched workflow behaves exactly as before.
+  const [paperColor, setPaperColor] = useState<string>("#ffffff");
   const [brush, setBrush] = useState<number>(BRUSHES[1]);
   const [tool, setTool] = useState<Tool>("brush");
   const [textValue, setTextValue] = useState("");
   const [textSizeId, setTextSizeId] = useState<TextSizeId>("m");
   const [textAnchor, setTextAnchor] = useState<{ x: number; y: number } | null>(null);
+  // Word-wrap width for placed text, in canvas pixels. Wraps against the live canvas
+  // measurement, so preview and placement always agree.
+  const [wrapWidth, setWrapWidth] = useState(96);
+  // Live warning when the text block would run past the canvas edge. Placed text is
+  // clipped by the bitmap, so the user must see that before placing - never silently.
+  const [textOverflow, setTextOverflow] = useState(false);
+  // Feature-fate switch: hides the new options (paper, wrap, preview, tiny text) and
+  // leaves the original brush/eraser/text workflow. Saved drawings are unaffected.
+  const [classic, setClassic] = useState(false);
   // Pointer position for the text-tool crosshair guides. The guides are an overlay:
   // they are never painted into the canvas bitmap, so they cannot enter exports,
   // saved posts, or the undo history.
@@ -101,14 +143,24 @@ export default function Draw() {
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const sizeRequest = useRef(0);
+  // Exact-bytes preview of what save (and any later share of that post) produces. The
+  // URLs point at the real encoded PNG bytes, never the live canvas, so what is shown
+  // here is byte-for-byte what lands in the vault. Nothing is shared from this panel.
+  const [preview, setPreview] = useState<{ full: string; thumb: string; bytes: number; mime: string } | null>(null);
+  // Ref mirror so the unmount cleanup always revokes the current URLs, not the ones
+  // captured by a stale closure.
+  const previewRef = useRef<{ full: string; thumb: string } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
     if (canvas && context) {
-      context.fillStyle = "#ffffff";
+      context.fillStyle = paperColor;
       context.fillRect(0, 0, canvas.width, canvas.height);
     }
+    // Mount-only: the initial paper is the default white. Later paper changes never
+    // repaint existing pixels by themselves - only "Fill background" does, undoably.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const canvasPoint = (event: PointerEvent<HTMLCanvasElement>) => {
@@ -150,10 +202,17 @@ export default function Draw() {
   const drawText = (text: string, anchor: { x: number; y: number }) => {
     const context = context2d();
     if (!context) return;
-    context.font = textFont(textSizePx(textSizeId));
+    const px = textSizePx(textSizeId);
+    context.font = textFont(px);
     context.fillStyle = color;
     context.textBaseline = "top";
-    context.fillText(text, anchor.x, anchor.y);
+    // Newlines are honored first, then each paragraph wraps at the chosen width using
+    // the real canvas measurement. Long words hard-break so no characters are dropped.
+    const lines = wrapTextLines((line) => context.measureText(line).width, text, wrapWidth);
+    const lineHeight = textLineHeight(px);
+    lines.forEach((line, index) => {
+      if (line !== "") context.fillText(line, anchor.x, anchor.y + index * lineHeight);
+    });
   };
 
   // Text tool: the preview is always drawn fresh over textBase, so typing, resizing,
@@ -165,9 +224,20 @@ export default function Draw() {
     if (!textBase.current) textBase.current = snapshotCanvas();
     if (!textBase.current) return;
     context.putImageData(textBase.current, 0, 0);
-    if (textAnchor && textValue.trim() !== "") drawText(textValue.trim(), textAnchor);
+    if (textAnchor && textValue.trim() !== "") {
+      drawText(textValue.trim(), textAnchor);
+      const px = textSizePx(textSizeId);
+      const lines = wrapTextLines((line) => context.measureText(line).width, textValue.trim(), wrapWidth);
+      const blockHeight = (lines.length - 1) * textLineHeight(px) + px;
+      const maxLineWidth = Math.max(...lines.map((line) => context.measureText(line).width));
+      setTextOverflow(
+        textAnchor.x + maxLineWidth > CANVAS_SIZE || textAnchor.y + blockHeight > CANVAS_SIZE,
+      );
+    } else {
+      setTextOverflow(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tool, textAnchor, textValue, textSizeId, color]);
+  }, [tool, textAnchor, textValue, textSizeId, color, wrapWidth]);
 
   // Put the un-previewed pixels back. Used before undo/redo/clear and when leaving the tool.
   const discardTextPreview = () => {
@@ -275,7 +345,7 @@ export default function Draw() {
     if (!canvas || !context) return;
     const point = canvasPoint(event);
     const from = last.current ?? point;
-    context.strokeStyle = strokeColor(tool, color);
+    context.strokeStyle = strokeColor(tool, color, paperColor);
     context.lineWidth = brush;
     context.lineCap = "round";
     context.lineJoin = "round";
@@ -318,10 +388,70 @@ export default function Draw() {
       history.current.record(before);
       syncHistoryState();
     }
-    context.fillStyle = "#ffffff";
+    context.fillStyle = paperColor;
     context.fillRect(0, 0, canvas.width, canvas.height);
     void refreshSize();
   };
+
+  // Fill the whole canvas with the paper color on demand. One undoable edit, exactly
+  // like Clear - the difference is intent: this is a deliberate background repaint.
+  const fillBackground = () => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    discardTextPreview();
+    const before = snapshotCanvas();
+    if (before) {
+      history.current.record(before);
+      syncHistoryState();
+    }
+    context.fillStyle = paperColor;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    void refreshSize();
+  };
+
+  const closePreview = () => {
+    if (previewRef.current) {
+      URL.revokeObjectURL(previewRef.current.full);
+      URL.revokeObjectURL(previewRef.current.thumb);
+      previewRef.current = null;
+    }
+    setPreview(null);
+  };
+
+  // Build the exact-bytes preview. An uncommitted text preview is not part of the
+  // drawing, so it is discarded first - the panel shows the real save output.
+  const showPreview = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    discardTextPreview();
+    try {
+      const mime = mimeFor(format);
+      const { bytes, thumb } = await encodeDrawingMedia(canvas, mime, format === "jpeg" ? JPEG_QUALITY : undefined);
+      closePreview();
+      const next = {
+        full: URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: mime })),
+        thumb: URL.createObjectURL(new Blob([new Uint8Array(thumb)], { type: mime })),
+        bytes: bytes.length,
+        mime,
+      };
+      previewRef.current = next;
+      setPreview(next);
+    } catch {
+      setNotice("This browser could not encode the drawing.");
+    }
+  };
+
+  // Object URLs are released when the panel closes or the route unmounts.
+  useEffect(
+    () => () => {
+      if (previewRef.current) {
+        URL.revokeObjectURL(previewRef.current.full);
+        URL.revokeObjectURL(previewRef.current.thumb);
+      }
+    },
+    [],
+  );
 
   async function handleSave(event: FormEvent) {
     event.preventDefault();
@@ -340,24 +470,7 @@ export default function Draw() {
     try {
       const mime = mimeFor(format);
       const quality = format === "jpeg" ? JPEG_QUALITY : undefined;
-      // Snapshot before the first await: encoding yields to the event loop, and the live
-      // canvas must not change between the full image and its thumbnail.
-      const snapshot = document.createElement("canvas");
-      snapshot.width = canvas.width;
-      snapshot.height = canvas.height;
-      const snapshotContext = snapshot.getContext("2d");
-      if (!snapshotContext) throw new AppError("This browser could not encode the drawing.");
-      snapshotContext.drawImage(canvas, 0, 0);
-      const bytes = await encodeCanvas(snapshot, mime, quality);
-      const thumbCanvas = document.createElement("canvas");
-      thumbCanvas.width = THUMB_SIZE;
-      thumbCanvas.height = THUMB_SIZE;
-      const thumbContext = thumbCanvas.getContext("2d");
-      if (!thumbContext) throw new AppError("This browser could not encode the drawing.");
-      thumbContext.fillStyle = "#ffffff";
-      thumbContext.fillRect(0, 0, THUMB_SIZE, THUMB_SIZE);
-      thumbContext.drawImage(snapshot, 0, 0, THUMB_SIZE, THUMB_SIZE);
-      const thumb = await encodeCanvas(thumbCanvas, mime, quality);
+      const { bytes, thumb } = await encodeDrawingMedia(canvas, mime, quality);
       const media: ComposedMedia[] = [{ bytes, thumb, mime }];
       await saveComposedItem(
         vault,
@@ -396,7 +509,7 @@ export default function Draw() {
                 </Button95>
               ))}
             {tool === "text" &&
-              TEXT_SIZES.map((option) => (
+              TEXT_SIZES.filter((option) => !classic || option.id !== "xs").map((option) => (
                 <Button95 key={option.id} pressed={textSizeId === option.id} onClick={() => setTextSizeId(option.id)}>
                   {option.px}px
                 </Button95>
@@ -471,27 +584,47 @@ export default function Draw() {
         </div>
         {tool === "text" && (
           <div className="flex flex-wrap items-center gap-1">
-            <input
+            <textarea
               aria-label="Text to place"
-              className="w-40 bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none"
-              placeholder="Type text…"
+              rows={2}
+              className="w-48 resize-y bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none"
+              placeholder="Type text… Enter adds a new line"
               value={textValue}
               onChange={(event) => setTextValue(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  placeText();
-                }
-              }}
             />
+            <label className={classic ? "hidden" : "flex items-center gap-1 text-[11px] text-[#404040]"}>
+              Wrap
+              <input
+                type="range"
+                min={32}
+                max={192}
+                step={8}
+                value={wrapWidth}
+                aria-label="Text wrap width"
+                onChange={(event) => setWrapWidth(Number(event.target.value))}
+                className="w-20"
+              />
+              {wrapWidth}px
+            </label>
             <Button95 onClick={placeText} disabled={saving || !textAnchor || textValue.trim() === ""}>
               Place text
             </Button95>
             <span className="text-[11px] text-[#404040]">
-              Crosshairs aim where the text starts - click the canvas to set the spot. It lands in the selected color.
+              Crosshairs aim where the text starts - click the canvas to set the spot. Newlines and wrapping shape the
+              body; it lands in the selected color.
             </span>
+            {textOverflow && (
+              <p role="status" className="w-full text-[11px] font-bold text-[#800000]">
+                Text runs past the canvas edge: move the anchor, change the wrap, or pick a smaller size, or the part
+                outside will be cut off.
+              </p>
+            )}
           </div>
         )}
+        <label className="flex items-center gap-1 text-[11px] text-[#404040]">
+          <input type="checkbox" checked={classic} onChange={(event) => setClassic(event.target.checked)} />
+          Classic tools: hide the new paper, wrap, preview, and tiny-text options
+        </label>
         <div className="flex flex-wrap items-center gap-0.5">
           {PALETTE.map((option) => (
             <button
@@ -509,6 +642,31 @@ export default function Draw() {
               }}
             />
           ))}
+        </div>
+        <div className={classic ? "hidden" : "flex flex-wrap items-center gap-0.5"}>
+          <span className="mr-1 text-[11px] font-bold">Paper</span>
+          {PALETTE.map((option) => (
+            <button
+              key={`paper-${option}`}
+              type="button"
+              aria-label={`Paper color ${option}`}
+              onClick={() => setPaperColor(option)}
+              className="h-4 w-4"
+              style={{
+                background: option,
+                borderTop: paperColor === option ? "2px solid #808080" : "1px solid #ffffff",
+                borderLeft: paperColor === option ? "2px solid #808080" : "1px solid #ffffff",
+                borderRight: paperColor === option ? "2px solid #808080" : "1px solid #808080",
+                borderBottom: paperColor === option ? "2px solid #808080" : "1px solid #808080",
+              }}
+            />
+          ))}
+          <Button95 onClick={fillBackground} disabled={saving}>
+            Fill background
+          </Button95>
+          <span className="basis-full text-[11px] text-[#404040]">
+            Changing paper does not repaint existing pixels. Erasing uses the selected paper color, so older erased areas keep their previous color; use Fill background to repaint the whole canvas.
+          </span>
         </div>
         <div className="flex items-center gap-3">
           <fieldset className="flex items-center gap-2">
@@ -532,6 +690,48 @@ export default function Draw() {
             {sizeBytes === null ? "" : `About ${formatKb(sizeBytes)} saved`}
           </span>
         </div>
+        {preview && (
+          <fieldset className="flex flex-col gap-1 border border-[#808080] p-2">
+            <legend className="px-1 text-[11px] font-bold">Save preview</legend>
+            <p className="text-[11px] text-[#404040]">
+              Exactly what saves to your vault - and what someone you share the post with sees. Nothing leaves this
+              device from this preview.
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <figure className="flex flex-col items-center gap-0.5">
+                <img
+                  src={preview.full}
+                  alt="Full-size preview of the encoded drawing"
+                  className="h-24 w-24"
+                  style={{
+                    imageRendering: "pixelated",
+                    borderTop: "2px solid #808080",
+                    borderLeft: "2px solid #808080",
+                    borderRight: "2px solid #ffffff",
+                    borderBottom: "2px solid #ffffff",
+                  }}
+                />
+                <figcaption className="text-[10px] text-[#404040]">full 192px, shown at 96 ({formatKb(preview.bytes)})</figcaption>
+              </figure>
+              <figure className="flex flex-col items-center gap-0.5">
+                <img
+                  src={preview.thumb}
+                  alt="Thumbnail preview of the encoded drawing"
+                  className="h-12 w-12"
+                  style={{
+                    imageRendering: "pixelated",
+                    borderTop: "2px solid #808080",
+                    borderLeft: "2px solid #808080",
+                    borderRight: "2px solid #ffffff",
+                    borderBottom: "2px solid #ffffff",
+                  }}
+                />
+                <figcaption className="text-[10px] text-[#404040]">post card 128px, shown at 48</figcaption>
+              </figure>
+              <Button95 onClick={closePreview}>Close preview</Button95>
+            </div>
+          </fieldset>
+        )}
         <label className="flex flex-col gap-0.5">
           <span className="font-bold">Title</span>
           <input
@@ -555,6 +755,11 @@ export default function Draw() {
           <Button95 type="button" disabled={saving} onClick={() => void downloadImage()}>
             Download {format === "jpeg" ? "JPG" : "PNG"}
           </Button95>
+          {!classic && (
+            <Button95 type="button" disabled={saving} onClick={() => void showPreview()}>
+              Preview save
+            </Button95>
+          )}
           <Button95 disabled={saving} onClick={() => navigate("/compose")}>
             Cancel
           </Button95>
