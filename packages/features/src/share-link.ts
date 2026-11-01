@@ -14,9 +14,7 @@ export const toBase64Url = (text: string): string =>
     .replace(/=+$/, "");
 
 export const fromBase64Url = (encoded: string): string => {
-  let base64 = encoded.replaceAll("-", "+").replaceAll("_", "/");
-  // decodeBase64 is strict about padding; URLs strip it, so put it back.
-  while (base64.length % 4 !== 0) base64 += "=";
+  const base64 = encoded.replaceAll("-", "+").replaceAll("_", "/");
   return new TextDecoder().decode(decodeBase64(base64));
 };
 
