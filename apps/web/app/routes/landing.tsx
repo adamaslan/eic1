@@ -70,6 +70,8 @@ export default function Landing() {
           </div>
         </Window>
 
+        <Link to="/music-library" className="min-h-[44px] bg-[#c0c0c0] p-3 text-[13px] text-[#0000cc] underline">music-library</Link>
+
         <LandingPreview />
 
         <section aria-label="Features" className="grid gap-3 sm:grid-cols-3">
@@ -113,6 +115,7 @@ export default function Landing() {
 }
 
 const NAV = [
+  ["/music-library", "music-library"],
   ["/feed", "Feed"],
   ["/market", "Market"],
   ["/compose", "+ Post"],
