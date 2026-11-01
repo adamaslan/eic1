@@ -82,11 +82,14 @@ function chatLink(authorId: string, handle: string, envelopes: SyncEnvelope[], b
  * Builds a link carrying my most recent sealed chat envelopes for this connection, newest
  * first, as many as fit under the cap. The envelopes were sealed to the connection's key at
  * send time, so only their vault can open them; anyone else holding the link sees ciphertext.
+ * `skip` excludes that many of my newest messages, so the caller can offer the older batch in
+ * a second link instead of silently dropping whatever did not fit.
  */
 export async function buildChatShareLink(
   vault: UnlockedVault,
   connection: { id: string; pubkey: string | null },
   baseUrl: string,
+  opts: { skip?: number } = {},
 ): Promise<{ link: string; messageCount: number; leftOut: number }> {
   if (!connection.pubkey) {
     throw new AppError("Chat links need a verified connection. Re-import their signed share file first.");
@@ -95,11 +98,16 @@ export async function buildChatShareLink(
   if (!settings.authorId || !settings.handle) {
     throw new AppError("Save a handle before sharing a chat link.");
   }
-  const outbound = (await listChatThread(vault, connection.id)).filter(
+  const all = (await listChatThread(vault, connection.id)).filter(
     (message) => message.direction === "out" && message.envelope !== null,
   );
+  const outbound = all.slice(0, Math.max(0, all.length - (opts.skip ?? 0)));
   if (outbound.length === 0) {
-    throw new AppError("Write a message first - a chat link carries messages you have already sent.");
+    throw new AppError(
+      all.length === 0
+        ? "Write a message first - a chat link carries messages you have already sent."
+        : "No older messages left to carry.",
+    );
   }
   const picked: SyncEnvelope[] = [];
   for (const message of [...outbound].reverse()) {
@@ -261,7 +269,7 @@ export async function importConnectCard(
   const keep = prior.success ? prior.data : null;
   if (keep && keep.pubkey && keep.pubkey !== author.pubkey) {
     throw new AppError(
-      `@${keep.handle} already connected with a different key. A connect link must never replace a verified key quietly - ask them in person, and if they really started over, re-import their new signed share file instead.`,
+      `@${keep.handle} already connected with a different key, and a link must never replace a verified key quietly. If they really started over, confirm it in person, remove the old connection on the Connections screen, then open their new link.`,
     );
   }
   await vault.putJson("connection", connectionId, {
