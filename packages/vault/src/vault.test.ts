@@ -266,3 +266,44 @@ describe("resuming a session", () => {
     await expect(resumeVault({ ...deps, store: new MemoryStore() }, key)).rejects.toBeInstanceOf(VaultNotFoundError);
   });
 });
+
+describe("atomic conditional JSON writes", () => {
+  it("rejects a value changed after the initial read but before encrypted write commit", async () => {
+    const first = await createVault(deps, PASSPHRASE);
+    const other = await unlockVault(deps, PASSPHRASE);
+    const original = { bio: "original" }; await first.putJson("profile", "profile:a", original);
+    const put = store.putRecordsForVault.bind(store);
+    let entered!: () => void, release!: () => void;
+    const enteredGate = new Promise<void>(r => { entered = r; }); const gate = new Promise<void>(r => { release = r; });
+    vi.spyOn(store, "putRecordsForVault").mockImplementation(async (generation, records, options) => {
+      if (options && "expectedRecord" in options) { entered(); await gate; }
+      return put(generation, records, options);
+    });
+    const stale = first.putJsonIfUnchanged("profile", "profile:a", { bio: "stale" }, original);
+    const rejected = expect(stale).rejects.toThrow("saved profile changed");
+    await enteredGate; await other.putJson("profile", "profile:a", { bio: "newer" }); release(); await rejected;
+    expect(await first.getJson("profile:a")).toEqual({ bio: "newer" });
+  });
+  it("allows one creator only when two open sessions both expect absence", async () => {
+    const first = await createVault(deps, PASSPHRASE), other = await unlockVault(deps, PASSPHRASE);
+    const result = await Promise.allSettled([first.putJsonIfUnchanged("profile", "profile:a", { name: "one" }, null), other.putJsonIfUnchanged("profile", "profile:a", { name: "two" }, null)]);
+    expect(result.filter(r => r.status === "fulfilled")).toHaveLength(1); expect(result.filter(r => r.status === "rejected")).toHaveLength(1);
+  });
+  it("lock during encryption rejects without writing", async () => {
+    const vault = await createVault(deps, PASSPHRASE);
+    const encrypt = deps.crypto.encrypt.bind(deps.crypto);
+    vi.spyOn(deps.crypto, "encrypt").mockImplementation(async (...args) => { const sealed = await encrypt(...args); vault.lock(); return sealed; });
+    await expect(vault.putJsonIfUnchanged("profile", "profile:a", { name: "no" }, null)).rejects.toBeInstanceOf(VaultLockedError);
+    expect(await store.getRecord("profile:a")).toBeNull();
+  });
+});
+
+it("conditional writes preserve generation and record-kind boundaries", async () => {
+  const vault = await createVault(deps, PASSPHRASE);
+  await vault.putJson("note", "profile:a", { text: "not a profile" });
+  await expect(vault.putJsonIfUnchanged("profile", "profile:a", { name: "no" }, { text: "not a profile" })).rejects.toBeInstanceOf(VaultCorruptError);
+  const meta = await store.getMeta();
+  await store.clearForVault(vaultGeneration(meta!)); await createVault(deps, "different passphrase");
+  await expect(vault.putJsonIfUnchanged("profile", "profile:new", { name: "no" }, null)).rejects.toBeInstanceOf(VaultLockedError);
+  expect(await store.getRecord("profile:new")).toBeNull();
+});
