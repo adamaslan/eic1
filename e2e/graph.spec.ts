@@ -209,6 +209,9 @@ test("graph maps a connection's authorship and likes, and honors hiding", async 
   // Hiding removes the connection, everything they authored, and every edge naming them.
   await page.goto("/connections");
   await page.getByRole("button", { name: "Hide", exact: true }).click();
+  // The confirmation renders only after the hide write and refresh commit; navigating
+  // before it can race the async vault write and show a stale map.
+  await expect(page.getByText("@sunny hidden. Their posts are still in your vault.")).toBeVisible();
   await page.goto("/graph");
   await expect(page.getByText("0 people · 1 post · 1 listing · 0 likes.")).toBeVisible();
   await expect(page.getByText("1 hidden connection stays out of the map.")).toBeVisible();
