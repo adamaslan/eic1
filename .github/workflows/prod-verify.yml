@@ -5,10 +5,26 @@ name: prod-verify
 # against the deployed site (e2e/prod.spec.ts). EXPECT_BUILD_SHA makes the suite wait for
 # the publish of THIS commit via the footer's build stamp before asserting. A failure
 # marks the merge commit red; it cannot block a deploy (branch protection is unchanged).
+#
+# The daily schedule catches regressions that arrive BETWEEN merges: Netlify can change
+# its production HTML rewrite at any time, and merge-triggered runs only see publishes.
+# Daily is the grounded cadence - every publish already gets a run, the site is static
+# between publishes except Netlify-side changes, and each run costs ~3 min of compute
+# plus a few page loads. workflow_dispatch allows a manual verification pass and the
+# seeded-failure control (dispatch with a bogus expect_build_sha must go red).
 
 on:
   push:
     branches: [main]
+  schedule:
+    # 11:17 UTC = 07:17 ET, off the top-of-hour rush.
+    - cron: "17 11 * * *"
+  workflow_dispatch:
+    inputs:
+      expect_build_sha:
+        description: "Override EXPECT_BUILD_SHA (control runs only)"
+        required: false
+        default: ""
 
 concurrency:
   group: prod-verify-${{ github.ref }}
@@ -29,7 +45,7 @@ jobs:
         run: npx playwright test e2e/prod.spec.ts
         env:
           EIC_TARGET_URL: https://everybodyiscool.netlify.app
-          EXPECT_BUILD_SHA: ${{ github.sha }}
+          EXPECT_BUILD_SHA: ${{ inputs.expect_build_sha || github.sha }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
