@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AppError } from "@veil/core";
 import type { UnlockedVault } from "@veil/vault";
-import { defaultProfile, getProfile, ProfileSchema, saveOwnProfile, type Profile } from "./profile";
+import { defaultProfile, getProfile, ProfileSchema, type Profile } from "./profile";
 import { loadSettings } from "./social";
 
 // Separate encrypted settings record. Feed code only reads profile:<authorId>, never this draft.
@@ -13,13 +13,14 @@ export const ProfileSelectionSchema = z.object({
 export const ProfileDraftSchema = z.object({
   format: z.literal("eic-profile-draft"), version: z.literal(1),
   profile: ProfileSchema,
+  feedBaseline: ProfileSchema.nullable().default(null),
   song: z.string().trim().max(120), book: z.string().trim().max(120),
   selected: ProfileSelectionSchema,
 });
 export type ProfileDraft = z.infer<typeof ProfileDraftSchema>;
 
 export function newProfileDraft(profile: Profile, existingShared = false): ProfileDraft {
-  return ProfileDraftSchema.parse({ format: "eic-profile-draft", version: 1, profile, song: "", book: "",
+  return ProfileDraftSchema.parse({ format: "eic-profile-draft", version: 1, profile, feedBaseline: existingShared ? profile : null, song: "", book: "",
     selected: { bio: existingShared, avatar: existingShared, decorations: existingShared, theme: existingShared, song: false, book: false } });
 }
 
@@ -56,5 +57,19 @@ export function selectedProfile(draft: ProfileDraft, fallbackName: string): Prof
 export async function updateFeedProfile(vault: UnlockedVault, draft: ProfileDraft, now: Date): Promise<Profile> {
   const settings = await loadSettings(vault);
   if (!settings.authorId || !settings.handle || draft.profile.authorId !== settings.authorId) throw new AppError("Choose your own handle first.");
-  return saveOwnProfile(vault, selectedProfile(draft, settings.handle), now);
+  const raw = await vault.getJson(`profile:${settings.authorId}`);
+  const current = raw === null ? null : ProfileSchema.parse(raw);
+  if (JSON.stringify(current) !== JSON.stringify(draft.feedBaseline)) {
+    throw new AppError("The saved profile changed. Review the latest feed profile before updating. Your private draft is safe; nothing was overwritten.");
+  }
+  const profile = ProfileSchema.parse({ ...selectedProfile(draft, settings.handle), seq: (current?.seq ?? 0) + 1, updatedAt: now.toISOString() });
+  await vault.putJsonIfUnchanged("profile", `profile:${settings.authorId}`, profile, raw);
+  return profile;
+}
+
+/** Explicit review action advances only the baseline, never shares or replaces private fields. */
+export async function reviewLatestFeedProfile(vault: UnlockedVault, draft: ProfileDraft): Promise<ProfileDraft> {
+  const settings = await loadSettings(vault);
+  if (!settings.authorId || settings.authorId !== draft.profile.authorId) throw new AppError("This is not your profile draft.");
+  return ProfileDraftSchema.parse({ ...draft, feedBaseline: await getProfile(vault, settings.authorId) });
 }
