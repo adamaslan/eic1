@@ -145,6 +145,7 @@ export async function buildChatShareLink(
  */
 export function readChatShareLink(hash: string): ChatLink | null {
   if (!hash.startsWith(CHAT_LINK_PREFIX)) return null;
+  if (hash.length > MAX_CHAT_LINK_CHARS) throw new AppError("That chat link is too long to be real.");
   try {
     return ChatLinkSchema.parse(JSON.parse(fromPaddedBase64Url(hash.slice(CHAT_LINK_PREFIX.length))));
   } catch {
@@ -162,11 +163,11 @@ export async function applyChatShareLink(
   vault: UnlockedVault,
   link: ChatLink,
   deps: ChatDeps,
-): Promise<{ authorId: string; handle: string; applied: number; total: number }> {
+): Promise<{ authorId: string; handle: string; applied: number; failed: number; total: number }> {
   const sender = (await listConnections(vault)).find((candidate) => candidate.id === link.from.id);
   if (!sender) {
     throw new AppError(
-      `This chat link is from @${link.from.handle}, who is not a connection yet. Ask them for a connect link first.`,
+      `This chat link is from @${link.from.handle}, who is not a connection yet. Ask them for a connect link first - once you connect, this link opens the chat on its own.`,
     );
   }
   if (!sender.pubkey) {
@@ -174,15 +175,22 @@ export async function applyChatShareLink(
       `Your connection with @${sender.handle} has no verified key. Re-import their signed share file, then open the link again.`,
     );
   }
+  // Structural mismatches reject the whole link; a per-envelope crypto failure is reported
+  // honestly instead of mislabeling the link damaged - anything already applied stays applied.
   let applied = 0;
+  let failed = 0;
   for (const envelope of link.envelopes) {
     if (envelope.authorId !== sender.id || envelope.kind !== "chat") {
       throw new AppError("That chat link is damaged. Ask your friend for a fresh one.");
     }
-    const result = await applyInboundChatEnvelope(vault, envelope, deps);
-    if (result.applied) applied += 1;
+    try {
+      const result = await applyInboundChatEnvelope(vault, envelope, deps);
+      if (result.applied) applied += 1;
+    } catch {
+      failed += 1;
+    }
   }
-  return { authorId: sender.id, handle: sender.handle, applied, total: link.envelopes.length };
+  return { authorId: sender.id, handle: sender.handle, applied, failed, total: link.envelopes.length };
 }
 
 /**
@@ -220,6 +228,7 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
 /** Reads a connect link fragment to its raw card text, or null when the hash is not one. */
 export function readConnectLink(hash: string): string | null {
   if (!hash.startsWith(CONNECT_LINK_PREFIX)) return null;
+  if (hash.length > MAX_CHAT_LINK_CHARS) throw new AppError("That connect link is too long to be real.");
   try {
     return fromPaddedBase64Url(hash.slice(CONNECT_LINK_PREFIX.length));
   } catch {
