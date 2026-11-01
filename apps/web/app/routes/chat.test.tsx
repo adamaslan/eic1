@@ -58,8 +58,10 @@ describe("ChatThreadView", () => {
         draft=""
         busy={false}
         error={null}
+        linkNotice={null}
         onDraft={noop}
         onSend={sendNoop}
+        onShareLink={noop}
       />,
     );
     expect(html.indexOf("first from friend")).toBeLessThan(html.indexOf("second from me"));
@@ -70,7 +72,7 @@ describe("ChatThreadView", () => {
 
   it("states the honest local-only delivery note and invites a first message when verified", () => {
     const html = render(
-      <ChatThreadView handle="friend" verified messages={[]} draft="" busy={false} error={null} onDraft={noop} onSend={sendNoop} />,
+      <ChatThreadView handle="friend" verified messages={[]} draft="" busy={false} error={null} linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} />,
     );
     expect(html).toContain("Automatic delivery is not connected yet");
     expect(html).not.toContain("pulls your");
@@ -79,7 +81,7 @@ describe("ChatThreadView", () => {
 
   it("is read-only with a clear notice for an unsigned connection", () => {
     const html = render(
-      <ChatThreadView handle="friend" verified={false} messages={[]} draft="" busy={false} error={null} onDraft={noop} onSend={sendNoop} />,
+      <ChatThreadView handle="friend" verified={false} messages={[]} draft="" busy={false} error={null} linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} />,
     );
     expect(html).toContain("unsigned share file");
     expect(html).toContain("import it from the Connections screen");
@@ -89,9 +91,33 @@ describe("ChatThreadView", () => {
     expect(send).toContain('disabled=""');
   });
 
+
+  it("offers a textable chat link and shows the copy notice", () => {
+    const html = render(
+      <ChatThreadView handle="friend" verified messages={[]} draft="" busy={false} error={null} linkNotice="Copied 2 messages as a link - paste it into a text." onDraft={noop} onSend={sendNoop} onShareLink={noop} />,
+    );
+    expect(html).toContain("Text a chat link");
+    expect(html).toContain("Copied 2 messages as a link");
+  });
+
+  it("offers the older batch when a link left messages out", () => {
+    const html = render(
+      <ChatThreadView handle="friend" verified messages={[]} draft="" busy={false} error={null} linkNotice={null} olderLeftOut={3} onDraft={noop} onSend={sendNoop} onShareLink={noop} onOlderLink={noop} />,
+    );
+    expect(html).toContain("Text the 3 older ones");
+  });
+
+  it("keeps the chat-link button off for an unsigned connection", () => {
+    const html = render(
+      <ChatThreadView handle="friend" verified={false} messages={[]} draft="" busy={false} error={null} linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} />,
+    );
+    const button = html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g)?.find((b) => b.includes("Text a chat link"));
+    expect(button).toContain('disabled=""');
+  });
+
   it("shows the send error", () => {
     const html = render(
-      <ChatThreadView handle="friend" verified messages={[]} draft="hi" busy={false} error="That did not send." onDraft={noop} onSend={sendNoop} />,
+      <ChatThreadView handle="friend" verified messages={[]} draft="hi" busy={false} error="That did not send." linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} />,
     );
     expect(html).toContain("That did not send.");
   });
