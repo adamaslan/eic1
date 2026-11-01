@@ -373,6 +373,8 @@ test("connections Map link preselects the person on the graph, and hiding keeps 
   await page.goto(href!);
   await expect(page.getByText("That connection is not on the map. Hidden connections stay off it.")).toBeVisible();
   await expect(page.getByText("Details — Connection")).toHaveCount(0);
+  await page.goto("/graph");
+  await expect(page.getByText("That connection is not on the map. Hidden connections stay off it.")).toHaveCount(0);
 
   expectCleanRuntime(watched);
 });
