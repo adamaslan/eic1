@@ -341,4 +341,4 @@ export function createGraphLayout(graph: SocialGraph, options: GraphLayoutOption
       ticks = Math.min(ticks, TICKS_TO_SETTLE * (1 - next));
     },
   };
-    }
+}
