@@ -47,6 +47,7 @@ test("journal entries can be saved, edited, searched, and deleted with confirmat
   await page.getByRole("button", { name: "🔒 Save entry" }).click();
   await expect(page.getByText("Bridge at dawn, worth the cold")).toBeVisible();
   await expect(page.getByLabel("What is on your mind?")).toBeEnabled();
+  await expect(page.getByText("Saved - encrypted in this vault.")).toBeVisible();
   await page.getByLabel("What is on your mind?").fill("Gym, then gallery paperwork");
   await page.getByRole("button", { name: "🔒 Save entry" }).click();
   await expect(page.getByText("Entries (2)")).toBeVisible();
@@ -72,6 +73,7 @@ test("journal entries can be saved, edited, searched, and deleted with confirmat
   await page.getByLabel("Edit entry").fill("Bridge at dawn, worth every cold minute");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Bridge at dawn, worth every cold minute")).toBeVisible();
+  await expect(page.getByText("Changes saved - encrypted in this vault.")).toBeVisible();
   await expect(page.getByText("Bridge at dawn, worth the cold", { exact: true })).toHaveCount(0);
 
   // Search narrows the list; a miss says so honestly.
@@ -101,6 +103,8 @@ test("journal entries can be saved, edited, searched, and deleted with confirmat
   await page.getByRole("button", { name: "Delete" }).first().click();
   await page.getByRole("button", { name: "Yes, delete" }).click();
   await expect(page.getByText("Entries (2)")).toBeVisible();
+  await expect(page.getByText("Saved - encrypted in this vault.")).toHaveCount(0);
+  await expect(page.getByText("Changes saved - encrypted in this vault.")).toHaveCount(0);
 
   expectCleanRuntime(watched);
 });
