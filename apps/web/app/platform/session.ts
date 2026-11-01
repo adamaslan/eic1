@@ -27,6 +27,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   setVault: (vault, expiresAt = Date.now() + SESSION_MS) =>
     set((state) => {
       lockMarkerAtUnlock = readLockMarker();
+      if (lockMarkerAtUnlock === "storage-unavailable") { vault.lock(); throw new VaultLockedError("Session storage is unavailable. Allow browser storage to unlock safely."); }
       return { vault: guardedVault(vault, expiresAt, lockMarkerAtUnlock), expiresAt, resuming: false, revision: state.revision + 1 };
     }),
   doneResuming: () => set({ resuming: false }),
@@ -82,7 +83,7 @@ function guardedVault(vault: UnlockedVault, expiresAt: number, marker: string | 
     const value = Reflect.get(target, property);
     if (typeof value !== "function" || property === "lock") return value;
     return (...args: unknown[]) => {
-      if (Date.now() >= expiresAt || readLockMarker() !== marker) {
+      if (Date.now() >= expiresAt || readLockMarker() === "storage-unavailable" || readLockMarker() !== marker) {
         void lockSession(false);
         throw new VaultLockedError("The vault is locked.");
       }
