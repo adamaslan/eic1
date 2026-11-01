@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { AppError } from "@veil/core";
+import { buildVaultExport, describeExport, listJournal, type ExportSelection } from "@veil/features";
 import { useVaultItems } from "@veil/features";
+import { listConnections, loadSettings } from "@veil/features";
 import type { Route } from "./+types/vault";
 import { Window } from "~/ui95/Window";
 import { Button95 } from "~/ui95/Button95";
@@ -26,6 +28,33 @@ export default function VaultScreen() {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [phrase, setPhrase] = useState("");
+  const [selection, setSelection] = useState<ExportSelection>({ items: true, journal: true, connections: true });
+
+  async function handleReadableExport() {
+    setError(null);
+    if (!vault) return;
+    try {
+      const items = state.status === "ready" ? state.items : [];
+      const [journal, connections, settings] = await Promise.all([
+        listJournal(vault),
+        listConnections(vault),
+        loadSettings(vault),
+      ]);
+      const bundle = buildVaultExport({
+        handle: settings.handle,
+        items,
+        journal,
+        connections,
+        selection,
+        now: new Date(),
+      });
+      const day = new Date().toISOString().slice(0, 10);
+      downloadTextFile(`eic-export-${day}.json`, JSON.stringify(bundle, null, 2));
+      setNotice(`Exported ${describeExport(bundle)}. The file is readable by anyone who has it - it is only in this device's downloads.`);
+    } catch (caught) {
+      setError(caught instanceof AppError ? caught.message : "The export could not be created.");
+    }
+  }
 
   async function handleExport() {
     setError(null);
@@ -80,6 +109,33 @@ export default function VaultScreen() {
         <p className="text-[#404040]">
           To restore a backup on another browser, choose “Restore from backup” on that browser’s unlock screen.
         </p>
+
+        <fieldset className="flex flex-col gap-2 border border-[#808080] p-2">
+          <legend className="px-1 font-bold">Export a readable copy</legend>
+          <p className="text-[#404040]">
+            Plain JSON anyone with the file can read. It downloads to this device only; nothing is sent anywhere. For an
+            encrypted copy, use the backup above.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {(["items", "journal", "connections"] as const).map((key) => (
+              <label key={key} className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={selection[key]}
+                  onChange={() => setSelection((current) => ({ ...current, [key]: !current[key] }))}
+                />
+                {key === "items" ? "Posts and listings" : key === "journal" ? "Journal entries" : "Connections"}
+              </label>
+            ))}
+          </div>
+          <Button95
+            onClick={handleReadableExport}
+            disabled={!selection.items && !selection.journal && !selection.connections}
+            className="self-start"
+          >
+            Export readable copy
+          </Button95>
+        </fieldset>
 
         <fieldset className="flex flex-col gap-2 border border-[#808080] p-2">
           <legend className="px-1 font-bold text-[#800000]">Danger zone</legend>
