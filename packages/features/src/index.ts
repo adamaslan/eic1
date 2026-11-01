@@ -15,3 +15,4 @@ export * from "./sync";
 export * from "./profile";
 export * from "./paint";
 export * from "./music";
+export * from "./graph";
