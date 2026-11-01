@@ -63,6 +63,34 @@ test("connections mounts through loading -> loaded on one component instance", a
   expectCleanRuntime(watched);
 });
 
+test("compose write fault shows an error and carries no saved notice", async ({ page, context }) => {
+  const watched = watchRuntime(page);
+  await context.addInitScript(() => {
+    const original = IDBObjectStore.prototype.put;
+    (window as unknown as { __eicFaultPut?: boolean }).__eicFaultPut = false;
+    IDBObjectStore.prototype.put = function (value: unknown, key?: unknown) {
+      if ((window as unknown as { __eicFaultPut?: boolean }).__eicFaultPut && this.name === "records") {
+        return Promise.reject(new DOMException("Injected test fault: record write failed", "AbortError")) as unknown as IDBRequest;
+      }
+      return original.call(this, value, key as IDBValidKey);
+    };
+  });
+  await createVault(page);
+  await page.getByRole("link", { name: "+ Post" }).click();
+  await page.getByRole("radio", { name: "Marketplace listing" }).check();
+  const title = `CI fault listing ${Date.now()}`;
+  await page.getByLabel("Title").fill(title);
+  await page.getByLabel("Notes").fill("fault injection");
+  await page.evaluate(() => { (window as unknown as { __eicFaultPut?: boolean }).__eicFaultPut = true; });
+  await page.getByRole("button", { name: /Encrypt & save/ }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page).toHaveURL(/\/compose/);
+  await page.goto("/market");
+  await expect(page.getByText("Saved - encrypted in this vault.")).toHaveCount(0);
+  await expect(page.getByText(title)).toHaveCount(0);
+  expectCleanRuntime(watched);
+});
+
 test("compose listing -> market loads populated with the new listing", async ({ page }) => {
   const watched = watchRuntime(page);
   await createVault(page);
@@ -75,5 +103,16 @@ test("compose listing -> market loads populated with the new listing", async ({ 
   await page.waitForURL("**/market");
   // Market mounts and passes loading -> loaded with the just-saved listing present.
   await expect(page.getByText(title)).toBeVisible();
+  await expect(page.getByText("Saved - encrypted in this vault.")).toBeVisible();
+  // The notice is consumed: reload, browser Back to the saved entry, and a later plain
+  // navigation must not re-announce the save.
+  await page.reload();
+  await expect(page.getByText("Saved - encrypted in this vault.")).toHaveCount(0);
+  await page.getByRole("link", { name: "Home" }).click();
+  await page.goBack();
+  await expect(page.getByText("Saved - encrypted in this vault.")).toHaveCount(0);
+  await page.getByRole("link", { name: "Market" }).click();
+  await expect(page.getByText(title)).toBeVisible();
+  await expect(page.getByText("Saved - encrypted in this vault.")).toHaveCount(0);
   expectCleanRuntime(watched);
 });

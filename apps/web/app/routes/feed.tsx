@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { selectFeed, useVaultItems } from "@veil/features";
 import type { Route } from "./+types/feed";
 import { PhotoCard } from "~/components/cards";
@@ -13,6 +13,22 @@ export function meta(_args: Route.MetaArgs) {
 export default function Feed() {
   const vault = useSessionStore((state) => state.vault);
   const { state, reload } = useVaultItems(vault);
+  const location = useLocation();
+  const navigate = useNavigate();
+  // One-shot save notice: capture the flag once, then clear it from history state so a
+  // reload or a later Back to this entry does not re-announce a stale success.
+  const [justSaved] = useState(() => (location.state as { saved?: boolean } | null)?.saved === true);
+  const cleared = useRef(false);
+  useEffect(() => {
+    if (!justSaved || cleared.current) return;
+    cleared.current = true;
+    const rest = { ...(location.state as Record<string, unknown> | null) };
+    delete rest.saved;
+    navigate(`${location.pathname}${location.search}${location.hash}`, {
+      replace: true,
+      state: Object.keys(rest).length > 0 ? rest : null,
+    });
+  }, [justSaved, location, navigate]);
   const [query, setQuery] = useState("");
 
   if (state.status === "loading") return <p className="text-[12px]">Loading posts…</p>;
@@ -23,6 +39,7 @@ export default function Feed() {
 
   return (
     <div className="flex flex-col gap-2">
+      {justSaved && <p role="status" className="text-[12px]">Saved - encrypted in this vault.</p>}
       <div className="flex items-center gap-2">
         <input
           type="search"
