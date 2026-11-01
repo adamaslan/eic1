@@ -269,3 +269,49 @@ test.describe("phone-width (390px)", () => {
     expectCleanRuntime(watched);
   });
 });
+
+test("saving never bakes an uncommitted text preview into the post", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  await drawStroke(page);
+  const strokeInk = await inkPixels(page);
+  expect(strokeInk).toBeGreaterThan(0);
+
+  // Arm the text tool and type a preview, but do NOT place it.
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const canvas = page.locator("canvas").first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas has no bounding box");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.getByLabel("Text to place").fill("unsaved preview");
+  const previewInk = await inkPixels(page);
+  expect(previewInk).toBeGreaterThan(strokeInk);
+
+  // Save: the preview is discarded first, so the stored image holds the stroke only.
+  await page.getByLabel("Title").fill("preview-check");
+  await page.getByRole("button", { name: /Encrypt & save/ }).click();
+  await expect(page).toHaveURL(/\/feed$/);
+
+  const savedInk = await page.locator("main img").first().evaluate((node) => {
+    const img = node as HTMLImageElement;
+    const probe = document.createElement("canvas");
+    probe.width = img.naturalWidth;
+    probe.height = img.naturalHeight;
+    const context = probe.getContext("2d");
+    if (!context || probe.width === 0) return -1;
+    context.drawImage(img, 0, 0);
+    const data = context.getImageData(0, 0, probe.width, probe.height).data;
+    let inked = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] < 250 || data[i + 1] < 250 || data[i + 2] < 250) inked += 1;
+    }
+    return inked;
+  });
+  expect(savedInk).toBeGreaterThan(0);
+  // The full image is the 192px canvas (the thumbnail is smaller); text would add a
+  // large block of ink. Compare proportionally: stroke-only ink scales with area.
+  expect(savedInk).toBeLessThan(previewInk);
+  expectCleanRuntime(watched);
+});
