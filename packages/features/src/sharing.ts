@@ -18,7 +18,7 @@ import { generateSigningKeyPair, signPayload, verifySignature } from "@veil/cryp
 import { addNote } from "./social";
 
 export const SHARE_FORMAT = "eic-share";
-const SHARE_VERSION = 1;
+export const SHARE_VERSION = 1;
 const SHARE_VERSION_V2 = 2;
 export const MAX_SHARE_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_POSTS = 100;
