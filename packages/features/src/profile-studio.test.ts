@@ -3,7 +3,7 @@ import { createVault } from "@veil/vault";
 import { SubtleCryptoPort } from "@veil/crypto";
 import { MemoryStore } from "../../vault/src/memory-store";
 import { defaultProfile, getProfile, ProfileSchema } from "./profile";
-import { newProfileDraft, loadProfileDraft, saveProfileDraft, selectedProfile, updateFeedProfile } from "./profile-studio";
+import { newProfileDraft, reviewLatestFeedProfile, loadProfileDraft, saveProfileDraft, selectedProfile, updateFeedProfile } from "./profile-studio";
 import { defaultSettings, saveSettings } from "./social";
 import { buildFeedSnapshot } from "./feed";
 const now = new Date("2026-11-01T16:00:00Z");
@@ -44,6 +44,7 @@ describe("private profile studio", () => {
     const draft = await loadProfileDraft(vault);
     draft.song = "Previously selected"; draft.selected.song = true;
     const first = await updateFeedProfile(vault, draft, now);
+    draft.feedBaseline = first;
     draft.selected.song = false;
     const next = await updateFeedProfile(vault, draft, now);
     expect(next.seq).toBe(first.seq + 1); expect(next.bio).toBe("");
@@ -64,6 +65,7 @@ describe("private profile studio", () => {
   it("over-cap selection fails without truncation or altering the saved feed", async () => {
     const { vault } = await setup(); const draft = await loadProfileDraft(vault);
     const before = await updateFeedProfile(vault, draft, now);
+    draft.feedBaseline = before;
     draft.profile.bio = "x".repeat(500); draft.song = "more"; draft.selected.bio = true; draft.selected.song = true;
     await expect(updateFeedProfile(vault, draft, now)).rejects.toThrow("Nothing was updated");
     expect(await getProfile(vault, "alice")).toEqual(before);
@@ -120,5 +122,31 @@ describe("profile studio compatibility and isolation", () => {
     expect((await applyProfile(other, incoming.profile)).applied).toBe(true);
     expect((await getProfile(other, "alice"))!.bio).toBe("Favorite song: Shared song");
     expect((await getProfile(other, "alice"))!.avatar).toBe(null);
+  });
+});
+
+describe("stale feed publication", () => {
+  it("rejects stale studio state and preserves current fields; explicit latest review permits retry", async () => {
+    const { vault } = await setup();
+    const old = await loadProfileDraft(vault), other = await loadProfileDraft(vault);
+    other.profile.theme.wallpaper = "clouds"; other.selected.theme = true;
+    const newer = await updateFeedProfile(vault, other, now);
+    old.song = "private song"; old.selected.song = false;
+    await expect(updateFeedProfile(vault, old, now)).rejects.toThrow("saved profile changed");
+    expect(await getProfile(vault, "alice")).toEqual(newer);
+    const reviewed = await reviewLatestFeedProfile(vault, old);
+    expect(reviewed.song).toBe("private song"); expect(reviewed.selected.song).toBe(false);
+    expect(reviewed.feedBaseline).toEqual(newer);
+    const updated = await updateFeedProfile(vault, reviewed, now);
+    expect(updated.seq).toBe(newer.seq + 1); expect(updated.bio).not.toContain("private song");
+  });
+  it("two sessions racing through encryption cannot overwrite the winning update", async () => {
+    const { vault } = await setup();
+    const left = await loadProfileDraft(vault), right = await loadProfileDraft(vault);
+    left.profile.displayName = "left"; right.profile.displayName = "right";
+    const result = await Promise.allSettled([updateFeedProfile(vault, left, now), updateFeedProfile(vault, right, now)]);
+    expect(result.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect(result.filter(r => r.status === "rejected")).toHaveLength(1);
+    expect((await getProfile(vault, "alice"))!.seq).toBe(1);
   });
 });
