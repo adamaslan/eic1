@@ -92,6 +92,41 @@ test("graph maps composed posts and listings, selects nodes, and switches views"
   await expect(me).toBeVisible();
   await page.getByRole("button", { name: "List", exact: true }).click();
   await expect(page.getByRole("link", { name: "Bridge at dawn" })).toBeVisible();
+
+  // List rows open the same Details window the map shows - selection parity for keyboard
+  // and screen-reader users who cannot use the SVG map. The pressed row marks itself.
+  // (The bridge post is still selected from the map view; the listing row starts unpressed.)
+  const crateDetails = page.getByRole("button", { name: "Details for Milk crate shelves" });
+  await expect(crateDetails).toHaveAttribute("aria-pressed", "false");
+  await crateDetails.click();
+  await expect(crateDetails).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Details — Market listing")).toBeVisible();
+  await expect(page.getByText("Details — Feed post")).toHaveCount(0);
+  await crateDetails.click();
+  await expect(page.getByText("Details — Market listing")).toHaveCount(0);
+
+  // Keyboard-only: Tab reaches the distinctly-named button, focus is visibly outlined,
+  // and Enter/Space activate it without a mouse.
+  const youDetails = page.getByRole("button", { name: "Details for You" });
+  await youDetails.focus();
+  await expect(youDetails).toBeFocused();
+  const outline = await youDetails.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return `${style.outlineStyle} ${style.outlineWidth}`;
+  });
+  expect(outline).not.toContain("none");
+  await page.keyboard.press("Enter");
+  await expect(youDetails).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Details — You")).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(page.getByText("Details — You")).toHaveCount(0);
+
+  // Filters narrow the list rows too.
+  await page.getByLabel("Filter by name or title").fill("crate");
+  await expect(page.getByRole("link", { name: "Bridge at dawn" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Milk crate shelves" })).toBeVisible();
+  await page.getByLabel("Filter by name or title").fill("");
+
   await page.getByRole("button", { name: "Graph", exact: true }).click();
   await expect(me).toBeVisible();
 
