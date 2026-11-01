@@ -9,7 +9,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
 
-function watchRuntime(page: Page) {
+async function watchRuntime(page: Page) {
+  // Netlify preview injects Segment analytics; it is external to app runtime and flaky in CI.
+  await page.route("https://cdn.segment.com/**", (route) => route.abort());
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
   page.on("console", (message) => {
@@ -41,7 +43,9 @@ async function stubShareCapture(page: Page) {
 async function createVault(page: Page, handle?: string) {
   vaultCounter += 1;
   const passphrase = `journal-share-passphrase-${Date.now()}-${vaultCounter}`;
-  await page.goto("/");
+  // Preserve an arrival link captured in this document's memory. The actual landing CTA
+  // is client-side navigation; reloading / here would intentionally discard that memory.
+  if (new URL(page.url()).pathname !== "/") await page.goto("/");
   await page.getByRole("link", { name: "Create or open your vault" }).first().click();
   await page.getByLabel("Passphrase", { exact: true }).fill(passphrase);
   await page.getByLabel("Confirm passphrase").fill(passphrase);
@@ -66,8 +70,8 @@ test("a shared journal entry opens for the recipient and saves only on their exp
   const bobContext = await browser.newContext();
   const alice = await aliceContext.newPage();
   const bob = await bobContext.newPage();
-  const watchedAlice = watchRuntime(alice);
-  const watchedBob = watchRuntime(bob);
+  const watchedAlice = await watchRuntime(alice);
+  const watchedBob = await watchRuntime(bob);
   await stubShareCapture(alice);
 
   // Alice writes two entries and shares one of them, explicitly.
@@ -92,15 +96,11 @@ test("a shared journal entry opens for the recipient and saves only on their exp
   // DOMContentLoaded guarantees deferred module scripts ran; React effects have NOT run at
   // this point, so an effect-based stash would deterministically fail here.
   await bob.goto(link, { waitUntil: "domcontentloaded" });
-  // Deterministic, no settling wait: at DOMContentLoaded the parse is complete, so the
-  // shell's synchronous inline script has parked the raw hash. (The typed slot is promoted
-  // by the entry module before hydration finishes - i.e. before anything is tappable - so
-  // asserting the raw key here is the exact boundary the fix guarantees. Pre-fix, NOTHING
-  // was captured until a post-hydration effect and this assertion fails.)
-  expect(
-    await bob.evaluate(() => window.sessionStorage.getItem("eic.arrivalHash")),
-    "link payload must be parked at parse time - no paint, effect, or settling wait involved",
-  ).toContain("#import=");
+  // Journal text remains in document memory only; it is removed from the address bar and
+  // never written to sessionStorage, including either pending-link slot.
+  await expect.poll(() => new URL(bob.url()).hash).toBe("");
+  expect(await bob.evaluate(() => window.sessionStorage.getItem("eic.arrivalHash"))).toBeNull();
+  expect(await bob.evaluate(() => window.sessionStorage.getItem("eic.pendingLink.v2.post"))).toBeNull();
   await createVault(bob);
   await expect(bob.getByText("A friend shared a journal entry")).toBeVisible();
   await expect(bob.getByText("Bridge at dawn, worth the cold")).toBeVisible();
@@ -128,7 +128,7 @@ test("a shared journal entry opens for the recipient and saves only on their exp
 });
 
 test("an entry too big for a link fails honestly and shares nothing", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await stubShareCapture(page);
   await createVault(page, "carol");
   await page.goto("/tools/journal");
@@ -148,7 +148,7 @@ test("a long unbroken shared entry stays bounded and its actions stay reachable 
   const bobContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const alice = await aliceContext.newPage();
   const bob = await bobContext.newPage();
-  const watchedBob = watchRuntime(bob);
+  const watchedBob = await watchRuntime(bob);
   await stubShareCapture(alice);
 
   // One 4000-char unbroken token: fits the link cap (ASCII), breaks naive dialog layouts.
@@ -266,7 +266,7 @@ test("a fast tap with storage denied still keeps the link (in-memory retention)"
 });
 
 test("a damaged journal payload shows the honest damaged state, never a save affordance", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page, "dana");
   // type marker present (routes it to the journal dialog) but the bundle is incomplete.
   const damaged = JSON.stringify({ format: "eic-share", version: 1, type: "journal-entry" });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { AppError, JOURNAL_ENTRY_MAX, timeAgo, type JournalEntry } from "@veil/core";
-import { addJournalEntry, buildJournalShareBundle, buildJournalShareLink, deleteJournalEntry, filterJournal, listJournal, loadSettings, updateJournalEntry } from "@veil/features";
+import { addJournalEntry, applyJournalFilters, buildJournalShareBundle, buildJournalShareLink, deleteJournalEntry, emptyJournalFilter, isJournalFilterActive, JOURNAL_DATE_RANGES, listJournal, loadSettings, updateJournalEntry, type JournalDateRange } from "@veil/features";
 import type { Route } from "./+types/journal";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
@@ -19,6 +19,7 @@ export default function Journal() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
+  const [range, setRange] = useState<JournalDateRange>("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -118,7 +119,10 @@ export default function Journal() {
   }
 
   const now = new Date();
-  const shown = entries === null ? null : filterJournal(entries, query);
+  const filter = { query, range };
+  const filterActive = isJournalFilterActive(filter);
+  const filtered = entries === null ? null : applyJournalFilters(entries, filter, now);
+  const shown = filtered === null ? null : filtered.entries;
   return (
     <div className="flex flex-col gap-3">
       <Window title="New entry">
@@ -130,6 +134,7 @@ export default function Journal() {
             rows={5}
             maxLength={JOURNAL_ENTRY_MAX}
             value={text}
+            disabled={saving}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={saveOnShortcut}
             className="w-full bg-white px-1.5 py-1 text-[12px] outline-none"
@@ -144,21 +149,51 @@ export default function Journal() {
 
       <Window title={`Entries${entries ? ` (${entries.length})` : ""}`}>
         {entries !== null && entries.length > 0 && (
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search entries"
-            aria-label="Search entries"
-            className="mb-2 w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px]"
-          />
+          <div className="mb-2 flex flex-col gap-1">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search entries"
+              aria-label="Search entries"
+              className="w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px]"
+            />
+            <div className="flex flex-wrap items-center gap-1">
+              {JOURNAL_DATE_RANGES.map((option) => (
+                <Button95 key={option.id} pressed={range === option.id} onClick={() => setRange(option.id)}>
+                  {option.label}
+                </Button95>
+              ))}
+              {filterActive && (
+                <Button95
+                  onClick={() => {
+                    setQuery("");
+                    setRange(emptyJournalFilter.range);
+                  }}
+                >
+                  Clear filter
+                </Button95>
+              )}
+            </div>
+            {filterActive && filtered !== null && (
+              <p className="text-[11px] text-[#404040]">
+                Showing {filtered.entries.length} of {filtered.total} {filtered.total === 1 ? "entry" : "entries"}.
+              </p>
+            )}
+          </div>
         )}
         {shown === null ? (
           <p className="text-[12px]">Loading…</p>
         ) : entries!.length === 0 ? (
           <p className="text-[12px]">No entries yet.</p>
         ) : shown.length === 0 ? (
-          <p className="text-[12px]">No entries match that search.</p>
+          <p className="text-[12px]">
+            {query.trim() !== "" && range !== "all"
+              ? "No entries match that search in that date range."
+              : query.trim() !== ""
+                ? "No entries match that search."
+                : "No entries in that date range."}
+          </p>
         ) : (
           <ul className="flex flex-col gap-1 text-[12px]">
             {shown.map((entry) => (
