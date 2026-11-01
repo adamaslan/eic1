@@ -27,6 +27,7 @@ export default function Chores() {
   const [name, setName] = useState("");
   const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -35,12 +36,14 @@ export default function Chores() {
   const todayKey = localDateKey(new Date());
   const weekLabel = `${week[0]!.toLocaleDateString([], { month: "short", day: "numeric" })} – ${week[6]!.toLocaleDateString([], { month: "short", day: "numeric" })}`;
 
-  const reload = useCallback(async () => {
-    if (!vault) return;
+  const reload = useCallback(async (): Promise<boolean> => {
+    if (!vault) return false;
     try {
       setChores(await listChores(vault));
+      return true;
     } catch {
       setError("The chore chart could not be read.");
+      return false;
     }
   }, [vault]);
 
@@ -49,6 +52,7 @@ export default function Chores() {
   }, [reload]);
 
   function flipDay(day: number) {
+    setNotice(null);
     setDays((current) => (current.includes(day) ? current.filter((d) => d !== day) : [...current, day].sort((a, b) => a - b)));
   }
 
@@ -57,12 +61,17 @@ export default function Chores() {
     if (!vault || saving) return;
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       await addChore(vault, { name, days }, { newId: newItemId, now: new Date() });
+      // The encrypted write landed: clear the form, then confirm explicitly.
+      // A failed refresh afterwards must not read as a failed save.
       setName("");
       setDays([0, 1, 2, 3, 4, 5, 6]);
-      await reload();
+      const refreshed = await reload();
+      setNotice(refreshed ? "Chore saved to your encrypted vault." : "Chore saved to your encrypted vault, but the chart couldn't refresh.");
     } catch (caught) {
+      // Pre-write failure: the input stays untouched so nothing is lost.
       setError(caught instanceof AppError ? caught.message : "The chore could not be saved. Please try again.");
     } finally {
       setSaving(false);
@@ -73,9 +82,11 @@ export default function Chores() {
     if (!vault || busyKey) return;
     setBusyKey(`${chore.id}:${key}`);
     setError(null);
+    setNotice(null);
     try {
       await toggleChoreDone(vault, chore.id, key);
-      await reload();
+      const refreshed = await reload();
+      setNotice(refreshed ? "Check-off saved to your encrypted vault." : "Check-off saved to your encrypted vault, but the chart couldn't refresh.");
     } catch (caught) {
       setError(caught instanceof AppError ? caught.message : "The check-off could not be saved. Please try again.");
     } finally {
@@ -87,9 +98,11 @@ export default function Chores() {
     if (!vault || busyKey) return;
     setBusyKey(chore.id);
     setError(null);
+    setNotice(null);
     try {
       await deleteChore(vault, chore.id);
-      await reload();
+      const refreshed = await reload();
+      setNotice(refreshed ? "Chore deleted." : "Chore deleted, but the chart couldn't refresh.");
     } catch (caught) {
       setError(caught instanceof AppError ? caught.message : "The chore could not be deleted. Please try again.");
     } finally {
@@ -183,7 +196,7 @@ export default function Chores() {
             type="text"
             maxLength={CHORE_NAME_MAX}
             value={name}
-            onChange={(change) => setName(change.target.value)}
+            onChange={(change) => { setName(change.target.value); setNotice(null); }}
             placeholder="e.g. Water plants"
             className="w-full bg-white px-1.5 py-1 text-[12px] outline-none"
           />
@@ -201,6 +214,7 @@ export default function Chores() {
               {saving ? "Encrypting…" : "🔒 Save chore"}
             </Button95>
           </div>
+          {notice && <p role="status" className="text-[#008000]">{notice}</p>}
           {error && <p role="alert" className="text-[#800000]">{error}</p>}
         </form>
         <p className="mt-2 text-[12px]">
