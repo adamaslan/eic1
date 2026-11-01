@@ -1,0 +1,63 @@
+import { test, expect } from "@playwright/test";
+test("local avatar and sticker edits save privately; destructive decoration clear asks first", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/unlock"); await page.getByLabel("Passphrase", { exact: true }).fill("profile-assets-test-passphrase"); await page.getByLabel("Confirm passphrase").fill("profile-assets-test-passphrase"); await page.getByRole("button", { name: "Create vault" }).click();
+  await page.getByRole("link", { name: "Connections", exact: true }).click(); await page.getByLabel("Handle", { exact: true }).fill("decorator"); await page.getByRole("button", { name: "Save", exact: true }).click(); await expect(page.getByText("Handle saved.")).toBeVisible();
+  await page.getByRole("link", { name: "View my profile", exact: true }).click(); await page.getByRole("button", { name: "Customize profile" }).click();
+  const png = await page.evaluate(() => { const c = document.createElement("canvas"); c.width = 200; c.height = 100; const x = c.getContext("2d")!; x.fillStyle = "red"; x.fillRect(0, 0, 200, 100); return c.toDataURL("image/png").split(",")[1]; });
+  await page.getByLabel("Choose avatar image").setInputFiles({ name: "local.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+  await expect(page.getByText(/encoded avatar bytes/)).toBeVisible();
+  await page.getByRole("button", { name: "Add star", exact: true }).click(); await page.getByRole("button", { name: "Move right", exact: true }).click(); await page.getByRole("button", { name: "Larger", exact: true }).click();
+  await expect(page.getByText("Position 15%, 6% · size 1.25x")).toBeVisible();
+  await page.getByRole("button", { name: "Remove all decorations...", exact: true }).click(); await page.getByRole("button", { name: "Keep decorations", exact: true }).click(); await expect(page.getByText(/1\/32 decorations/)).toBeVisible();
+  await page.getByRole("button", { name: "Save private draft", exact: true }).click(); await expect(page.getByRole("status")).toContainText("Feed profile unchanged");
+  await page.getByRole("button", { name: "Preview selected feed profile", exact: true }).click(); const preview = page.getByRole("region", { name: "Selected feed profile preview" }); await expect(preview.locator("img")).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "Avatar", exact: true }).check(); await page.getByRole("checkbox", { name: "Decorations", exact: true }).check(); await expect(preview.locator("img")).toHaveCount(2);
+  const avatar = preview.getByAltText("decorator's avatar");
+  await expect(avatar).toHaveJSProperty("naturalWidth", 96); await expect(avatar).toHaveJSProperty("naturalHeight", 96);
+  await preview.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath("profile-assets-phone.png") });
+  await page.reload(); await page.getByRole("button", { name: "Customize profile" }).click(); await expect(page.getByText(/1\/32 decorations/)).toBeVisible(); await expect(page.getByText(/encoded avatar bytes/)).toBeVisible();
+  await page.getByLabel("Choose avatar image").setInputFiles({ name: "bad.svg", mimeType: "image/svg+xml", buffer: Buffer.from("<svg/>") }); await expect(page.getByRole("alert")).toContainText("Choose a PNG"); await expect(page.getByText(/encoded avatar bytes/)).toBeVisible();
+  await page.getByRole("button", { name: "Remove all decorations...", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm remove all", exact: true }).click(); await expect(page.getByText(/0\/32 decorations/)).toBeVisible();
+  await page.getByRole("button", { name: "Remove avatar", exact: true }).click(); await expect(page.getByText(/encoded avatar bytes/)).toHaveCount(0);
+});
+test("20 Paint avatars are local, private by default, and preview only shares explicitly chosen avatar", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/unlock"); await page.getByLabel("Passphrase", { exact: true }).fill("profile-avatar-test-passphrase"); await page.getByLabel("Confirm passphrase").fill("profile-avatar-test-passphrase"); await page.getByRole("button", { name: "Create vault" }).click();
+  await page.getByRole("link", { name: "Connections", exact: true }).click(); await page.getByLabel("Handle", { exact: true }).fill("avatarfan"); await page.getByRole("button", { name: "Save", exact: true }).click(); await expect(page.getByText("Handle saved.")).toBeVisible();
+  await page.getByRole("link", { name: "View my profile", exact: true }).click(); await page.getByRole("button", { name: "Customize profile" }).click();
+  const picker = page.getByRole("group", { name: "Paint avatars", exact: true }); await expect(picker.getByRole("button")).toHaveCount(20);
+  for (const image of await picker.locator("img").all()) { await expect(image).toHaveJSProperty("naturalWidth", 96); await expect(image).toHaveJSProperty("naturalHeight", 96); expect(await image.getAttribute("src")).toMatch(/^data:image\/png;base64,/); }
+  await picker.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath("avatar-picker-phone.png") });
+  await picker.getByRole("button", { name: "Blob thing", exact: true }).scrollIntoViewIfNeeded();
+  await expect(picker.getByRole("button", { name: "Blob thing", exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("avatar-picker-bottom-phone.png") });
+  await picker.getByRole("button", { name: "Seal", exact: true }).click();
+  await page.getByRole("button", { name: "Save private draft", exact: true }).click(); await expect(page.getByRole("status")).toContainText("Feed profile unchanged");
+  await page.getByRole("button", { name: "Preview selected feed profile", exact: true }).click(); const preview = page.getByRole("region", { name: "Selected feed profile preview" }); await expect(preview.locator("img")).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "Avatar", exact: true }).check(); await expect(preview.getByAltText("avatarfan's avatar")).toBeVisible(); await preview.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath("avatar-seal-preview-phone.png") });
+  await page.reload(); await page.getByRole("button", { name: "Customize profile" }).click(); await expect(page.getByText(/encoded avatar bytes/)).toBeVisible(); await expect(page.getByRole("checkbox", { name: "Avatar", exact: true })).not.toBeChecked();
+});
+test("pending local avatar decode is cancelled on editor unmount and cannot revive discarded edits", async ({ page }) => {
+  await page.goto("/unlock"); await page.getByLabel("Passphrase", { exact: true }).fill("profile-cancel-test-passphrase"); await page.getByLabel("Confirm passphrase").fill("profile-cancel-test-passphrase"); await page.getByRole("button", { name: "Create vault" }).click();
+  await page.getByRole("link", { name: "Connections", exact: true }).click(); await page.getByLabel("Handle", { exact: true }).fill("canceltest"); await page.getByRole("button", { name: "Save", exact: true }).click(); await expect(page.getByText("Handle saved.")).toBeVisible();
+  await page.getByRole("link", { name: "View my profile", exact: true }).click(); await page.getByRole("button", { name: "Customize profile" }).click();
+  await page.getByRole("group", { name: "Paint avatars", exact: true }).getByRole("button", { name: "Seal", exact: true }).click(); await page.getByRole("button", { name: "Save private draft", exact: true }).click(); await expect(page.getByRole("status")).toContainText("Feed profile unchanged");
+  const image = await page.evaluate(() => {
+    const w = window as unknown as { finishDecode: () => void; bitmapClosed: boolean };
+    const canvas = document.createElement("canvas"); canvas.width = 96; canvas.height = 96;
+    canvas.getContext("2d")!.fillRect(0, 0, 96, 96);
+    const original = window.createImageBitmap.bind(window);
+    window.createImageBitmap = async (...args: Parameters<typeof createImageBitmap>) => { const bitmap = await original(...args); const close = bitmap.close.bind(bitmap); bitmap.close = () => { w.bitmapClosed = true; close(); }; return new Promise<ImageBitmap>(resolve => { w.finishDecode = () => resolve(bitmap); }); };
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await page.getByLabel("Choose avatar image").setInputFiles({ name: "pending.png", mimeType: "image/png", buffer: Buffer.from(image, "base64") });
+  await expect(page.getByText("Resizing locally...")).toBeVisible();
+  await page.getByRole("button", { name: "Close editor", exact: true }).click();
+  await page.evaluate(() => (window as unknown as { finishDecode: () => void }).finishDecode());
+  await expect.poll(() => page.evaluate(() => (window as unknown as { bitmapClosed: boolean }).bitmapClosed)).toBe(true);
+  await page.getByRole("button", { name: "Customize profile" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0); await expect(page.getByText(/encoded avatar bytes/)).toContainText("487");
+  await page.getByRole("button", { name: "Save private draft", exact: true }).click(); await page.reload(); await page.getByRole("button", { name: "Customize profile" }).click(); await expect(page.getByText(/encoded avatar bytes/)).toContainText("487");
+});
