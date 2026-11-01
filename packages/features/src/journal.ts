@@ -74,6 +74,7 @@ const RANGE_MS: Record<Exclude<JournalDateRange, "all">, number> = {
 export function filterJournalByDate(entries: JournalEntry[], range: JournalDateRange, now: Date): JournalEntry[] {
   if (range === "all") return entries;
   const cutoff = now.getTime() - RANGE_MS[range];
+  // JournalEntrySchema validates createdAt as an ISO datetime before entries reach this selector.
   return entries.filter((entry) => Date.parse(entry.createdAt) >= cutoff);
 }
 
