@@ -42,3 +42,37 @@ describe("journal", () => {
     expect(await vault.listJson("note")).toEqual([]);
   });
 });
+
+describe("journal editing", () => {
+  it("edits an entry keeping its id and timestamp, and validates the new text", async () => {
+    const { updateJournalEntry } = await import("./journal");
+    const vault = await open();
+    const entry = await addJournalEntry(vault, "before", { newId, now: new Date("2026-10-30T09:00:00Z") });
+    const updated = await updateJournalEntry(vault, entry.id, "  after  ");
+    expect(updated).toEqual({ ...entry, text: "after" });
+    expect((await listJournal(vault))[0]?.text).toBe("after");
+    await expect(updateJournalEntry(vault, entry.id, "   ")).rejects.toBeInstanceOf(AppError);
+    await expect(updateJournalEntry(vault, "journal:missing", "x")).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("deletes one entry and ignores a missing id", async () => {
+    const { deleteJournalEntry } = await import("./journal");
+    const vault = await open();
+    const keep = await addJournalEntry(vault, "keep", { newId, now: new Date("2026-10-30T09:00:00Z") });
+    const drop = await addJournalEntry(vault, "drop", { newId, now: new Date("2026-10-30T10:00:00Z") });
+    await deleteJournalEntry(vault, drop.id);
+    await deleteJournalEntry(vault, "journal:never-existed");
+    expect((await listJournal(vault)).map((entry) => entry.id)).toEqual([keep.id]);
+  });
+
+  it("filters case-insensitively and returns everything on a blank query", async () => {
+    const { filterJournal } = await import("./journal");
+    const vault = await open();
+    await addJournalEntry(vault, "Brooklyn bridge at dawn", { newId, now: new Date("2026-10-30T09:00:00Z") });
+    await addJournalEntry(vault, "Gym day", { newId, now: new Date("2026-10-30T10:00:00Z") });
+    const entries = await listJournal(vault);
+    expect(filterJournal(entries, "BRIDGE")).toHaveLength(1);
+    expect(filterJournal(entries, "  ")).toHaveLength(2);
+    expect(filterJournal(entries, "zzz")).toHaveLength(0);
+  });
+});
