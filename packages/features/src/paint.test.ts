@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ERASE_COLOR, PaintHistory, TEXT_SIZES, strokeColor, textFont, textSizePx, type TextSizeId } from "./paint";
+import { ERASE_COLOR, PaintHistory, TEXT_SIZES, strokeColor, textFont, textSizePx, wrapTextLines, type TextSizeId } from "./paint";
 
 describe("PaintHistory", () => {
   it("starts with nothing to undo or redo", () => {
@@ -107,5 +107,37 @@ describe("strokeColor", () => {
   it("brush and text keep the chosen color", () => {
     expect(strokeColor("brush", "#800000")).toBe("#800000");
     expect(strokeColor("text", "#000080")).toBe("#000080");
+  });
+});
+
+describe("paper color", () => {
+  it("eraser reveals the chosen paper color instead of fixed white", () => {
+    expect(strokeColor("eraser", "#000000", "#ffff00")).toBe("#ffff00");
+    expect(strokeColor("eraser", "#000000")).toBe("#ffffff");
+  });
+});
+
+describe("wrapTextLines", () => {
+  // Fixed-width fake measure: every character is 1 unit.
+  const measure = (text: string) => text.length;
+
+  it("honors explicit newlines before wrapping", () => {
+    expect(wrapTextLines(measure, "ab\ncd", 10)).toEqual(["ab", "cd"]);
+  });
+
+  it("wraps words greedily at the width limit", () => {
+    expect(wrapTextLines(measure, "aa bb cc", 5)).toEqual(["aa bb", "cc"]);
+  });
+
+  it("hard-breaks a word longer than the width so nothing is dropped", () => {
+    expect(wrapTextLines(measure, "abcdef", 3)).toEqual(["abc", "def"]);
+  });
+
+  it("keeps empty lines from consecutive newlines", () => {
+    expect(wrapTextLines(measure, "a\n\nb", 10)).toEqual(["a", "", "b"]);
+  });
+
+  it("wraps a long paragraph with mixed newlines", () => {
+    expect(wrapTextLines(measure, "one two\nthree four five", 9)).toEqual(["one two", "three", "four five"]);
   });
 });
