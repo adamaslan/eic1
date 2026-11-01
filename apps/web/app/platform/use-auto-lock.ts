@@ -21,11 +21,22 @@ export function useAutoLock(active: boolean, onIdle: () => void): void {
   }, [active, onIdle]);
 }
 
-/** Locks when the session's hour is up, even if the user has been active the whole time. */
+/** Locks when the session's fixed deadline is reached, even if the user has been active the whole time. */
 export function useSessionExpiry(expiresAt: number | null, onExpire: () => void): void {
   useEffect(() => {
     if (expiresAt === null) return;
-    const timer = setTimeout(onExpire, Math.max(0, expiresAt - Date.now()));
-    return () => clearTimeout(timer);
+    const check = () => { if (Date.now() >= expiresAt) onExpire(); };
+    const timer = setTimeout(check, Math.max(0, expiresAt - Date.now()));
+    // Phone timers can be suspended. Re-check the wall-clock deadline on return.
+    window.addEventListener("focus", check);
+    window.addEventListener("pageshow", check);
+    document.addEventListener("visibilitychange", check);
+    check();
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", check);
+      window.removeEventListener("pageshow", check);
+      document.removeEventListener("visibilitychange", check);
+    };
   }, [expiresAt, onExpire]);
 }
