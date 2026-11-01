@@ -263,3 +263,18 @@ test("a fast tap with storage denied still keeps the link (in-memory retention)"
   await aliceContext.close();
   await bobContext.close();
 });
+
+test("a damaged journal payload shows the honest damaged state, never a save affordance", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page, "dana");
+  // type marker present (routes it to the journal dialog) but the bundle is incomplete.
+  const damaged = JSON.stringify({ format: "eic-share", version: 1, type: "journal-entry" });
+  const link = `/#import=${Buffer.from(damaged).toString("base64url")}`;
+  await page.goto(link);
+  await expect(page.getByText("A friend shared a journal entry")).toBeVisible();
+  await expect(page.getByText("That shared entry is damaged. Ask your friend for a fresh link.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save a copy to my journal" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByText("A friend shared a journal entry")).toHaveCount(0);
+  expectCleanRuntime(watched);
+});
