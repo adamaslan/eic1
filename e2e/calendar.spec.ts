@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Calendar + chore chart e2e. Both tools write NEW encrypted record kinds
@@ -8,16 +9,6 @@ import { expect, test, type Page } from "@playwright/test";
  * It also pins privacy wording: the tools page and both screens state the data
  * stays in the vault, matching the no-share-file posture.
  */
-
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
 
 function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
   const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
@@ -47,7 +38,7 @@ async function lockAndUnlock(page: Page, passphrase: string) {
 }
 
 test("calendar: add an event, it marks the grid, survives lock/unlock, and deletes", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   const passphrase = `calendar-spec-${Date.now()}`;
   const title = `dentist ${Date.now()}`;
   const label = todayLabel(new Date());
@@ -85,7 +76,7 @@ test("calendar: add an event, it marks the grid, survives lock/unlock, and delet
 });
 
 test("chore chart: add a chore, check off today, it survives lock/unlock, unchecks", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   const passphrase = `chores-spec-${Date.now()}`;
   const name = `water plants ${Date.now()}`;
   const now = new Date();
@@ -120,7 +111,7 @@ test("chore chart: add a chore, check off today, it survives lock/unlock, unchec
 });
 
 test("tools page lists Calendar and Chore chart with their privacy wording", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page, `tools-cal-spec-${Date.now()}`);
 
   await page.goto("/tools");
@@ -139,7 +130,7 @@ test("tools page lists Calendar and Chore chart with their privacy wording", asy
 
 
 test("calendar + chores: saved data survives a full page reload (session resume, not lock/unlock)", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   const passphrase = `cal-reload-${Date.now()}`;
   const title = `gallery ${Date.now()}`;
   const chore = `dishes ${Date.now()}`;
@@ -168,7 +159,7 @@ test("calendar + chores: saved data survives a full page reload (session resume,
 });
 
 test("invalid input never saves: save buttons stay disabled and no records appear", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page, `cal-negative-${Date.now()}`);
   const label = todayLabel(new Date());
 
@@ -195,7 +186,7 @@ test("invalid input never saves: save buttons stay disabled and no records appea
 
 
 test("storage failures surface honest errors, never false success, and preserve data", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   const passphrase = `cal-fault-${Date.now()}`;
   const kept = `kept ${Date.now()}`;
   const label = todayLabel(new Date());
@@ -260,7 +251,7 @@ test("storage failures surface honest errors, never false success, and preserve 
 });
 
 test("save feedback clears on a new edit and stays honest when the refresh fails after a successful write", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   const passphrase = `cal-notice-${Date.now()}`;
   const first = `notice one ${Date.now()}`;
   const second = `notice two ${Date.now()}`;
@@ -306,7 +297,7 @@ test.describe("phone-width (390px)", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test("calendar and chore chart fit the viewport with no horizontal overflow", async ({ page }) => {
-    const watched = watchRuntime(page);
+    const watched = await watchRuntime(page);
     await createVault(page, `cal-390-${Date.now()}`);
 
     await page.goto("/tools/calendar");
