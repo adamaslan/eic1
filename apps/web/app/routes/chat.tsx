@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { AppError, timeAgo } from "@veil/core";
 import {
   CHAT_BODY_MAX,
+  buildChatShareLink,
   listChatThread,
   markThreadRead,
   describeSendError,
@@ -30,8 +31,10 @@ export function ChatThreadView({
   draft,
   busy,
   error,
+  linkNotice,
   onDraft,
   onSend,
+  onShareLink,
 }: {
   handle: string;
   verified: boolean;
@@ -39,17 +42,25 @@ export function ChatThreadView({
   draft: string;
   busy: boolean;
   error: string | null;
+  linkNotice: string | null;
   onDraft: (value: string) => void;
   onSend: (event: FormEvent) => void;
+  onShareLink: () => void;
 }) {
   return (
     <div className="flex flex-col gap-3">
       <Window title={`Chat with @${handle}`}>
         <div className="flex flex-col gap-2 text-[12px]">
           <p className="bg-[#ffffe1] px-1.5 py-1">
-            Messages are sealed for @{handle} and stored in your vault. Automatic delivery is not connected yet, so for
-            now they stay on this device. Chat is offline-first - everything you see renders from local data.
+            Messages are sealed for @{handle} and live in your vault - chat is offline-first, and everything you see
+            renders from local data. Automatic delivery is not connected yet, so hand messages over yourself: Text a
+            chat link copies a link that carries your latest sealed messages inside the URL. Text it like any link -
+            one tap and eic opens right into this conversation. Nothing to download, no server in the middle.
           </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button95 onClick={onShareLink} disabled={busy || !verified}>Text a chat link</Button95>
+            {linkNotice && <span role="status">{linkNotice}</span>}
+          </div>
           {!verified && (
             <p role="alert" className="bg-[#ffffe1] px-1.5 py-1">
               This connection came from an unsigned share file, so chat is read-only. To chat, ask @{handle} for a new
@@ -117,6 +128,7 @@ export default function Chat({ params }: Route.ComponentProps) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!vault || !authorId) return;
@@ -170,6 +182,35 @@ export default function Chat({ params }: Route.ComponentProps) {
     }
   }
 
+  async function shareLink() {
+    if (!vault || !connection) return;
+    setBusy(true);
+    setLinkNotice(null);
+    try {
+      const { link, messageCount } = await buildChatShareLink(vault, connection, `${window.location.origin}/`);
+      // One URL, at the end of the text: that is what phones need to render the cute preview.
+      const text = `eic 💌 ${link}`;
+      if (typeof navigator.share === "function") {
+        try {
+          await navigator.share({ text });
+          setLinkNotice("Shared - one tap opens right into this chat.");
+          return;
+        } catch (shareError) {
+          // A cancelled share sheet is not an error; anything else falls through to clipboard.
+          if (shareError instanceof DOMException && shareError.name === "AbortError") return;
+        }
+      }
+      await navigator.clipboard.writeText(text);
+      setLinkNotice(
+        `Copied ${messageCount} message${messageCount === 1 ? "" : "s"} as a link - paste it into a text. One tap opens right into this chat.`,
+      );
+    } catch (caught) {
+      setLinkNotice(caught instanceof AppError ? caught.message : "The chat link could not be built.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <ChatThreadView
       handle={connection.handle}
@@ -178,8 +219,10 @@ export default function Chat({ params }: Route.ComponentProps) {
       draft={draft}
       busy={busy}
       error={error}
+      linkNotice={linkNotice}
       onDraft={setDraft}
       onSend={send}
+      onShareLink={() => void shareLink()}
     />
   );
 }
