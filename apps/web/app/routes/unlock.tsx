@@ -104,7 +104,7 @@ export default function Unlock() {
                 ? "Enter your passphrase to unlock the vault."
                 : "No vault yet. Choose a passphrase. It is never sent anywhere, and if you lose it the data cannot be recovered."}
             </p>
-            <p>Stay unlocked for up to 8 hours on this browser. Lock ends it sooner. Anyone using this browser during that time can open your vault; browser storage may be cleared or unavailable.</p>
+            <p>Stay unlocked for up to 8 hours on this browser, with auto-lock after 60 minutes idle. Lock ends it sooner. Anyone using this browser during that time can open your vault; browser storage may be cleared or unavailable.</p>
             <label className="flex flex-col gap-0.5">
               Passphrase
               <input
