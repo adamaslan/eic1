@@ -246,6 +246,8 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
           }
         }
         setPending((current) => current ?? link);
+        // A fresh link supersedes any error the previous attempt showed.
+        setMessage(null);
         if (link.kind === "chat" && !openingChat.current) {
           openingChat.current = true;
           void openChatLink(link.link);
@@ -322,7 +324,9 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
         result.keyChanged
           ? `Key replaced for @${result.handle} - future chat seals to the new key. Your connection and history are unchanged.`
           : result.keyAdded
-            ? `Chat unlocked with @${result.handle} - verified key saved. Your connection and history are unchanged.`
+            ? isKeyCard
+              ? `Chat unlocked with @${result.handle} - verified key saved. Your connection and history are unchanged.`
+              : `Imported from @${result.handle}: ${result.added} new, ${result.updated} updated. Chat unlocked with @${result.handle} - the verified key was saved with it. The post is in your vault and renders offline from here on.`
             : isKeyCard
               ? `Chat already unlocked with @${result.handle} - the saved verified key is unchanged. Nothing new to import.`
               : `Imported from @${result.handle}: ${result.added} new, ${result.updated} updated. The post is in your vault and renders offline from here on.`,
@@ -392,7 +396,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
               </div>
             </div>
           </Window>
-        ) : pending?.kind === "post" && message === null ? (
+        ) : pending?.kind === "post" ? (
           <Window title={isKeyCard ? "A friend sent a chat key" : "A friend shared a post with you"}>
             <div className="flex flex-col gap-2 text-[12px]">
               {rotationPending && claimed ? (
@@ -413,6 +417,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
                       ? `This link claims a chat key for @${claimed.handle}${claimed.pubkey ? ` (key ${fingerprint(claimed.pubkey)}…)` : ""} - no posts. The signature proves the sender holds that key, not that they are who they claim: only import a link that came from them directly. Importing it saves the key and unlocks chat; your connection and history stay as they are.`
                       : "This link carries a post from a friend. Import it into your vault?"}
                   </p>
+                  {message ? <p role="alert">{message}</p> : null}
                   <div className="flex gap-1">
                     <Button95 onClick={() => void doImport()} disabled={busy}>Import</Button95>
                     <Button95 onClick={() => dismiss("post")} disabled={busy}>Not now</Button95>
