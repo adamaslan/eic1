@@ -75,3 +75,77 @@ describe("saved playlists in the vault", () => {
     expect(await loadMusicSession(vault)).toBeNull();
   });
 });
+
+describe("reserved playlist names", () => {
+  it("refuses to save a playlist named @session and keeps the resume record intact", async () => {
+    const vault = await freshVault();
+    await saveMusicSession(vault, {
+      format: "eic-music-session",
+      version: 1,
+      playlistName: "Gym",
+      trackName: "1 a.mp3",
+      positionSeconds: 42,
+      savedAt: new Date().toISOString(),
+    });
+    await expect(savePlaylist(vault, sample("@session"))).rejects.toThrow(/reserved/);
+    const session = await loadMusicSession(vault);
+    expect(session?.playlistName).toBe("Gym");
+    expect(session?.positionSeconds).toBe(42);
+    expect(await listPlaylists(vault)).toEqual([]);
+  });
+
+  it("refuses any name starting with @, without touching existing playlists", async () => {
+    const vault = await freshVault();
+    await savePlaylist(vault, sample("Gym"));
+    await expect(savePlaylist(vault, sample("@favorites"))).rejects.toThrow(/reserved/);
+    expect((await listPlaylists(vault)).map((p) => p.name)).toEqual(["Gym"]);
+  });
+
+  it("refuses to rename onto a reserved name and keeps both the playlist and the resume record", async () => {
+    const vault = await freshVault();
+    await savePlaylist(vault, sample("Gym"));
+    await saveMusicSession(vault, {
+      format: "eic-music-session",
+      version: 1,
+      playlistName: "Gym",
+      trackName: "1 a.mp3",
+      positionSeconds: 7,
+      savedAt: new Date().toISOString(),
+    });
+    await expect(renamePlaylist(vault, "Gym", "@session")).rejects.toThrow(/reserved/);
+    expect((await listPlaylists(vault)).map((p) => p.name)).toEqual(["Gym"]);
+    expect((await loadMusicSession(vault))?.positionSeconds).toBe(7);
+  });
+
+  it("negative control: ordinary names still save and rename next to the resume record", async () => {
+    const vault = await freshVault();
+    await saveMusicSession(vault, {
+      format: "eic-music-session",
+      version: 1,
+      playlistName: "Gym",
+      trackName: "1 a.mp3",
+      positionSeconds: 3,
+      savedAt: new Date().toISOString(),
+    });
+    await savePlaylist(vault, sample("Gym"));
+    await renamePlaylist(vault, "Gym", "Gym 2");
+    expect((await listPlaylists(vault)).map((p) => p.name)).toEqual(["Gym 2"]);
+    expect((await loadMusicSession(vault))?.positionSeconds).toBe(3);
+  });
+});
+
+describe("pre-fix reserved-name records", () => {
+  it("an existing @-named playlist still lists, displays and deletes honestly - only re-save is blocked", async () => {
+    const vault = await freshVault();
+    // Simulate a record written before the reservation existed.
+    await vault.putJson("playlist", "playlist:@odd", sample("@odd"));
+    const listed = await listPlaylists(vault);
+    expect(listed.map((p) => p.name)).toEqual(["@odd"]);
+    await expect(savePlaylist(vault, sample("@odd"))).rejects.toThrow(/reserved/);
+    await renamePlaylist(vault, "@odd", "Rescued");
+    expect((await listPlaylists(vault)).map((p) => p.name)).toEqual(["Rescued"]);
+    await vault.putJson("playlist", "playlist:@odd", sample("@odd"));
+    await deletePlaylist(vault, "@odd");
+    expect((await listPlaylists(vault)).map((p) => p.name)).toEqual(["Rescued"]);
+  });
+});
