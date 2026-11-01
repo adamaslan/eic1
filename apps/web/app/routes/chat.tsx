@@ -32,9 +32,11 @@ export function ChatThreadView({
   busy,
   error,
   linkNotice,
+  olderLeftOut,
   onDraft,
   onSend,
   onShareLink,
+  onOlderLink,
 }: {
   handle: string;
   verified: boolean;
@@ -43,9 +45,11 @@ export function ChatThreadView({
   busy: boolean;
   error: string | null;
   linkNotice: string | null;
+  olderLeftOut?: number;
   onDraft: (value: string) => void;
   onSend: (event: FormEvent) => void;
   onShareLink: () => void;
+  onOlderLink?: () => void;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -54,11 +58,15 @@ export function ChatThreadView({
           <p className="bg-[#ffffe1] px-1.5 py-1">
             Messages are sealed for @{handle} and live in your vault - chat is offline-first, and everything you see
             renders from local data. Automatic delivery is not connected yet, so hand messages over yourself: Text a
-            chat link copies a link that carries your latest sealed messages inside the URL. Text it like any link -
-            one tap and eic opens right into this conversation. Nothing to download, no server in the middle.
+            chat link copies a link that carries your latest sealed messages inside the URL, after the #. Browsers
+            keep that part off the wire to the app host, but the link text still passes through your messaging app
+            like any text. One tap and eic opens right into this conversation.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button95 onClick={onShareLink} disabled={busy || !verified}>Text a chat link</Button95>
+            {onOlderLink && olderLeftOut ? (
+              <Button95 onClick={onOlderLink} disabled={busy || !verified}>Text the {olderLeftOut} older ones</Button95>
+            ) : null}
             {linkNotice && <span role="status">{linkNotice}</span>}
           </div>
           {!verified && (
@@ -125,6 +133,8 @@ export default function Chat({ params }: Route.ComponentProps) {
   const authorId = params.authorId;
   const connection = social.connections.find((candidate) => candidate.id === authorId);
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
+  const [olderSkip, setOlderSkip] = useState(0);
+  const [olderLeftOut, setOlderLeftOut] = useState(0);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,30 +192,37 @@ export default function Chat({ params }: Route.ComponentProps) {
     }
   }
 
-  async function shareLink() {
+  async function shareLink(skip: number) {
     if (!vault || !connection) return;
     setBusy(true);
     setLinkNotice(null);
     try {
-      const { link, messageCount, leftOut } = await buildChatShareLink(vault, connection, `${window.location.origin}/`);
+      const { link, messageCount, leftOut } = await buildChatShareLink(vault, connection, `${window.location.origin}/`, { skip });
       // One URL, at the end of the text: that is what phones need to render the cute preview.
       const text = `eic 💌 ${link}`;
-      // Honest contents: what the link carries, what it leaves out. Never imply the friend
-      // received or opened anything - a link is hand delivery, not a transport with receipts.
-      const carries = `The link carries your latest ${messageCount} message${messageCount === 1 ? "" : "s"}`;
-      const left = leftOut > 0 ? `; ${leftOut} older one${leftOut === 1 ? "" : "s"} not included - they still travel by feed sync` : "";
+      // Honest contents: what the link carries, what it leaves out. Automatic delivery is not
+      // built, so a message outside the link is not delivered - offer the older batch instead
+      // of dropping it. Never claim the friend received or opened anything.
+      setOlderSkip(skip + messageCount);
+      setOlderLeftOut(leftOut);
+      const batch = skip > 0 ? `the next ${messageCount} older message${messageCount === 1 ? "" : "s"}` : `your latest ${messageCount} message${messageCount === 1 ? "" : "s"}`;
+      const carries = `The link carries ${batch}`;
+      const left = leftOut > 0 ? `; ${leftOut} older one${leftOut === 1 ? "" : "s"} not included and not delivered by it - use "Text the older ones" to carry them too` : "";
       if (typeof navigator.share === "function") {
         try {
           await navigator.share({ text });
-          setLinkNotice(`Shared - one tap opens right into this chat. ${carries}${left}.`);
+          setLinkNotice(`Shared through your phone's share sheet. One tap on the link opens right into this chat. ${carries}${left}.`);
           return;
         } catch (shareError) {
-          // A cancelled share sheet is not an error; anything else falls through to clipboard.
-          if (shareError instanceof DOMException && shareError.name === "AbortError") return;
+          // A cancelled share sheet shares nothing - say so. Other errors fall to clipboard.
+          if (shareError instanceof DOMException && shareError.name === "AbortError") {
+            setLinkNotice("Share cancelled - nothing was sent or copied.");
+            return;
+          }
         }
       }
       await navigator.clipboard.writeText(text);
-      setLinkNotice(`Copied a chat link - paste it into a text. One tap opens right into this chat. ${carries}${left}.`);
+      setLinkNotice(`Copied - paste it into a text yourself. One tap on the link opens right into this chat. ${carries}${left}.`);
     } catch (caught) {
       setLinkNotice(caught instanceof AppError ? caught.message : "The chat link could not be built.");
     } finally {
@@ -224,7 +241,9 @@ export default function Chat({ params }: Route.ComponentProps) {
       linkNotice={linkNotice}
       onDraft={setDraft}
       onSend={send}
-      onShareLink={() => void shareLink()}
+      onShareLink={() => void shareLink(0)}
+      olderLeftOut={olderLeftOut}
+      onOlderLink={() => void shareLink(olderSkip)}
     />
   );
 }
