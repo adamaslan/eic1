@@ -9,7 +9,12 @@ export const MAX_KEYWORDS = 5;
 export const HANDLE_MAX = 30;
 export const DEFAULT_SLOTS: SlotId[] = ["feed", "picks", "messages"];
 
-export const SettingsSchema = z.object({
+/** Features with a user-visible on/off gate. Unknown keys in the record are preserved, so newer builds' flags survive a round trip. */
+export const FEATURE_IDS = ["graph", "journal-editing", "drawing", "profile", "music", "calendar", "chores"] as const;
+export type FeatureId = (typeof FEATURE_IDS)[number];
+
+// looseObject: fields added by newer builds parse through untouched instead of being stripped on resave.
+export const SettingsSchema = z.looseObject({
   // What the marketplace picks box favours.
   categories: z.array(CategorySchema).default([]),
   keywords: z.array(z.string().min(1).max(40)).max(MAX_KEYWORDS).default([]),
@@ -24,6 +29,8 @@ export const SettingsSchema = z.object({
   // last manifest sequence number published there.
   feedUrl: z.string().min(1).nullable().default(null),
   feedSeq: z.number().int().nonnegative().default(0),
+  // Per-feature on/off. Absent key = enabled. Keys beyond FEATURE_IDS belong to newer builds and pass through.
+  features: z.record(z.string(), z.boolean()).default({}),
   schemaVersion: z.literal(1),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
