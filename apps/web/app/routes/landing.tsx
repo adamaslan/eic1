@@ -118,7 +118,7 @@ const NAV = [
   ["/compose", "+ Post"],
   ["/tools", "Tools"],
   ["/connections", "Connections"],
-  ["/profile", "My profile"],
+  ["/profile", "My profile SEEDED-BREAK"],
   ["/vault", "Vault"],
 ];
 
