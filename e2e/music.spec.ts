@@ -238,3 +238,41 @@ test("shrink panel is honest when the browser cannot re-encode", async ({ page }
   await expect(page.getByRole("alert")).toContainText("This browser cannot re-encode audio");
   await expect(page.getByRole("button", { name: /^Convert/ })).toHaveCount(0);
 });
+
+test("a failed playlist delete says so, keeps the record, and does not crash", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (e) => pageErrors.push(String(e)));
+  await createVault(page);
+  await page.goto("/tools/music");
+  await page.getByLabel("Choose music files").setInputFiles(FILES);
+  await page.getByLabel("Playlist name").fill("Keep Me");
+  await page.getByRole("button", { name: "Save playlist" }).click();
+  await expect(page.getByRole("status")).toContainText('Saved "Keep Me"');
+  const savedList = page.getByRole("list", { name: "Saved playlists" });
+  await expect(savedList).toContainText("Keep Me");
+
+  // Sabotage the next IndexedDB delete only: the store's transaction aborts,
+  // so the rejection must mean the record survived.
+  await page.evaluate(() => {
+    const proto = IDBObjectStore.prototype as unknown as { delete: (...args: unknown[]) => unknown };
+    const orig = proto.delete;
+    proto.delete = function (...args: unknown[]) {
+      proto.delete = orig;
+      throw new DOMException("injected delete failure", "AbortError");
+    };
+  });
+  page.once("dialog", (d) => void d.accept());
+  await savedList.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByRole("status")).toContainText("Couldn't confirm deletion");
+  await expect(savedList).toContainText("Keep Me");
+
+  // Vault truth after a full reload: the record is still there.
+  await page.reload();
+  await expect(page.getByRole("list", { name: "Saved playlists" })).toContainText("Keep Me");
+
+  // And a retry without the fault deletes it for real, with no fake failure note.
+  page.once("dialog", (d) => void d.accept());
+  await page.getByRole("list", { name: "Saved playlists" }).getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByRole("list", { name: "Saved playlists" }).getByText("Keep Me", { exact: true })).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
+});
