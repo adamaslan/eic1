@@ -204,6 +204,34 @@ test("keyboard shortcut ctrl+z undoes a stroke outside text fields", async ({ pa
   expectCleanRuntime(watched);
 });
 
+test("eraser removes ink without adding any, and undo restores it", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  // Erasing a blank canvas adds nothing: the eraser paints the white background color.
+  await page.getByRole("button", { name: "Eraser" }).click();
+  await drawStroke(page);
+  expect(await inkPixels(page)).toBe(0);
+
+  await page.getByRole("button", { name: "Brush" }).click();
+  await drawStroke(page);
+  expect(await inkPixels(page)).toBeGreaterThan(0);
+
+  // Erase over the same path with the widest tip: the stroke is fully covered.
+  await page.getByRole("button", { name: "Eraser" }).click();
+  await page.getByRole("button", { name: "14px" }).click();
+  await drawStroke(page);
+  expect(await inkPixels(page)).toBe(0);
+
+  // The erase is an ordinary undoable stroke; redo re-erases.
+  await page.getByRole("button", { name: "Undo" }).click();
+  expect(await inkPixels(page)).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Redo" }).click();
+  expect(await inkPixels(page)).toBe(0);
+  expectCleanRuntime(watched);
+});
+
 test.describe("phone-width (390px)", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -244,7 +272,10 @@ test.describe("phone-width (390px)", () => {
     await page.goto("/draw");
 
     const cancel = page.getByRole("button", { name: "Cancel" });
-    await cancel.scrollIntoViewIfNeeded();
+    // Scroll fully to the page bottom (what a user reaching for the last action does):
+    // the layout reserves pb-16 above the fixed taskbar, so the row must end clear of
+    // it. scrollIntoViewIfNeeded would stop at "visible", even under the taskbar overlay.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     const actionBox = await cancel.boundingBox();
     const taskbarBox = await page.locator("footer").boundingBox();
     if (!actionBox || !taskbarBox) throw new Error("missing action row or taskbar box");
