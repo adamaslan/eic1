@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Connection, Item } from "@veil/core";
-import { buildSocialGraph, MAX_GRAPH_ITEMS, ME_NODE_ID } from "./graph";
+import { buildSocialGraph,
+  graphBodyState, MAX_GRAPH_ITEMS, ME_NODE_ID } from "./graph";
 
 let n = 0;
 const nextId = () => `t${n++}`;
@@ -193,5 +194,20 @@ describe("createGraphLayout", () => {
       return layout.positions();
     };
     expect(run()).toEqual(run());
+  });
+});
+
+describe("graphBodyState", () => {
+  it("never calls loading or error an empty map", () => {
+    expect(graphBodyState("loading", 1)).toBe("loading");
+    expect(graphBodyState("loading", 0)).toBe("loading");
+    expect(graphBodyState("error", 1)).toBe("error");
+    expect(graphBodyState("error", 5)).toBe("error");
+  });
+
+  it("ready with only the you node is empty; anything more is content", () => {
+    expect(graphBodyState("ready", 1)).toBe("empty");
+    expect(graphBodyState("ready", 2)).toBe("content");
+    expect(graphBodyState("ready", 40)).toBe("content");
   });
 });
