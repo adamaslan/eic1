@@ -7,14 +7,16 @@ export const POST_LINK_PREFIX = "#import=";
  */
 export const MAX_POST_LINK_CHARS = 8000;
 
-const toBase64Url = (text: string): string =>
+export const toBase64Url = (text: string): string =>
   encodeBase64(new TextEncoder().encode(text))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/, "");
 
-const fromBase64Url = (encoded: string): string => {
-  const base64 = encoded.replaceAll("-", "+").replaceAll("_", "/");
+export const fromBase64Url = (encoded: string): string => {
+  let base64 = encoded.replaceAll("-", "+").replaceAll("_", "/");
+  // decodeBase64 is strict about padding; URLs strip it, so put it back.
+  while (base64.length % 4 !== 0) base64 += "=";
   return new TextDecoder().decode(decodeBase64(base64));
 };
 
