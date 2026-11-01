@@ -181,3 +181,47 @@ test("graph maps a connection's authorship and likes, and honors hiding", async 
 
   expectCleanRuntime(watched);
 });
+
+test("graph shows an honest error, not an empty map, when the vault read fails", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await composePost(page, "photo", "Bridge at dawn");
+
+  // Test-only fault injection: fail ONLY the item listing (records/kind index, "item" query).
+  // Session resume, settings, and connections use other keys and keep working.
+  await page.addInitScript(() => {
+    // Test-scoped kill switch the app never reads; the test flips it to simulate recovery.
+    (window as unknown as { __eicTestFaultItems: boolean }).__eicTestFaultItems = true;
+    const original = IDBIndex.prototype.getAll;
+    IDBIndex.prototype.getAll = function (query?: IDBValidKey | IDBKeyRange | null, count?: number) {
+      if ((window as unknown as { __eicTestFaultItems: boolean }).__eicTestFaultItems
+        && this.name === "kind" && query === "item") {
+        return Promise.reject(new DOMException("Injected test fault: item listing failed", "AbortError"));
+      }
+      return original.call(this, query, count);
+    };
+  });
+
+  await page.goto("/graph");
+  // The loading state is its own render, then the error surfaces honestly with a retry.
+  await expect(page.getByText("This vault could not be read.")).toBeVisible();
+  await expect(page.getByText("Nothing to map yet.", { exact: false })).toHaveCount(0);
+  const retry = page.getByRole("button", { name: "Try again" });
+  await expect(retry).toBeVisible();
+
+  // Retrying with the fault still present fails again - no fake recovery, no empty-map lie.
+  await retry.click();
+  await expect(page.getByText("This vault could not be read.")).toBeVisible();
+
+  // Clear the fault and retry: the real items render on the graph, proving recovery.
+  await page.evaluate(() => {
+    (window as unknown as { __eicTestFaultItems: boolean }).__eicTestFaultItems = false;
+  });
+  await retry.click();
+  await expect(page.getByText("0 people · 1 post · 0 listings · 0 likes.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Bridge at dawn/ })).toBeVisible();
+
+  // The injected rejection may be logged; hook-order and uncaught errors are still forbidden.
+  expect(watched.pageErrors, "uncaught page errors").toEqual([]);
+  expect([...watched.pageErrors, ...watched.consoleErrors].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
+});
