@@ -393,3 +393,353 @@ test("saving never bakes an uncommitted text preview into the post", async ({ pa
   expect(savedInk).toBeLessThan(previewInk);
   expectCleanRuntime(watched);
 });
+
+// --- PR A: paper color, multiline/wrapped text, tiny text, exact-bytes preview ---
+
+async function countColor(page: Page, r: number, g: number, b: number): Promise<number> {
+  return page.locator("canvas").first().evaluate(
+    (node, [tr, tg, tb]) => {
+      const canvas = node as HTMLCanvasElement;
+      const context = canvas.getContext("2d");
+      if (!context) return -1;
+      const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] === tr && data[i + 1] === tg && data[i + 2] === tb) count += 1;
+      }
+      return count;
+    },
+    [r, g, b] as const,
+  );
+}
+
+async function inkHeight(page: Page): Promise<number> {
+  return page.locator("canvas").first().evaluate((node) => {
+    const canvas = node as HTMLCanvasElement;
+    const context = canvas.getContext("2d");
+    if (!context) return -1;
+    const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let minY = -1;
+    let maxY = -1;
+    for (let y = 0; y < canvas.height; y += 1) {
+      for (let x = 0; x < canvas.width; x += 1) {
+        const i = (y * canvas.width + x) * 4;
+        if (data[i] < 250 || data[i + 1] < 250 || data[i + 2] < 250) {
+          if (minY === -1) minY = y;
+          maxY = y;
+        }
+      }
+    }
+    return minY === -1 ? 0 : maxY - minY + 1;
+  });
+}
+
+test("fill background paints the paper color as one undoable edit", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  expect(await countColor(page, 255, 255, 0)).toBe(0);
+  await page.getByLabel("Paper color #ffff00").click();
+  await page.getByRole("button", { name: "Fill background" }).click();
+  expect(await countColor(page, 255, 255, 0)).toBe(192 * 192);
+  await expect(page.getByRole("button", { name: "Undo" })).toBeEnabled();
+
+  // One undo entry: the canvas is white again, and redo repaints it yellow.
+  await page.getByRole("button", { name: "Undo" }).click();
+  expect(await countColor(page, 255, 255, 0)).toBe(0);
+  expect(await inkPixels(page)).toBe(0);
+  await page.getByRole("button", { name: "Redo" }).click();
+  expect(await countColor(page, 255, 255, 0)).toBe(192 * 192);
+  expectCleanRuntime(watched);
+});
+
+test("eraser reveals the paper color, not fixed white", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  await page.getByLabel("Paper color #ffff00").click();
+  await page.getByRole("button", { name: "Fill background" }).click();
+
+  // Black stroke over the yellow paper.
+  await drawStroke(page);
+  expect(await countColor(page, 0, 0, 0)).toBeGreaterThan(0);
+
+  // Erasing over the same path restores yellow, never white.
+  await page.getByRole("button", { name: "Eraser" }).click();
+  await page.getByRole("button", { name: "14px" }).click();
+  await drawStroke(page);
+  expect(await countColor(page, 0, 0, 0)).toBe(0);
+  expect(await countColor(page, 255, 255, 0)).toBe(192 * 192);
+  // No white leaked in: the eraser painted paper, not the old fixed white.
+  expect(await countColor(page, 255, 255, 255)).toBe(0);
+
+  // Undoing the erase brings the stroke back; undoing again restores blank paper.
+  await page.getByRole("button", { name: "Undo" }).click();
+  expect(await countColor(page, 0, 0, 0)).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Undo" }).click();
+  expect(await countColor(page, 0, 0, 0)).toBe(0);
+  expect(await countColor(page, 255, 255, 255)).toBe(0);
+  expectCleanRuntime(watched);
+});
+
+test("multiline text stacks lines and undo removes the whole placement", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const canvas = page.locator("canvas").first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas has no bounding box");
+  await page.mouse.click(box.x + box.width / 8, box.y + box.height / 8);
+
+  await page.getByLabel("Text to place").fill("hello\nworld");
+  await page.getByRole("button", { name: "Place text" }).click();
+
+  // Two stacked lines are much taller than one 12px line.
+  expect(await inkHeight(page)).toBeGreaterThan(16);
+  expect(await inkPixels(page)).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Undo" }).click();
+  expect(await inkPixels(page)).toBe(0);
+  expectCleanRuntime(watched);
+});
+
+test("word wrap narrows and tallies text, wider wrap flattens it", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const canvas = page.locator("canvas").first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas has no bounding box");
+  await page.mouse.click(box.x + box.width / 8, box.y + box.height / 8);
+
+  // Tight wrap: a long sentence must break into several lines (12px text so the
+  // heights are predictable: a 12px line is 15px tall with its line height).
+  await page.getByRole("button", { name: "12px" }).click();
+  await page.getByLabel("Text wrap width").fill("32");
+  await page.getByLabel("Text to place").fill("aaaa bbbb cccc dddd");
+  await page.getByRole("button", { name: "Place text" }).click();
+  const wrappedHeight = await inkHeight(page);
+  expect(wrappedHeight).toBeGreaterThan(24);
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  expect(await inkPixels(page)).toBe(0);
+
+  // Wide wrap: the same sentence fits on fewer, flatter lines.
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await page.mouse.click(box.x + box.width / 8, box.y + box.height / 8);
+  await page.getByRole("button", { name: "12px" }).click();
+  await page.getByLabel("Text wrap width").fill("192");
+  await page.getByLabel("Text to place").fill("aaaa bbbb cccc dddd");
+  await page.getByRole("button", { name: "Place text" }).click();
+  const flatHeight = await inkHeight(page);
+  expect(flatHeight).toBeLessThan(wrappedHeight);
+  // One 12px line: ~12px of glyph ink, well under the multi-line wrapped height.
+  expect(flatHeight).toBeLessThanOrEqual(15);
+  expectCleanRuntime(watched);
+});
+
+test("tiny 8px text marks fewer pixels than large text and undoes cleanly", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const canvas = page.locator("canvas").first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas has no bounding box");
+
+  await page.mouse.click(box.x + box.width / 8, box.y + box.height / 8);
+  await page.getByRole("button", { name: "8px" }).click();
+  await page.getByLabel("Text to place").fill("eic");
+  await page.getByRole("button", { name: "Place text" }).click();
+  const tinyInk = await inkPixels(page);
+  expect(tinyInk).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Undo" }).click();
+  expect(await inkPixels(page)).toBe(0);
+
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await page.mouse.click(box.x + box.width / 8, box.y + box.height / 8);
+  await page.getByRole("button", { name: "32px" }).click();
+  await page.getByLabel("Text to place").fill("eic");
+  await page.getByRole("button", { name: "Place text" }).click();
+  const largeInk = await inkPixels(page);
+  expect(largeInk).toBeGreaterThan(tinyInk);
+  expectCleanRuntime(watched);
+});
+
+test("save preview shows the exact encoded bytes and skips uncommitted text", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  await drawStroke(page);
+  const strokeInk = await inkPixels(page);
+  expect(strokeInk).toBeGreaterThan(0);
+
+  // Arm the text tool with an uncommitted preview, then open the save preview:
+  // the preview encodes the drawing only, so the floating text must not appear.
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const canvas = page.locator("canvas").first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas has no bounding box");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.getByLabel("Text to place").fill("floating");
+  expect(await inkPixels(page)).toBeGreaterThan(strokeInk);
+
+  await page.getByRole("button", { name: "Preview save" }).click();
+  const full = page.getByRole("img", { name: "Full-size preview of the encoded drawing" });
+  const thumb = page.getByRole("img", { name: "Thumbnail preview of the encoded drawing" });
+  await expect(full).toBeVisible();
+  await expect(thumb).toBeVisible();
+
+  // The preview is the real encoded output: 192px full image, 128px thumbnail.
+  const dimensions = await full.evaluate((node) => {
+    const img = node as HTMLImageElement;
+    return { width: img.naturalWidth, height: img.naturalHeight };
+  });
+  expect(dimensions).toEqual({ width: 192, height: 192 });
+  const thumbDimensions = await thumb.evaluate((node) => {
+    const img = node as HTMLImageElement;
+    return { width: img.naturalWidth, height: img.naturalHeight };
+  });
+  expect(thumbDimensions).toEqual({ width: 128, height: 128 });
+
+  // Ink inside the encoded preview matches the stroke-only bitmap: the uncommitted
+  // text never entered it.
+  const previewInk = await full.evaluate((node) => {
+    const img = node as HTMLImageElement;
+    const probe = document.createElement("canvas");
+    probe.width = img.naturalWidth;
+    probe.height = img.naturalHeight;
+    const context = probe.getContext("2d");
+    if (!context) return -1;
+    context.drawImage(img, 0, 0);
+    const data = context.getImageData(0, 0, probe.width, probe.height).data;
+    let inked = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] < 250 || data[i + 1] < 250 || data[i + 2] < 250) inked += 1;
+    }
+    return inked;
+  });
+  expect(previewInk).toBeGreaterThan(0);
+  expect(previewInk).toBeLessThanOrEqual(strokeInk + 8);
+
+  // Closing the panel removes it; the live drawing is untouched.
+  await page.getByRole("button", { name: "Close preview" }).click();
+  await expect(full).toHaveCount(0);
+  expect(await inkPixels(page)).toBe(strokeInk);
+  expectCleanRuntime(watched);
+});
+
+test("text overflow warns visibly instead of silently clipping", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  const warning = page.getByText(/runs past the canvas edge/);
+  await expect(warning).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const canvas = page.locator("canvas").first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas has no bounding box");
+
+  // Anchor near the bottom with three lines: the block runs past the bottom edge.
+  await canvas.click({ position: { x: 20, y: Math.round(box.height * 0.9) } });
+  await page.getByLabel("Text to place").fill("one\ntwo\nthree");
+  await expect(warning).toBeVisible();
+  // The warning persists while the overflow persists - typing more must not clear it,
+  // and resizing smaller (still overflowing at this anchor) keeps it visible too.
+  await page.getByLabel("Text to place").fill("one\ntwo\nthree\nfour");
+  await expect(warning).toBeVisible();
+  await page.getByRole("button", { name: "8px" }).click();
+  await expect(warning).toBeVisible();
+  await page.getByRole("button", { name: "12px" }).click();
+
+  // Move the anchor to the top: the same text fits and the warning clears.
+  await canvas.click({ position: { x: 20, y: 8 } });
+  await expect(warning).toHaveCount(0);
+
+  // Right-edge overflow: wide wrap with a long word from a right-side anchor.
+  await canvas.click({ position: { x: Math.round(box.width * 0.8), y: 8 } });
+  await page.getByLabel("Text wrap width").fill("192");
+  await page.getByLabel("Text to place").fill("supercalifragilistic");
+  await expect(warning).toBeVisible();
+  expectCleanRuntime(watched);
+});
+
+test("classic toggle hides the new options and the original flow still works", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  // New options are on by default.
+  await expect(page.getByRole("button", { name: "Fill background" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Preview save" })).toBeVisible();
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await expect(page.getByRole("button", { name: "8px" })).toBeVisible();
+  await expect(page.getByLabel("Text wrap width")).toBeVisible();
+
+  await page.getByLabel(/Classic tools/).check();
+  await expect(page.getByRole("button", { name: "Fill background" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Preview save" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "8px" })).toBeHidden();
+  await expect(page.getByLabel("Text wrap width")).toBeHidden();
+
+  // The original workflow is untouched: stroke, undo, single-line text placement.
+  await page.getByRole("button", { name: "Brush" }).click();
+  await drawStroke(page);
+  expect(await inkPixels(page)).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Undo" }).click();
+  expect(await inkPixels(page)).toBe(0);
+
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const canvas = page.locator("canvas").first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas has no bounding box");
+  await canvas.click({ position: { x: 20, y: 20 } });
+  await page.getByLabel("Text to place").fill("classic");
+  await page.getByRole("button", { name: "Place text" }).click();
+  expect(await inkPixels(page)).toBeGreaterThan(0);
+
+  // Toggling back restores the new options.
+  await page.getByLabel(/Classic tools/).uncheck();
+  await expect(page.getByRole("button", { name: "Fill background" })).toBeVisible();
+  expectCleanRuntime(watched);
+});
+
+test("classic toggle preserves paper semantics: eraser still reveals paper", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  // Paint yellow paper, draw black, THEN hide the new options behind Classic tools.
+  // Classic hides controls, not behavior: the eraser still reveals the paper color,
+  // so no fixed-white semantics sneak back in for an in-progress drawing.
+  await page.getByLabel("Paper color #ffff00").click();
+  await page.getByRole("button", { name: "Fill background" }).click();
+  await drawStroke(page);
+  expect(await countColor(page, 0, 0, 0)).toBeGreaterThan(0);
+
+  await page.getByLabel(/Classic tools/).check();
+  await expect(page.getByRole("button", { name: "Fill background" })).toBeHidden();
+
+  await page.getByRole("button", { name: "Eraser" }).click();
+  await page.getByRole("button", { name: "14px" }).click();
+  await drawStroke(page);
+  expect(await countColor(page, 0, 0, 0)).toBe(0);
+  expect(await countColor(page, 255, 255, 0)).toBe(192 * 192);
+  expect(await countColor(page, 255, 255, 255)).toBe(0);
+
+  // Saved output is unaffected by the toggle: the drawing encrypts and renders in feed.
+  await page.getByLabel("Title").fill("classic-paper");
+  await page.getByRole("button", { name: /Encrypt & save/ }).click();
+  await expect(page).toHaveURL(/\/feed$/);
+  await expect(page.getByRole("img", { name: "classic-paper" })).toBeVisible();
+  expectCleanRuntime(watched);
+});
