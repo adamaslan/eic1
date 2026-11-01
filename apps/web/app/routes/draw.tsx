@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import { useNavigate } from "react-router";
 import { AppError, type Bytes } from "@veil/core";
-import { encodePalettePng, PHOTO_CATEGORY, saveComposedItem, type ComposedMedia } from "@veil/features";
+import {
+  encodePalettePng,
+  PaintHistory,
+  PHOTO_CATEGORY,
+  saveComposedItem,
+  TEXT_SIZES,
+  textFont,
+  textSizePx,
+  type ComposedMedia,
+  type TextSizeId,
+} from "@veil/features";
 import type { Route } from "./+types/draw";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
@@ -56,15 +66,28 @@ async function encodeCanvas(canvas: HTMLCanvasElement, mime: string, quality?: n
 
 const formatKb = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
 
+type Tool = "brush" | "text";
+
 export default function Draw() {
   const vault = useSessionStore((state) => state.vault);
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const last = useRef<{ x: number; y: number } | null>(null);
+  // Snapshot-based undo/redo (see PaintHistory): one entry per stroke, clear, or placed text.
+  const history = useRef(new PaintHistory<ImageData>());
+  // While the text tool is armed, this holds the pixels under the live preview so the
+  // preview can redraw on every keystroke without becoming part of the undo history.
+  const textBase = useRef<ImageData | null>(null);
 
   const [color, setColor] = useState<string>(PALETTE[0]);
   const [brush, setBrush] = useState<number>(BRUSHES[1]);
+  const [tool, setTool] = useState<Tool>("brush");
+  const [textValue, setTextValue] = useState("");
+  const [textSizeId, setTextSizeId] = useState<TextSizeId>("m");
+  const [textAnchor, setTextAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const [format, setFormat] = useState<FormatId>("png");
   const [title, setTitle] = useState("");
   const [shareable, setShareable] = useState(false);
@@ -92,6 +115,20 @@ export default function Draw() {
     };
   };
 
+  const context2d = () => canvasRef.current?.getContext("2d") ?? null;
+
+  const snapshotCanvas = (): ImageData | null => {
+    const canvas = canvasRef.current;
+    const context = context2d();
+    if (!canvas || !context) return null;
+    return context.getImageData(0, 0, canvas.width, canvas.height);
+  };
+
+  const syncHistoryState = () => {
+    setCanUndo(history.current.canUndo);
+    setCanRedo(history.current.canRedo);
+  };
+
   const refreshSize = async (targetFormat: FormatId = format) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -103,6 +140,87 @@ export default function Draw() {
       if (request === sizeRequest.current) setSizeBytes(null);
     }
   };
+
+  const drawText = (text: string, anchor: { x: number; y: number }) => {
+    const context = context2d();
+    if (!context) return;
+    context.font = textFont(textSizePx(textSizeId));
+    context.fillStyle = color;
+    context.textBaseline = "top";
+    context.fillText(text, anchor.x, anchor.y);
+  };
+
+  // Text tool: the preview is always drawn fresh over textBase, so typing, resizing,
+  // recoloring, or moving the anchor never accumulates paint and never enters the undo history.
+  useEffect(() => {
+    if (tool !== "text") return;
+    const context = context2d();
+    if (!context) return;
+    if (!textBase.current) textBase.current = snapshotCanvas();
+    if (!textBase.current) return;
+    context.putImageData(textBase.current, 0, 0);
+    if (textAnchor && textValue.trim() !== "") drawText(textValue.trim(), textAnchor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool, textAnchor, textValue, textSizeId, color]);
+
+  // Put the un-previewed pixels back. Used before undo/redo/clear and when leaving the tool.
+  const discardTextPreview = () => {
+    const context = context2d();
+    if (context && textBase.current) context.putImageData(textBase.current, 0, 0);
+    textBase.current = null;
+    setTextAnchor(null);
+  };
+
+  const selectTool = (next: Tool) => {
+    if (next === tool) return;
+    discardTextPreview();
+    setTool(next);
+  };
+
+  const undo = () => {
+    discardTextPreview();
+    const current = snapshotCanvas();
+    if (!current) return;
+    const previous = history.current.undo(current);
+    if (!previous) return;
+    context2d()?.putImageData(previous, 0, 0);
+    syncHistoryState();
+    void refreshSize();
+  };
+
+  const redo = () => {
+    discardTextPreview();
+    const current = snapshotCanvas();
+    if (!current) return;
+    const next = history.current.redo(current);
+    if (!next) return;
+    context2d()?.putImageData(next, 0, 0);
+    syncHistoryState();
+    void refreshSize();
+  };
+
+  // Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z or Ctrl+Y redoes - not while typing into a field.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      const key = event.key.toLowerCase();
+      if (key === "z" && event.shiftKey) {
+        event.preventDefault();
+        redo();
+      } else if (key === "z") {
+        event.preventDefault();
+        undo();
+      } else if (key === "y") {
+        event.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const downloadImage = async () => {
     const canvas = canvasRef.current;
@@ -124,6 +242,16 @@ export default function Draw() {
 
   const startStroke = (event: PointerEvent<HTMLCanvasElement>) => {
     if (saving) return;
+    if (tool === "text") {
+      // Clicking sets where the next placed text starts; the preview effect redraws it.
+      setTextAnchor(canvasPoint(event));
+      return;
+    }
+    const before = snapshotCanvas();
+    if (before) {
+      history.current.record(before);
+      syncHistoryState();
+    }
     drawing.current = true;
     last.current = canvasPoint(event);
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -155,10 +283,31 @@ export default function Draw() {
     void refreshSize();
   };
 
+  const placeText = () => {
+    const context = context2d();
+    const text = textValue.trim();
+    if (!context || !textBase.current || !textAnchor || text === "") return;
+    // Commit: restore the pre-preview pixels, record them for undo, then paint the text once.
+    context.putImageData(textBase.current, 0, 0);
+    history.current.record(textBase.current);
+    textBase.current = null;
+    syncHistoryState();
+    drawText(text, textAnchor);
+    setTextValue("");
+    setTextAnchor(null);
+    void refreshSize();
+  };
+
   const clearCanvas = () => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
+    discardTextPreview();
+    const before = snapshotCanvas();
+    if (before) {
+      history.current.record(before);
+      syncHistoryState();
+    }
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, canvas.width, canvas.height);
     void refreshSize();
@@ -218,11 +367,30 @@ export default function Draw() {
         </p>
         <div className="flex items-start gap-2">
           <div className="flex flex-col gap-1 pt-0.5">
-            {BRUSHES.map((option) => (
-              <Button95 key={option} pressed={brush === option} onClick={() => setBrush(option)}>
-                {option}px
-              </Button95>
-            ))}
+            <Button95 pressed={tool === "brush"} onClick={() => selectTool("brush")} disabled={saving}>
+              Brush
+            </Button95>
+            <Button95 pressed={tool === "text"} onClick={() => selectTool("text")} disabled={saving}>
+              Text
+            </Button95>
+            {tool === "brush" &&
+              BRUSHES.map((option) => (
+                <Button95 key={option} pressed={brush === option} onClick={() => setBrush(option)}>
+                  {option}px
+                </Button95>
+              ))}
+            {tool === "text" &&
+              TEXT_SIZES.map((option) => (
+                <Button95 key={option.id} pressed={textSizeId === option.id} onClick={() => setTextSizeId(option.id)}>
+                  {option.px}px
+                </Button95>
+              ))}
+            <Button95 onClick={undo} disabled={saving || !canUndo}>
+              Undo
+            </Button95>
+            <Button95 onClick={redo} disabled={saving || !canRedo}>
+              Redo
+            </Button95>
             <Button95 onClick={clearCanvas} disabled={saving}>Clear</Button95>
           </div>
           <canvas
@@ -234,7 +402,7 @@ export default function Draw() {
               width: DISPLAY_SIZE,
               height: DISPLAY_SIZE,
               imageRendering: "pixelated",
-              cursor: "crosshair",
+              cursor: tool === "text" ? "text" : "crosshair",
               borderTop: "2px solid #808080",
               borderLeft: "2px solid #808080",
               borderRight: "2px solid #ffffff",
@@ -246,6 +414,29 @@ export default function Draw() {
             onPointerCancel={endStroke}
           />
         </div>
+        {tool === "text" && (
+          <div className="flex flex-wrap items-center gap-1">
+            <input
+              aria-label="Text to place"
+              className="w-40 bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none"
+              placeholder="Type text…"
+              value={textValue}
+              onChange={(event) => setTextValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  placeText();
+                }
+              }}
+            />
+            <Button95 onClick={placeText} disabled={saving || !textAnchor || textValue.trim() === ""}>
+              Place text
+            </Button95>
+            <span className="text-[11px] text-[#404040]">
+              Click the canvas to choose where the text starts. It lands in the selected color.
+            </span>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-0.5">
           {PALETTE.map((option) => (
             <button
