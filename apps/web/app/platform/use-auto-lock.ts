@@ -1,21 +1,31 @@
 import { useEffect } from "react";
-import { SESSION_MS } from "./session-persist";
 
-export const AUTO_LOCK_MS = SESSION_MS;
+// Idle safety is independent of the remembered-unlock maximum.
+export const AUTO_LOCK_MS = 60 * 60_000;
 const ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart"] as const;
 
 /** Calls `onIdle` once after AUTO_LOCK_MS with no input. Any input restarts the timer. */
 export function useAutoLock(active: boolean, onIdle: () => void): void {
   useEffect(() => {
     if (!active) return;
-    let timer = setTimeout(onIdle, AUTO_LOCK_MS);
+    let lastActivity = Date.now();
+    const check = () => { if (Date.now() - lastActivity >= AUTO_LOCK_MS) onIdle(); };
+    let timer = setTimeout(check, AUTO_LOCK_MS);
     const restart = () => {
+      if (Date.now() - lastActivity >= AUTO_LOCK_MS) { onIdle(); return; }
+      lastActivity = Date.now();
       clearTimeout(timer);
-      timer = setTimeout(onIdle, AUTO_LOCK_MS);
+      timer = setTimeout(check, AUTO_LOCK_MS);
     };
+    window.addEventListener("focus", check);
+    window.addEventListener("pageshow", check);
+    document.addEventListener("visibilitychange", check);
     for (const name of ACTIVITY_EVENTS) window.addEventListener(name, restart, { passive: true });
     return () => {
       clearTimeout(timer);
+      window.removeEventListener("focus", check);
+      window.removeEventListener("pageshow", check);
+      document.removeEventListener("visibilitychange", check);
       for (const name of ACTIVITY_EVENTS) window.removeEventListener(name, restart);
     };
   }, [active, onIdle]);
