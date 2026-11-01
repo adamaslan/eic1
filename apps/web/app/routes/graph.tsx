@@ -409,16 +409,29 @@ export default function Graph() {
             </p>
           ) : showList ? (
             <ul className="flex flex-col gap-1">
-              {shownGraph.nodes.map((node) => (
-                <li key={node.id} className="bg-white px-1.5 py-1">
-                  <Link to={node.href} className="font-bold text-[#0000cc] underline">
-                    {node.label}
-                  </Link>
-                  <span className="text-[#404040]">
-                    {" "}— {KIND_LABEL[node.kind]}, {degree.get(node.id) ?? 0} {(degree.get(node.id) ?? 0) === 1 ? "link" : "links"}
-                  </span>
-                </li>
-              ))}
+              {shownGraph.nodes.map((node) => {
+                const isSelected = node.id === selectedId;
+                return (
+                  <li key={node.id} className={isSelected ? "bg-[#c0c0c0] px-1.5 py-1" : "bg-white px-1.5 py-1"}>
+                    <Link to={node.href} className="font-bold text-[#0000cc] underline">
+                      {node.label}
+                    </Link>
+                    <span className="text-[#404040]">
+                      {" "}— {KIND_LABEL[node.kind]}, {degree.get(node.id) ?? 0} {(degree.get(node.id) ?? 0) === 1 ? "link" : "links"}
+                    </span>
+                    {" "}
+                    <button
+                      type="button"
+                      aria-pressed={isSelected}
+                      aria-label={`Details for ${node.label}`}
+                      onClick={() => setSelectedId(isSelected ? null : node.id)}
+                      className="text-[#0000cc] underline outline-none focus:outline-2 focus:outline-dotted focus:outline-[#0a0a0a]"
+                    >
+                      Details
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <Bevel variant="in">
