@@ -146,6 +146,11 @@ export default function VaultScreen() {
           >
             Review readable export…
           </Button95>
+          {selection.items && state.status !== "ready" && (
+            <p role={state.status === "error" ? "alert" : undefined} className="text-[#800000]">
+              {state.status === "error" ? "Posts and listings could not be loaded; readable export is blocked." : "Wait for posts and listings to finish loading before reviewing this export."}
+            </p>
+          )}
           {pendingReadableExport && (
             <div role="group" aria-label="Confirm readable export" className="flex flex-col gap-2 border border-[#808080] bg-[#ffffe1] p-2">
               <p><b>Confirm plaintext export:</b> {pendingReadableExport.description}. This JSON is unencrypted and anyone with the file can read it.</p>
