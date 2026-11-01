@@ -92,6 +92,41 @@ test("graph maps composed posts and listings, selects nodes, and switches views"
   await expect(me).toBeVisible();
   await page.getByRole("button", { name: "List", exact: true }).click();
   await expect(page.getByRole("link", { name: "Bridge at dawn" })).toBeVisible();
+
+  // List rows open the same Details window the map shows - selection parity for keyboard
+  // and screen-reader users who cannot use the SVG map. The pressed row marks itself.
+  // (The bridge post is still selected from the map view; the listing row starts unpressed.)
+  const crateDetails = page.getByRole("button", { name: "Details for Milk crate shelves" });
+  await expect(crateDetails).toHaveAttribute("aria-pressed", "false");
+  await crateDetails.click();
+  await expect(crateDetails).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Details — Market listing")).toBeVisible();
+  await expect(page.getByText("Details — Feed post")).toHaveCount(0);
+  await crateDetails.click();
+  await expect(page.getByText("Details — Market listing")).toHaveCount(0);
+
+  // Keyboard-only: Tab reaches the distinctly-named button, focus is visibly outlined,
+  // and Enter/Space activate it without a mouse.
+  const youDetails = page.getByRole("button", { name: "Details for You" });
+  await youDetails.focus();
+  await expect(youDetails).toBeFocused();
+  const outline = await youDetails.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return `${style.outlineStyle} ${style.outlineWidth}`;
+  });
+  expect(outline).not.toContain("none");
+  await page.keyboard.press("Enter");
+  await expect(youDetails).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Details — You")).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(page.getByText("Details — You")).toHaveCount(0);
+
+  // Filters narrow the list rows too.
+  await page.getByLabel("Filter by name or title").fill("crate");
+  await expect(page.getByRole("link", { name: "Bridge at dawn" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Milk crate shelves" })).toBeVisible();
+  await page.getByLabel("Filter by name or title").fill("");
+
   await page.getByRole("button", { name: "Graph", exact: true }).click();
   await expect(me).toBeVisible();
 
@@ -174,11 +209,37 @@ test("graph maps a connection's authorship and likes, and honors hiding", async 
   // Hiding removes the connection, everything they authored, and every edge naming them.
   await page.goto("/connections");
   await page.getByRole("button", { name: "Hide", exact: true }).click();
+  // The confirmation renders only after the hide write and refresh commit; navigating
+  // before it can race the async vault write and show a stale map.
+  await expect(page.getByText("@sunny hidden. Their posts are still in your vault.")).toBeVisible();
   await page.goto("/graph");
   await expect(page.getByText("0 people · 1 post · 1 listing · 0 likes.")).toBeVisible();
   await expect(page.getByText("1 hidden connection stays out of the map.")).toBeVisible();
   await expect(page.getByRole("button", { name: /Sunny's/ })).toHaveCount(0);
 
+  expectCleanRuntime(watched);
+});
+
+test("graph stays consistent when the graph tab is opened during the hide write", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await composePost(page, "photo", "My rooftop tomatoes");
+
+  await page.goto("/connections");
+  await page.getByLabel("Handle").fill("tester");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Handle saved.")).toBeVisible();
+  await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(V1_BUNDLE);
+  await page.getByRole("button", { name: "Import pasted text" }).click();
+  await expect(page.getByText(/Unsigned file - trust the sender \(@sunny\)/)).toBeVisible();
+
+  // Hide sunny and open the graph tab immediately, without waiting for the confirmation:
+  // the in-app navigation races the in-flight hide write, and the graph's first read must
+  // still await that write and show the hidden state, not a stale map.
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
+  await page.getByRole("link", { name: "Graph", exact: true }).click();
+  await expect(page.getByText("0 people · 1 post · 0 listings · 0 likes.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "sunny (Connection)" })).toHaveCount(0);
   expectCleanRuntime(watched);
 });
 
