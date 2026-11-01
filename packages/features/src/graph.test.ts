@@ -211,3 +211,19 @@ describe("graphBodyState", () => {
     expect(graphBodyState("ready", 40)).toBe("content");
   });
 });
+
+describe("resolveGraphFocus", () => {
+  it("maps a visible connection id to its node and never resolves a hidden or unknown one", async () => {
+    const { resolveGraphFocus } = await import("./graph");
+    const graph = buildSocialGraph({
+      myHandle: "me",
+      connections: [connection({ id: "alice" }), connection({ id: "ghost", hidden: true })],
+      items: [],
+    });
+    expect(resolveGraphFocus(graph, "alice")).toBe("connection:alice");
+    expect(resolveGraphFocus(graph, "ghost")).toBeNull();
+    expect(resolveGraphFocus(graph, "nobody")).toBeNull();
+    expect(resolveGraphFocus(graph, null)).toBeNull();
+    expect(resolveGraphFocus(graph, "")).toBeNull();
+  });
+});
