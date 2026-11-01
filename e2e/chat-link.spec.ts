@@ -89,7 +89,10 @@ test("connect link + chat link: tap opens straight into the conversation", async
   expect(chatLink).toContain("#chat=");
 
   // More than the previous one-hour session, but within the new fixed eight hours.
-  await alice.clock.setSystemTime((await alice.evaluate(() => Date.now())) + 2 * 60 * 60_000);
+  for (let halfHour = 0; halfHour < 4; halfHour += 1) {
+    await alice.clock.fastForward(30 * 60_000);
+    await alice.mouse.click(380, 700);
+  }
 
   // 4. Alice taps the link in her text thread: eic opens straight into the conversation.
   await alice.goto(chatLink);
