@@ -12,6 +12,7 @@ import { AppError } from "@veil/core";
 import {
   CHAT_LINK_PREFIX,
   CONNECT_LINK_PREFIX,
+  MAX_CHAT_LINK_CHARS,
   POST_LINK_PREFIX,
   applyChatShareLink,
   importConnectCard,
@@ -66,10 +67,35 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const PENDING_LINK_KEY = "eic.pendingLinkHash";
+const LEGACY_PENDING_LINK_KEY = "eic.pendingLinkHash";
+const pendingKey = (kind: "post" | "chat" | "connect") => `eic.pendingLink.v2.${kind}`;
 
-const isLinkHash = (hash: string): boolean =>
-  hash.startsWith(POST_LINK_PREFIX) || hash.startsWith(CHAT_LINK_PREFIX) || hash.startsWith(CONNECT_LINK_PREFIX);
+const kindOfHash = (hash: string): "post" | "chat" | "connect" | null =>
+  hash.startsWith(CHAT_LINK_PREFIX) ? "chat" : hash.startsWith(CONNECT_LINK_PREFIX) ? "connect" : hash.startsWith(POST_LINK_PREFIX) ? "post" : null;
+
+const isLinkHash = (hash: string): boolean => kindOfHash(hash) !== null;
+
+type StashedLink = { hash: string; forAuthorId: string | null; stashedAt: number };
+
+const readStash = (kind: "post" | "chat" | "connect"): StashedLink | null => {
+  try {
+    const raw = window.sessionStorage.getItem(pendingKey(kind));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StashedLink>;
+    if (typeof parsed.hash !== "string" || kindOfHash(parsed.hash) !== kind) return null;
+    return { hash: parsed.hash, forAuthorId: typeof parsed.forAuthorId === "string" ? parsed.forAuthorId : null, stashedAt: typeof parsed.stashedAt === "number" ? parsed.stashedAt : 0 };
+  } catch {
+    return null;
+  }
+};
+
+const dropStash = (kind: "post" | "chat" | "connect") => {
+  try {
+    window.sessionStorage.removeItem(pendingKey(kind));
+  } catch {
+    // Best effort.
+  }
+};
 
 export default function App() {
   const vault = useSessionStore((state) => state.vault);
@@ -96,17 +122,34 @@ export default function App() {
   }, []);
 
   // A link's payload lives in the URL hash, which route changes (like going to /unlock) drop.
-  // Stash it on arrival so the unlock flow cannot eat the message the link was carrying.
+  // Stash it on arrival, one slot per link kind, so the unlock flow cannot eat the message the
+  // link was carrying. The slot is keyed to the vault that was active when it arrived: a link
+  // stashed under one vault is never applied into a different vault unlocked in the same tab.
   useEffect(() => {
+    try {
+      window.sessionStorage.removeItem(LEGACY_PENDING_LINK_KEY);
+    } catch {
+      // Best effort.
+    }
     const stash = () => {
       const hash = window.location.hash;
-      if (isLinkHash(hash)) {
+      const kind = kindOfHash(hash);
+      if (!kind) return;
+      const active = useSessionStore.getState().vault;
+      const write = (forAuthorId: string | null) => {
         try {
-          window.sessionStorage.setItem(PENDING_LINK_KEY, hash);
+          window.sessionStorage.setItem(pendingKey(kind), JSON.stringify({ hash, forAuthorId, stashedAt: Date.now() } satisfies StashedLink));
         } catch {
           // Private mode: the live hash still works while it survives.
         }
+      };
+      if (!active) {
+        write(null);
+        return;
       }
+      loadSettings(active)
+        .then((settings) => write(settings.authorId ?? null))
+        .catch(() => write(null));
     };
     stash();
     window.addEventListener("hashchange", stash);
@@ -127,6 +170,7 @@ type PendingLink =
   | { kind: "connect"; text: string };
 
 function readPendingLink(hash: string): PendingLink | null {
+  if (hash.length > MAX_CHAT_LINK_CHARS) throw new AppError("That link is too long to be an eic link.");
   const post = readPostShareLink(hash);
   if (post) return { kind: "post", text: post };
   const chat = readChatShareLink(hash);
@@ -148,19 +192,34 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
   const [pending, setPending] = useState<PendingLink | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [connectTick, setConnectTick] = useState(0);
   const openingChat = useRef(false);
 
   useEffect(() => {
     if (!vault) return;
-    const read = () => {
+    const read = async () => {
       let hash = window.location.hash;
-      if (!isLinkHash(hash)) {
-        try {
-          hash = window.sessionStorage.getItem(PENDING_LINK_KEY) ?? hash;
-        } catch {
-          // No stash available; the live hash is all we have.
+      let kind = kindOfHash(hash);
+      if (!kind) {
+        // Fall back to stashed slots - connect first, so a pending connection is added before
+        // a stashed chat link tries to apply. A slot keyed to another vault is dropped, never
+        // applied: a stashed link must not leak across vaults on a shared device.
+        for (const slot of ["connect", "chat", "post"] as const) {
+          const entry = readStash(slot);
+          if (!entry) continue;
+          if (entry.forAuthorId) {
+            const settings = await loadSettings(vault);
+            if (settings.authorId !== entry.forAuthorId) {
+              dropStash(slot);
+              continue;
+            }
+          }
+          hash = entry.hash;
+          kind = slot;
+          break;
         }
       }
+      if (!kind) return;
       try {
         const link = readPendingLink(hash);
         if (link === null) return;
@@ -177,11 +236,23 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
       setBusy(true);
       try {
         const result = await applyChatShareLink(vault, chatLink, { newId: newItemId, now: () => new Date() });
-        consumeHash();
         setPending(null);
-        navigate(`/chat/${result.authorId}`);
+        if (result.failed === 0) {
+          consumeHash("chat");
+          navigate(`/chat/${result.authorId}`);
+        } else {
+          // Honest partial result; keep the stash so a retry (or a re-tap) can pick up the rest.
+          setMessage(
+            result.applied > 0
+              ? `Opened ${result.applied} of ${result.total} messages; ${result.failed} could not be opened - ask for a fresh link.`
+              : `None of the ${result.total} messages in that link could be opened - ask for a fresh link.`,
+          );
+          if (result.applied > 0) navigate(`/chat/${result.authorId}`);
+        }
       } catch (caught) {
-        consumeHash();
+        // Keep the stash: a chat link that cannot apply yet (for example, the sender is not a
+        // connection yet) opens on its own once that changes - no re-tap needed.
+        stripUrlHash();
         setPending(null);
         setMessage(caught instanceof AppError ? caught.message : "That chat link could not be opened.");
       } finally {
@@ -189,23 +260,27 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
         setBusy(false);
       }
     };
-    read();
-    window.addEventListener("hashchange", read);
-    return () => window.removeEventListener("hashchange", read);
+    void read();
+    const onHash = () => void read();
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vault]);
+  }, [vault, connectTick]);
 
-  const consumeHash = () => {
-    try {
-      window.sessionStorage.removeItem(PENDING_LINK_KEY);
-    } catch {
-      // Best effort.
+  const stripUrlHash = () => {
+    if (isLinkHash(window.location.hash)) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
   };
 
-  const dismiss = () => {
-    consumeHash();
+  const consumeHash = (kind: "post" | "chat" | "connect") => {
+    dropStash(kind);
+    stripUrlHash();
+  };
+
+  const dismiss = (kind?: "post" | "chat" | "connect") => {
+    if (kind) consumeHash(kind);
+    else stripUrlHash();
     setPending(null);
     setMessage(null);
   };
@@ -218,7 +293,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
       const result = await importShareBundle(vault, pending.text, { settings, newId: newItemId, now: new Date() });
       setPending(null);
       setMessage(`Imported from @${result.handle}: ${result.added} new, ${result.updated} updated. The post is in your vault and renders offline from here on.`);
-      consumeHash();
+      consumeHash("post");
     } catch (caught) {
       setMessage(caught instanceof AppError ? caught.message : "That share link could not be imported.");
     } finally {
@@ -232,9 +307,11 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
     try {
       const settings = await loadSettings(vault);
       const result = await importConnectCard(vault, pending.text, { settings, newId: newItemId, now: new Date() });
-      consumeHash();
+      consumeHash("connect");
       setPending(null);
       navigate(`/chat/${result.authorId}`);
+      // A chat link that arrived before the connection existed has been waiting in its slot.
+      setConnectTick((tick) => tick + 1);
     } catch (caught) {
       setMessage(caught instanceof AppError ? caught.message : "That connect link could not be used.");
     } finally {
@@ -257,14 +334,15 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
           <Window title="A friend wants to connect">
             <div className="flex flex-col gap-2 text-[12px]">
               <p>
-                This link carries {connectHandle ? `@${connectHandle}'s` : "a friend's"} signed card - handle and key,
-                nothing else. The signature checks out against the card itself, so trust it only if it reached you
-                from them directly, not forwarded by someone else.
+                This link carries {connectHandle ? `@${connectHandle}'s` : "a friend's"} signed card - handle, public
+                key, and their feed address if they set one. Nothing else: no posts, no likes, no secrets. The
+                signature checks out against the card itself, so trust it only if it reached you from them directly,
+                not forwarded by someone else.
               </p>
               <p>Add {connectHandle ? `@${connectHandle}` : "them"} as a connection and open your chat?</p>
               <div className="flex gap-1">
                 <Button95 onClick={() => void doConnect()} disabled={busy}>Add and open chat</Button95>
-                <Button95 onClick={dismiss} disabled={busy}>Not now</Button95>
+                <Button95 onClick={() => dismiss("connect")} disabled={busy}>Not now</Button95>
               </div>
             </div>
           </Window>
@@ -274,7 +352,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
               <p>This link carries a post from a friend. Import it into your vault?</p>
               <div className="flex gap-1">
                 <Button95 onClick={() => void doImport()} disabled={busy}>Import</Button95>
-                <Button95 onClick={dismiss} disabled={busy}>Not now</Button95>
+                <Button95 onClick={() => dismiss("post")} disabled={busy}>Not now</Button95>
               </div>
             </div>
           </Window>
@@ -282,7 +360,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
           <Window title="Link">
             <div className="flex flex-col gap-2 text-[12px]">
               <p role="status">{message}</p>
-              <div><Button95 onClick={dismiss}>Close</Button95></div>
+              <div><Button95 onClick={() => dismiss()}>Close</Button95></div>
             </div>
           </Window>
         )}
