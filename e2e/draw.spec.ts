@@ -232,6 +232,56 @@ test("eraser removes ink without adding any, and undo restores it", async ({ pag
   expectCleanRuntime(watched);
 });
 
+test("text crosshairs aim placement without touching the bitmap or history", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await page.goto("/draw");
+
+  const canvas = page.locator("canvas").first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas has no bounding box");
+
+  // No guides while a paint tool is armed.
+  await expect(page.getByTestId("text-crosshair-v")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const aimX = box.x + box.width / 4;
+  const aimY = box.y + box.height / 3;
+  await page.mouse.move(aimX, aimY);
+
+  const vline = page.getByTestId("text-crosshair-v");
+  const hline = page.getByTestId("text-crosshair-h");
+  await expect(vline).toBeVisible();
+  await expect(hline).toBeVisible();
+  const vbox = await vline.boundingBox();
+  const hbox = await hline.boundingBox();
+  if (!vbox || !hbox) throw new Error("crosshair lines have no bounding box");
+  expect(Math.abs(vbox.x + vbox.width / 2 - aimX)).toBeLessThanOrEqual(3);
+  expect(Math.abs(hbox.y + hbox.height / 2 - aimY)).toBeLessThanOrEqual(3);
+
+  // The guides are an overlay: no ink, no undo history, and moving them changes nothing.
+  expect(await inkPixels(page)).toBe(0);
+  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
+
+  // Clicking sets the anchor: a fixed cross appears at the click point.
+  await page.mouse.click(aimX, aimY);
+  const anchor = page.getByTestId("text-anchor-cross");
+  await expect(anchor).toBeVisible();
+  const abox = await anchor.boundingBox();
+  if (!abox) throw new Error("anchor cross has no bounding box");
+  expect(Math.abs(abox.x + abox.width / 2 - aimX)).toBeLessThanOrEqual(4);
+  expect(Math.abs(abox.y + abox.height / 2 - aimY)).toBeLessThanOrEqual(4);
+  expect(await inkPixels(page)).toBe(0);
+
+  // Placement still lands where aimed; undo removes it cleanly.
+  await page.getByLabel("Text to place").fill("aim");
+  await page.getByRole("button", { name: "Place text" }).click();
+  expect(await inkPixels(page)).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Undo" }).click();
+  expect(await inkPixels(page)).toBe(0);
+  expectCleanRuntime(watched);
+});
+
 test.describe("phone-width (390px)", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
