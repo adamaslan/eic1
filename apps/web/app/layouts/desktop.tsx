@@ -2,6 +2,9 @@ import { Link, Navigate, Outlet, useLocation } from "react-router";
 import { useClock } from "@veil/features";
 import { Bevel } from "~/ui95/Bevel";
 import { Taskbar } from "~/ui95/Taskbar";
+import { PlayerAudio } from "~/components/player-audio";
+import { usePlayerStore } from "~/platform/player-store";
+import { useEffect } from "react";
 import { useSessionStore } from "~/platform/session";
 
 const TABS = [
@@ -23,6 +26,12 @@ export default function DesktopLayout() {
   const resuming = useSessionStore((state) => state.resuming);
   const { pathname } = useLocation();
   const now = useClock();
+
+  // Locking or switching vaults must stop the music and drop private playlist state,
+  // not just leave the player running against a locked vault.
+  useEffect(() => {
+    if (!vault) usePlayerStore.getState().resetAll();
+  }, [vault]);
 
   if (!vault && resuming) {
     return <p className="p-2 text-[12px] text-white">Opening your desktop…</p>;
@@ -70,6 +79,7 @@ export default function DesktopLayout() {
       <main className="min-h-0 flex-1 overflow-y-auto p-2">
         <Outlet />
       </main>
+      <PlayerAudio />
       <Taskbar startLabel="Lock" onStart={lock} clock={clock}>
         <span className="self-center truncate text-[12px] text-[#0a0a0a]">Everybody is Cool</span>
       </Taskbar>
