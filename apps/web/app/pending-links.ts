@@ -1,4 +1,4 @@
-import { CHAT_LINK_PREFIX, CONNECT_LINK_PREFIX, POST_LINK_PREFIX } from "@veil/features";
+import { CHAT_LINK_PREFIX, CONNECT_LINK_PREFIX, POST_LINK_PREFIX, isJournalShareBundle, readPostShareLink } from "@veil/features";
 
 /**
  * Pending-link slots: where a tapped eic link waits while the app locks, unlocks, or routes.
@@ -52,7 +52,6 @@ export const LEGACY_PENDING_LINK_KEY = "eic.pendingLinkHash";
  * only - typed slot routing happens in entry.client.tsx. A plain sessionStorage key, read
  * and removed exactly once per load.
  */
-export const ARRIVAL_HASH_KEY = "eic.arrivalHash";
 export const PENDING_KINDS: PendingKind[] = ["connect", "chat", "post"];
 export const pendingKey = (kind: PendingKind) => `eic.pendingLink.v2.${kind}`;
 
@@ -154,8 +153,9 @@ function readWindowArrival(): string | null {
 }
 
 /**
- * Promotes the shell's parse-time capture (ARRIVAL_HASH_KEY and the window global the inline
- * script sets first) into a typed, unbound slot, and retains it in memory until consumed.
+ * Promotes the shell's parse-time capture (the window global set by the inline script) into a
+ * typed, unbound slot, and retains it in memory until consumed. Journal payloads stay in memory
+ * only because their text is plaintext inside the link; other link kinds may use sessionStorage.
  * entry.client.tsx runs this before hydration, so before anything on the page is tappable.
  * The raw key is always removed after the read: one promotion per load, no stale leftovers.
  * Unrelated hashes (route fragments, anchors) are dropped, never stashed. When storage is
@@ -165,13 +165,22 @@ function readWindowArrival(): string | null {
  * exactly like the pre-vault stash the mount effect writes.
  */
 export function promoteArrivalHash(store: SlotStore, liveHash: string): void {
-  const captured = store.get(ARRIVAL_HASH_KEY);
-  store.remove(ARRIVAL_HASH_KEY);
-  const hash = captured ?? readWindowArrival() ?? liveHash;
+  const hash = readWindowArrival() ?? liveHash;
   const kind = kindOfHash(hash);
   if (!kind) return;
   memoryArrival = hash;
-  writeStash(store, kind, { hash, forAuthorId: null, stashedAt: Date.now() });
+  let journalLink = false;
+  if (kind === "post") {
+    try {
+      const post = readPostShareLink(hash);
+      journalLink = post !== null && isJournalShareBundle(post);
+    } catch {
+      // A damaged post link is still handled by the normal import error path.
+    }
+  }
+  if (!journalLink) {
+    writeStash(store, kind, { hash, forAuthorId: null, stashedAt: Date.now() });
+  }
 }
 
 export function bindStashesToVault(store: SlotStore, authorId: string): void {

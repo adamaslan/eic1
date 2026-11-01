@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { toBase64Url } from "@veil/features";
 import {
-  ARRIVAL_HASH_KEY,
   clearMemoryArrival,
   dropAllStashes,
   dropStash,
@@ -20,6 +20,7 @@ const mapStore = (): SlotStore & { data: Map<string, string> } => {
 };
 
 const chatEntry = (forAuthorId: string | null) => ({ hash: "#chat=abc123", forAuthorId, stashedAt: 1 });
+const captureArrival = (hash: string) => { (globalThis as Record<string, unknown>).__eicArrivalHash = hash; };
 
 describe("pending-link slots", () => {
   it("keys a slot stashed while a vault is active, and only that vault reads it", () => {
@@ -79,21 +80,31 @@ describe("bindStashesToVault", () => {
 });
 
 describe("promoteArrivalHash (parse-time capture)", () => {
-  it("promotes a captured link hash to a typed unbound slot and removes the raw key", () => {
+  it("promotes a captured post link hash to a typed unbound slot", () => {
     const store = mapStore();
-    store.set(ARRIVAL_HASH_KEY, "#import=payload");
+    captureArrival("#import=payload");
     promoteArrivalHash(store, "");
-    expect(store.get(ARRIVAL_HASH_KEY)).toBeNull(); // consumed: no stale leftover
     const stashed = readStash(store, "post");
     expect(stashed?.hash).toBe("#import=payload");
     expect(stashed?.forAuthorId).toBeNull(); // unbound: vault-arrival binding owns keying
   });
 
+  it("keeps a journal entry link in memory only because its fragment contains plaintext", () => {
+    const store = mapStore();
+    const bundle = JSON.stringify({ format: "eic-share", version: 1, type: "journal-entry" });
+    const hash = `#import=${toBase64Url(bundle)}`;
+    captureArrival(hash);
+    promoteArrivalHash(store, "");
+    expect(readMemoryArrival()).toBe(hash);
+    expect(readStash(store, "post")).toBeNull();
+    expect([...store.data.values()].some((value) => value.includes(bundle))).toBe(false);
+    clearMemoryArrival();
+  });
+
   it("drops an unrelated hash - parked raw key removed, nothing stashed", () => {
     const store = mapStore();
-    store.set(ARRIVAL_HASH_KEY, "#/feed");
+    captureArrival("#/feed");
     promoteArrivalHash(store, "");
-    expect(store.get(ARRIVAL_HASH_KEY)).toBeNull();
     for (const kind of ["post", "chat", "connect"] as const) expect(readStash(store, kind)).toBeNull();
   });
 
@@ -116,7 +127,7 @@ describe("promoteArrivalHash (parse-time capture)", () => {
   it("clears retention on lock (dropAllStashes) and keeps it on an unrelated kind drop", () => {
     clearMemoryArrival();
     const store = mapStore();
-    store.set(ARRIVAL_HASH_KEY, "#import=payload");
+    captureArrival("#import=payload");
     promoteArrivalHash(store, "");
     expect(readMemoryArrival()).toBe("#import=payload");
     dropStash(store, "chat"); // a chat dismissal must not eat the retained post link
@@ -130,7 +141,7 @@ describe("promoteArrivalHash (parse-time capture)", () => {
     promoteArrivalHash(store, "#/settings");
     for (const kind of ["post", "chat", "connect"] as const) expect(readStash(store, kind)).toBeNull();
     writeStash(store, "post", { hash: "#import=older", forAuthorId: null, stashedAt: 1 });
-    store.set(ARRIVAL_HASH_KEY, "#import=newer");
+    captureArrival("#import=newer");
     promoteArrivalHash(store, "");
     expect(readStash(store, "post")?.hash).toBe("#import=newer");
   });
