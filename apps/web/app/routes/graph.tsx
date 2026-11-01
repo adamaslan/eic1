@@ -311,7 +311,11 @@ export default function Graph() {
   // A ?focus= link from the connections screen preselects that person once the map is built.
   // A hidden or unknown connection resolves to nothing and says so - hiding always wins.
   useEffect(() => {
-    if (!focusParam || bodyState === "loading" || bodyState === "error") return;
+    if (!focusParam) {
+      setFocusMissed(false);
+      return;
+    }
+    if (bodyState === "loading" || bodyState === "error") return;
     const target = resolveGraphFocus(shownGraph, focusParam);
     if (target) {
       setSelectedId(target);
