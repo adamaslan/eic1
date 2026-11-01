@@ -220,6 +220,29 @@ test("graph maps a connection's authorship and likes, and honors hiding", async 
   expectCleanRuntime(watched);
 });
 
+test("graph stays consistent when the graph tab is opened during the hide write", async ({ page }) => {
+  const watched = watchRuntime(page);
+  await createVault(page);
+  await composePost(page, "photo", "My rooftop tomatoes");
+
+  await page.goto("/connections");
+  await page.getByLabel("Handle").fill("tester");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Handle saved.")).toBeVisible();
+  await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(V1_BUNDLE);
+  await page.getByRole("button", { name: "Import pasted text" }).click();
+  await expect(page.getByText(/Unsigned file - trust the sender \(@sunny\)/)).toBeVisible();
+
+  // Hide sunny and open the graph tab immediately, without waiting for the confirmation:
+  // the in-app navigation races the in-flight hide write, and the graph's first read must
+  // still await that write and show the hidden state, not a stale map.
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
+  await page.getByRole("link", { name: "Graph", exact: true }).click();
+  await expect(page.getByText("0 people · 1 post · 0 listings · 0 likes.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "sunny (Connection)" })).toHaveCount(0);
+  expectCleanRuntime(watched);
+});
+
 test("graph shows an honest error, not an empty map, when the vault read fails", async ({ page }) => {
   const watched = watchRuntime(page);
   await createVault(page);
