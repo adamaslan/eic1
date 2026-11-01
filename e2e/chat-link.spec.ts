@@ -138,6 +138,23 @@ test("chat link before connecting: kept, then opens on its own once connected", 
   // Carol taps the chat link first: honest not-a-connection message, and the link is kept.
   await carol.goto(chatLink);
   await expect(carol.getByText(/not a connection yet/)).toBeVisible();
+  // Regression: the tap is a fresh page load, so the slot starts unbound (forAuthorId null)
+  // while the vault rehydrates - it MUST bind to carol's vault once the handler reads it,
+  // or the cross-vault guard never engages on the primary tap path.
+  const slot = await carol.evaluate(() => sessionStorage.getItem("eic.pendingLink.v2.chat"));
+  expect(slot, "chat link kept in its slot").toBeTruthy();
+  // Binding is async: the vault finishes resuming after the tap stashed the link, then the
+  // slot binds. Poll so the assertion checks the guarantee, not the timing.
+  await expect
+    .poll(
+      async () =>
+        carol.evaluate(() => {
+          const raw = sessionStorage.getItem("eic.pendingLink.v2.chat");
+          return raw ? (JSON.parse(raw).forAuthorId as string | null) : null;
+        }),
+      { message: "slot bound to the resumed vault, not left null" },
+    )
+    .toBeTruthy();
   await carol.getByRole("button", { name: "Close" }).click();
 
   // Then the connect link: one confirm, and the waiting chat link applies on its own -
