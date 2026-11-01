@@ -3,6 +3,10 @@ import { Link } from "react-router";
 import {
   buildSocialGraph,
   createGraphLayout,
+  emptyGraphFilter,
+  filterSocialGraph,
+  isGraphFilterActive,
+  type GraphFilter,
   GRAPH_RADIUS,
   GRAPH_SPREAD_MAX,
   GRAPH_SPREAD_MIN,
@@ -69,6 +73,22 @@ function savePins(pins: PinMap) {
   }
 }
 
+// Merge with what is stored instead of overwriting: while a filter hides nodes, their
+// pins are not in the applied set, and a plain overwrite would silently forget them.
+function savePinsMerged(currentGraphIds: Set<string>, applied: PinMap) {
+  try {
+    const stored = (JSON.parse(localStorage.getItem(PINS_KEY) ?? "null") ?? {}) as PinMap;
+    const next: PinMap = {};
+    for (const [id, pin] of Object.entries(stored)) {
+      if (!currentGraphIds.has(id) && Number.isFinite(pin?.x) && Number.isFinite(pin?.y)) next[id] = pin;
+    }
+    Object.assign(next, applied);
+    localStorage.setItem(PINS_KEY, JSON.stringify(next));
+  } catch {
+    /* storage blocked: pins last for this visit only */
+  }
+}
+
 function loadSpread(): number {
   try {
     const value = Number(localStorage.getItem(SPREAD_KEY));
@@ -107,6 +127,14 @@ export default function Graph() {
     return buildSocialGraph({ myHandle: settingsReady ? settings.handle : null, connections, items: list });
   }, [items, settingsReady, settings.handle, connections]);
 
+  // Kind toggles and a label search narrow the shown graph. Filters are deliberately not
+  // persisted: a search can name something private, and what you filtered for should not
+  // outlive the visit.
+  const [filter, setFilter] = useState<GraphFilter>(emptyGraphFilter);
+  const filtered = useMemo(() => filterSocialGraph(graph, filter), [graph, filter]);
+  const shownGraph = filtered.graph;
+  const filterActive = isGraphFilterActive(filter);
+
   const degree = useMemo(() => degreesOf(graph), [graph]);
   const [preset, setPreset] = useState<GraphPreset>("radial");
   const [spread, setSpread] = useState<number>(() => loadSpread());
@@ -137,9 +165,9 @@ export default function Graph() {
   // as the start, so retuning settles gently instead of scattering the graph (Ulysses
   // behavior). Ticks run a few per frame; reduced motion settles synchronously, one render.
   useEffect(() => {
-    const pins = loadPins(graph);
+    const pins = loadPins(shownGraph);
     setPinned(pins);
-    const layout = createGraphLayout(graph, {
+    const layout = createGraphLayout(shownGraph, {
       width: W,
       height: H,
       preset,
@@ -173,7 +201,7 @@ export default function Graph() {
       cancelAnimationFrame(frame);
       layoutRef.current = null;
     };
-  }, [graph, preset, spread, W, H]);
+  }, [shownGraph, preset, spread, W, H]);
 
   // While dragging, keep ticking so neighbours give way around the dragged node.
   useEffect(() => {
@@ -257,14 +285,23 @@ export default function Graph() {
     setPositions((current) => ({ ...current }));
   }
 
-  const nodeById = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node])), [graph]);
+  const nodeById = useMemo(() => new Map(shownGraph.nodes.map((node) => [node.id, node])), [shownGraph]);
   const selected = selectedId ? nodeById.get(selectedId) ?? null : null;
-  const selectedEdges = selected ? graph.edges.filter((e) => e.source === selected.id || e.target === selected.id) : [];
+
+  // A filter can hide the selected node; drop the selection so the details window never
+  // describes something that is no longer on the map.
+  useEffect(() => {
+    if (selectedId && !nodeById.has(selectedId)) setSelectedId(null);
+  }, [nodeById, selectedId]);
+  const selectedEdges = selected ? shownGraph.edges.filter((e) => e.source === selected.id || e.target === selected.id) : [];
 
   const visibleConnections = connections.filter((c) => !c.hidden).length;
-  const posts = graph.nodes.filter((node) => node.kind === "post").length;
-  const listings = graph.nodes.filter((node) => node.kind === "listing").length;
-  const likes = graph.edges.filter((edge) => edge.kind === "likes").length;
+  const totalPosts = graph.nodes.filter((node) => node.kind === "post").length;
+  const totalListings = graph.nodes.filter((node) => node.kind === "listing").length;
+  const posts = shownGraph.nodes.filter((node) => node.kind === "post").length;
+  const listings = shownGraph.nodes.filter((node) => node.kind === "listing").length;
+  const shownConnections = shownGraph.nodes.filter((node) => node.kind === "connection").length;
+  const likes = shownGraph.edges.filter((edge) => edge.kind === "likes").length;
   const bodyState = graphBodyState(items.status, graph.nodes.length);
 
   return (
@@ -298,6 +335,31 @@ export default function Graph() {
             </Button95>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1">
+              <span className="font-bold">Filter:</span>
+              <input
+                aria-label="Filter by name or title"
+                placeholder="Name or title"
+                value={filter.query}
+                onChange={(event) => setFilter((current) => ({ ...current, query: event.target.value }))}
+                className="w-36 bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none"
+              />
+            </label>
+            {(["connection", "post", "listing"] as const).map((kind) => (
+              <Button95
+                key={kind}
+                pressed={filter.kinds[kind]}
+                onClick={() => setFilter((current) => ({ ...current, kinds: { ...current.kinds, [kind]: !current.kinds[kind] } }))}
+              >
+                {kind === "connection" ? "People" : kind === "post" ? "Posts" : "Listings"}
+              </Button95>
+            ))}
+            {filterActive && (
+              <Button95 onClick={() => setFilter(emptyGraphFilter)}>Clear filter</Button95>
+            )}
+          </div>
+
           {bodyState === "loading" ? (
             <p>Loading your map…</p>
           ) : bodyState === "error" ? (
@@ -314,9 +376,16 @@ export default function Graph() {
               {" · "}
               <Link to="/compose" className="text-[#0000cc] underline">New post</Link>
             </p>
+          ) : filterActive && shownGraph.nodes.length <= 1 ? (
+            <p>
+              Nothing shows with the current filters.{filter.query.trim() !== "" && " No matching names or titles."}{" "}
+              <button type="button" onClick={() => setFilter(emptyGraphFilter)} className="text-[#0000cc] underline">
+                Clear the filter
+              </button>
+            </p>
           ) : showList ? (
             <ul className="flex flex-col gap-1">
-              {graph.nodes.map((node) => (
+              {shownGraph.nodes.map((node) => (
                 <li key={node.id} className="bg-white px-1.5 py-1">
                   <Link to={node.href} className="font-bold text-[#0000cc] underline">
                     {node.label}
@@ -338,7 +407,7 @@ export default function Graph() {
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
               >
-                {graph.edges.map((edge) => {
+                {shownGraph.edges.map((edge) => {
                   const source = positions[edge.source];
                   const target = positions[edge.target];
                   if (!source || !target) return null;
@@ -357,7 +426,7 @@ export default function Graph() {
                     />
                   );
                 })}
-                {graph.nodes.map((node) => {
+                {shownGraph.nodes.map((node) => {
                   const position = positions[node.id];
                   if (!position) return null;
                   const isSelected = node.id === selectedId;
@@ -407,10 +476,13 @@ export default function Graph() {
           )}
 
           <p className="text-[11px] text-[#404040]">
-            {visibleConnections} {visibleConnections === 1 ? "person" : "people"} · {posts} {posts === 1 ? "post" : "posts"} · {listings} {listings === 1 ? "listing" : "listings"} · {likes} {likes === 1 ? "like" : "likes"}.
-            Drag a node to pin it. Square is you, circle is a person or post, diamond is a listing.
+            {filterActive
+              ? `Showing ${shownConnections} of ${visibleConnections} ${visibleConnections === 1 ? "person" : "people"} · ${posts} of ${totalPosts} ${totalPosts === 1 ? "post" : "posts"} · ${listings} of ${totalListings} ${totalListings === 1 ? "listing" : "listings"} · ${likes} ${likes === 1 ? "like" : "likes"}.`
+              : `${visibleConnections} ${visibleConnections === 1 ? "person" : "people"} · ${posts} ${posts === 1 ? "post" : "posts"} · ${listings} ${listings === 1 ? "listing" : "listings"} · ${likes} ${likes === 1 ? "like" : "likes"}.`}
+            {" "}Drag a node to pin it. Square is you, circle is a person or post, diamond is a listing.
             {graph.hiddenConnections > 0 && ` ${graph.hiddenConnections} hidden ${graph.hiddenConnections === 1 ? "connection stays" : "connections stay"} out of the map.`}
             {graph.truncatedItems > 0 && ` Showing the 100 newest items; ${graph.truncatedItems} older left off.`}
+            {filterActive && filter.query.trim() !== "" && graph.truncatedItems > 0 && " Filters search only the mapped items, not the older ones left off."}
           </p>
         </div>
       </Window>
