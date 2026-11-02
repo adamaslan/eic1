@@ -241,8 +241,14 @@ test("storage failures surface honest errors, never false success, and preserve 
   await expect(page.getByText("The chore chart could not be read.")).toBeVisible();
   await expect(page.getByText("No chores yet.")).toHaveCount(0);
 
-  // Nothing was lost: clear the fault, reload, both events are still sealed in the vault.
+  // The failure replaces "Loading…" instead of spinning forever, and Try again recovers in place.
+  await expect(page.getByText("Loading…")).toHaveCount(0);
   await page.evaluate(() => (window as unknown as { __restoreGetAll: () => void }).__restoreGetAll());
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByText("No chores yet. Add one below to start the chart.")).toBeVisible();
+  await expect(page.getByText("The chore chart could not be read.")).toHaveCount(0);
+
+  // Nothing was lost: reload fully, both events are still sealed in the vault.
   await page.reload();
   await page.goto("/tools/calendar");
   await expect(page.getByText(kept)).toBeVisible();
