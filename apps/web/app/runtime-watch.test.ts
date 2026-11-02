@@ -26,5 +26,10 @@ describe("watchRuntime analytics isolation", () => {
     await watchRuntime(productionPage);
     expect(productionPage.route).not.toHaveBeenCalled();
     expect(productionPage.on).toHaveBeenCalledTimes(2);
+
+    const explicitTargetPage = mockPage();
+    vi.stubEnv("DEPLOY_PREVIEW_URL", "https://deploy-preview.example.test");
+    await watchRuntime(explicitTargetPage);
+    expect(explicitTargetPage.route).not.toHaveBeenCalled();
   });
 });

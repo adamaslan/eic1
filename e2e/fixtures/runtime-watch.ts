@@ -16,7 +16,7 @@ import type { Page } from "@playwright/test";
 export async function watchRuntime(page: Page) {
   // Keep this isolation limited to deploy-preview runs. The production gate uses the
   // same watcher and must observe the production page as served, including analytics.
-  if (process.env.DEPLOY_PREVIEW_URL) {
+  if (process.env.DEPLOY_PREVIEW_URL && !process.env.EIC_TARGET_URL) {
     await page.route("https://cdn.segment.com/**", (route) => route.abort());
   }
   const consoleErrors: string[] = [];
