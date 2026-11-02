@@ -13,9 +13,8 @@ import {
   dropSharedLink,
   loadSharedLink,
   loadSharedLinks,
-  publishSharedPost,
+  publishSharedPostFlow,
   revokeSharedPost,
-  saveSharedLink,
   type SharedLinkRef,
 } from "~/platform/share-relay";
 import { useSocial } from "~/platform/use-social";
@@ -58,10 +57,12 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
     // hand the short link to the share sheet. The link's preview shows this post's photo
     // and text to anyone who has it; the delete key stays in this vault for Revoke.
     if (RELAY_ENABLED) try {
-      // Re-sharing this post: retire every earlier link first (best effort), so the
-      // normal path keeps exactly one live link per post. A failed revoke keeps its
-      // ref - and its delete key - so the link stays revocable instead of orphaned.
-      for (const previous of await loadSharedLinks(vault, item.id)) {
+      // Re-sharing this post: retire every earlier CONFIRMED link first (best
+      // effort), so the normal path keeps exactly one live link per post. A pending
+      // ref is NOT retired: it is this retry's intent, and publishSharedPostFlow
+      // reuses its id and key. A failed revoke keeps its ref - and its delete key -
+      // so the link stays revocable instead of orphaned.
+      for (const previous of (await loadSharedLinks(vault, item.id)).filter((ref) => !ref.pending)) {
         try {
           await revokeSharedPost(previous.id, previous.deleteKey);
           await dropSharedLink(vault, item.id, previous.id);
@@ -69,15 +70,15 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
           // keep the ref: its key is the only way to revoke that link later
         }
       }
-      const published = await publishSharedPost(vault, text);
-      const ref: SharedLinkRef = { ...published, postId: item.id, createdAt: new Date().toISOString() };
-      await saveSharedLink(vault, ref);
+      // The intent (id + delete key) is persisted in the vault BEFORE the publish, so
+      // a lost response can never orphan a live link: retrying reuses the same link.
+      const { ref } = await publishSharedPostFlow(vault, text, item.id);
       setSharedLink(ref);
       let handed = false;
       let cancelled = false;
       if (navigator.share) {
         try {
-          await navigator.share({ title: item.title, url: published.url });
+          await navigator.share({ title: item.title, url: ref.url });
           handed = true;
         } catch (caught) {
           if (caught instanceof DOMException && caught.name === "AbortError") cancelled = true;
@@ -91,16 +92,24 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
         // no silent copy, and Revoke stays available for a link that went nowhere.
         setShareNote("Share cancelled - but the link was already published and still shows this post. Copy it or revoke it here.");
       } else {
-        await navigator.clipboard.writeText(published.url);
-        const leftover = (await loadSharedLinks(vault, item.id)).length - 1;
-        setShareNote(
-          leftover > 0
-            ? `Link copied. An earlier link could not be revoked and may still show this post - revoke it below.`
-            : "Link copied. It shows this post's photo and text to anyone who has it - revoke it here anytime."
-        );
+        try {
+          await navigator.clipboard.writeText(ref.url);
+          const leftover = (await loadSharedLinks(vault, item.id)).length - 1;
+          setShareNote(
+            leftover > 0
+              ? `Link copied. An earlier link could not be revoked and may still show this post - revoke it below.`
+              : "Link copied. It shows this post's photo and text to anyone who has it - revoke it here anytime."
+          );
+        } catch {
+          // The publish DID commit: never report a generic failure for a live link.
+          setShareNote("The link is live but copying it failed - use Copy shared link below, or revoke it here.");
+        }
       }
       return;
     } catch (caught) {
+      // Whatever happened, show the current refs: a failed publish may have left a
+      // pending (revocable) link behind, and the Revoke affordance must reflect it.
+      setSharedLink(await loadSharedLink(vault, item.id));
       // The share service is down or refused: fall back to the share file, which never
       // touches a server. The note stays honest about which thing happened.
       if (caught instanceof AppError && caught.message.startsWith("The share service")) {
