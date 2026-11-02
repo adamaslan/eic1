@@ -15,7 +15,7 @@ import {
   renderMissingPage,
   renderSharePage,
   ShareError,
-} from "../../netlify/functions/share-core.ts";
+} from "../../netlify/functions/lib/share-core.ts";
 
 const PORT = Number(process.env.PORT ?? 4180);
 const APP_ORIGIN = process.env.APP_ORIGIN ?? "http://localhost:5173";
@@ -37,7 +37,7 @@ const store = {
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
-  "access-control-allow-headers": "content-type, x-delete-key",
+  "access-control-allow-headers": "content-type, x-delete-key, x-share-proof, x-share-proof-at",
 };
 
 const json = (res, status, payload) => {
@@ -64,7 +64,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/share") {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
-      const created = await createShare(store, Buffer.concat(chunks).toString("utf8"), new Date(), req.socket.remoteAddress ?? "local");
+      const proof = { signature: req.headers["x-share-proof"] ?? null, at: req.headers["x-share-proof-at"] ?? null };
+      const created = await createShare(store, Buffer.concat(chunks).toString("utf8"), new Date(), proof, req.socket.remoteAddress ?? "local");
       json(res, 201, created);
       return;
     }
@@ -124,6 +125,11 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+server.on("error", (error) => {
+  console.error(`local share relay failed to bind :${PORT} (pid ${process.pid}):`, error.message);
+  process.exit(1);
+});
 server.listen(PORT, () => {
-  console.log(`local share relay on http://localhost:${PORT} (app origin ${APP_ORIGIN})`);
+  const address = server.address();
+  console.log(`local share relay pid=${process.pid} port=${typeof address === "object" && address ? address.port : PORT} (app origin ${APP_ORIGIN})`);
 });
