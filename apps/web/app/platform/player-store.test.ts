@@ -49,4 +49,17 @@ describe("player queue identity", () => {
     expect(usePlayerStore.getState().currentTime).toBe(0);
     expect(usePlayerStore.getState().queue).toEqual([2]);
   });
+
+  it("increments the retry token only for explicit play attempts", () => {
+    const store = usePlayerStore.getState();
+    store.replaceTracks([track("a"), track("b")]);
+    const before = usePlayerStore.getState().playAttempt;
+    store.setPlaying(true);
+    expect(usePlayerStore.getState().playAttempt).toBe(before + 1);
+    usePlayerStore.getState().setPlaying(true);
+    expect(usePlayerStore.getState().playAttempt).toBe(before + 1);
+    usePlayerStore.getState().setPlaying(false);
+    usePlayerStore.getState().setPlaying(true);
+    expect(usePlayerStore.getState().playAttempt).toBe(before + 2);
+  });
 });

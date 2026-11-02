@@ -53,6 +53,8 @@ interface PlayerState {
   playCounts: Record<string, number>;
   /** Bumped when the track list is replaced, so stale async work can bail. */
   generation: number;
+  /** Changes only for explicit play/retry actions, not automatic track advances. */
+  playAttempt: number;
 
   loadFiles: (files: File[], opts?: { playlistName?: string | null; keepOrder?: boolean }) => void;
   replaceTracks: (tracks: PlayerTrack[], opts?: { playlistName?: string | null; startIndex?: number; autoplay?: boolean }) => void;
@@ -117,6 +119,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   playlistName: null,
   playCounts: {},
   generation: 0,
+  playAttempt: 0,
   seekTo: null,
 
   loadFiles: (files, opts) => {
@@ -176,10 +179,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   playAt: (index) => {
     if (index < 0 || index >= get().tracks.length) return;
-    set({ index, currentTime: 0 });
+    set((state) => ({ index, currentTime: 0, playAttempt: state.playAttempt + 1 }));
   },
 
-  setPlaying: (playing) => set({ playing }),
+  setPlaying: (playing) => set((state) => ({
+    playing,
+    playAttempt: playing && !state.playing ? state.playAttempt + 1 : state.playAttempt,
+  })),
 
   move: (direction, auto) => {
     const { tracks, index, repeat, shuffle, order, autoNext, queue, stopAfterCurrent } = get();
@@ -345,6 +351,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       playlistName: null,
       playCounts: {},
       seekTo: null,
+      playAttempt: 0,
       sleep: "off",
       sleepEndsAt: null,
       stopAfterCurrent: false,

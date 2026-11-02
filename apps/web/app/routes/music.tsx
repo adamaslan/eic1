@@ -175,6 +175,7 @@ export default function Music() {
   function load(event: ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(event.target.files ?? []);
     event.target.value = "";
+    preserveResumedSession.current = false;
     setShrunk({});
     setOriginals({});
     store.loadFiles(picked);
