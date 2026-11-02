@@ -2,10 +2,12 @@
  * Share relay API: publish (POST /api/share), fetch (GET /api/share/:id) and revoke
  * (DELETE /api/share/:id with the creator's delete key in x-delete-key).
  */
-import { getStore } from "@netlify/blobs";
 import { createShare, deleteShare, readShare, ShareError, type ShareStore } from "./lib/share-core.ts";
 
-const blobStore = (): ShareStore => {
+// Lazy import: the blob client loads only after the ENABLED gate below has passed, so a
+// gated deployment never resolves @netlify/blobs at cold start and stays truly inert.
+const blobStore = async (): Promise<ShareStore> => {
+  const { getStore } = await import("@netlify/blobs");
   const store = getStore("shared-posts");
   return {
     put: async (key, body, meta) => {
@@ -40,7 +42,7 @@ export default async (request: Request, context?: RequestContext): Promise<Respo
   const url = new URL(request.url);
   // Path after the redirect: /api/share or /api/share/<id>
   const idMatch = /^\/api\/share\/([^/]+)$/.exec(url.pathname);
-  const store = blobStore();
+  const store = await blobStore();
   try {
     if (request.method === "POST" && url.pathname === "/api/share") {
       const body = await request.text();
