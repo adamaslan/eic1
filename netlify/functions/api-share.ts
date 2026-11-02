@@ -3,7 +3,7 @@
  * (DELETE /api/share/:id with the creator's delete key in x-delete-key).
  */
 import { getStore } from "@netlify/blobs";
-import { createShare, deleteShare, readShare, ShareError, type ShareStore } from "./share-core.ts";
+import { createShare, deleteShare, readShare, ShareError, type ShareStore } from "./lib/share-core.ts";
 
 const blobStore = (): ShareStore => {
   const store = getStore("shared-posts");
