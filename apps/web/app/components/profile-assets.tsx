@@ -45,7 +45,7 @@ export function ProfileAssets({ profile, change }: { profile: Profile; change: (
     <p>Or choose an avatar drawn in Paint. Nothing is selected or shared automatically.</p>
     <div role="group" aria-label="Paint avatars" className="grid grid-cols-3 gap-2 sm:grid-cols-4">{PROFILE_AVATARS.map(avatar => <Button95 key={avatar.id} onClick={() => change(ProfileSchema.parse({ ...profile, avatar: { kind: "data-uri", mime: "image/png", data: avatar.data } }))}><span className="flex flex-col items-center"><img width={64} height={64} src={`data:image/png;base64,${avatar.data}`} alt="" /><span>{avatar.label}</span></span></Button95>)}</div>
     <Button95 disabled={!profile.avatar} onClick={() => change({ ...profile, avatar: null })}>Remove avatar</Button95>
-    {profile.avatar && <p>{profileBase64ByteLength(profile.avatar.data).toLocaleString()} encoded avatar bytes</p>}
+    {profile.avatar && <p>{profileBase64ByteLength(profile.avatar.data).toLocaleString()} avatar image bytes</p>}
     <p>{profile.decorations.length}/32 decorations. Small built-in SVGs, no downloads. Decorations are behind the profile window and may be covered by it.</p>
     <div className="flex flex-wrap gap-2">{PROFILE_STICKERS.map(kind => <Button95 key={kind} disabled={profile.decorations.length >= 32} onClick={() => {
       try { const id = `sticker-${crypto.randomUUID()}`; change(addProfileSticker(profile, kind, id)); setSelected(id); setError(""); }

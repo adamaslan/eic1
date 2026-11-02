@@ -6,7 +6,7 @@ test("local avatar and sticker edits save privately; destructive decoration clea
   await page.getByRole("link", { name: "View my profile", exact: true }).click(); await page.getByRole("button", { name: "Customize profile" }).click();
   const png = await page.evaluate(() => { const c = document.createElement("canvas"); c.width = 200; c.height = 100; const x = c.getContext("2d")!; x.fillStyle = "red"; x.fillRect(0, 0, 200, 100); return c.toDataURL("image/png").split(",")[1]; });
   await page.getByLabel("Choose avatar image").setInputFiles({ name: "local.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
-  await expect(page.getByText(/encoded avatar bytes/)).toBeVisible();
+  await expect(page.getByText(/avatar image bytes/)).toBeVisible();
   await page.getByRole("button", { name: "Add star", exact: true }).click(); await page.getByRole("button", { name: "Move right", exact: true }).click(); await page.getByRole("button", { name: "Larger", exact: true }).click();
   await expect(page.getByText("Position 15%, 6% · size 1.25x")).toBeVisible();
   await page.getByRole("button", { name: "Remove all decorations...", exact: true }).click(); await page.getByRole("button", { name: "Keep decorations", exact: true }).click(); await expect(page.getByText(/1\/32 decorations/)).toBeVisible();
@@ -16,11 +16,11 @@ test("local avatar and sticker edits save privately; destructive decoration clea
   const avatar = preview.getByAltText("decorator's avatar");
   await expect(avatar).toHaveJSProperty("naturalWidth", 96); await expect(avatar).toHaveJSProperty("naturalHeight", 96);
   await preview.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath("profile-assets-phone.png") });
-  await page.reload(); await page.getByRole("button", { name: "Customize profile" }).click(); await expect(page.getByText(/1\/32 decorations/)).toBeVisible(); await expect(page.getByText(/encoded avatar bytes/)).toBeVisible();
-  await page.getByLabel("Choose avatar image").setInputFiles({ name: "bad.svg", mimeType: "image/svg+xml", buffer: Buffer.from("<svg/>") }); await expect(page.getByRole("alert")).toContainText("Choose a PNG"); await expect(page.getByText(/encoded avatar bytes/)).toBeVisible();
+  await page.reload(); await page.getByRole("button", { name: "Customize profile" }).click(); await expect(page.getByText(/1\/32 decorations/)).toBeVisible(); await expect(page.getByText(/avatar image bytes/)).toBeVisible();
+  await page.getByLabel("Choose avatar image").setInputFiles({ name: "bad.svg", mimeType: "image/svg+xml", buffer: Buffer.from("<svg/>") }); await expect(page.getByRole("alert")).toContainText("Choose a PNG"); await expect(page.getByText(/avatar image bytes/)).toBeVisible();
   await page.getByRole("button", { name: "Remove all decorations...", exact: true }).click();
   await page.getByRole("button", { name: "Confirm remove all", exact: true }).click(); await expect(page.getByText(/0\/32 decorations/)).toBeVisible();
-  await page.getByRole("button", { name: "Remove avatar", exact: true }).click(); await expect(page.getByText(/encoded avatar bytes/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Remove avatar", exact: true }).click(); await expect(page.getByText(/avatar image bytes/)).toHaveCount(0);
 });
 test("20 Paint avatars are local, private by default, and preview only shares explicitly chosen avatar", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -37,7 +37,7 @@ test("20 Paint avatars are local, private by default, and preview only shares ex
   await page.getByRole("button", { name: "Save private draft", exact: true }).click(); await expect(page.getByRole("status")).toContainText("Feed profile unchanged");
   await page.getByRole("button", { name: "Preview selected feed profile", exact: true }).click(); const preview = page.getByRole("region", { name: "Selected feed profile preview" }); await expect(preview.locator("img")).toHaveCount(0);
   await page.getByRole("checkbox", { name: "Avatar", exact: true }).check(); await expect(preview.getByAltText("avatarfan's avatar")).toBeVisible(); await preview.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath("avatar-seal-preview-phone.png") });
-  await page.reload(); await page.getByRole("button", { name: "Customize profile" }).click(); await expect(page.getByText(/encoded avatar bytes/)).toBeVisible(); await expect(page.getByRole("checkbox", { name: "Avatar", exact: true })).not.toBeChecked();
+  await page.reload(); await page.getByRole("button", { name: "Customize profile" }).click(); await expect(page.getByText(/avatar image bytes/)).toBeVisible(); await expect(page.getByRole("checkbox", { name: "Avatar", exact: true })).not.toBeChecked();
 });
 test("pending local avatar decode is cancelled on editor unmount and cannot revive discarded edits", async ({ page }) => {
   await page.goto("/unlock"); await page.getByLabel("Passphrase", { exact: true }).fill("profile-cancel-test-passphrase"); await page.getByLabel("Confirm passphrase").fill("profile-cancel-test-passphrase"); await page.getByRole("button", { name: "Create vault" }).click();
@@ -58,6 +58,6 @@ test("pending local avatar decode is cancelled on editor unmount and cannot revi
   await page.evaluate(() => (window as unknown as { finishDecode: () => void }).finishDecode());
   await expect.poll(() => page.evaluate(() => (window as unknown as { bitmapClosed: boolean }).bitmapClosed)).toBe(true);
   await page.getByRole("button", { name: "Customize profile" }).click();
-  await expect(page.getByRole("alert")).toHaveCount(0); await expect(page.getByText(/encoded avatar bytes/)).toContainText("487");
-  await page.getByRole("button", { name: "Save private draft", exact: true }).click(); await page.reload(); await page.getByRole("button", { name: "Customize profile" }).click(); await expect(page.getByText(/encoded avatar bytes/)).toContainText("487");
+  await expect(page.getByRole("alert")).toHaveCount(0); await expect(page.getByText(/avatar image bytes/)).toContainText("487");
+  await page.getByRole("button", { name: "Save private draft", exact: true }).click(); await page.reload(); await page.getByRole("button", { name: "Customize profile" }).click(); await expect(page.getByText(/avatar image bytes/)).toContainText("487");
 });
