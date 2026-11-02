@@ -4,7 +4,9 @@
  * tap is the consent, and the response carries the delete key that revokes the share.
  * The delete key lives in the vault (never on the server), so only this device can revoke.
  */
-import { AppError } from "@veil/core";
+import { AppError, encodeBase64 } from "@veil/core";
+import { signPayload } from "@veil/crypto";
+import { loadOrCreateShareIdentity } from "@veil/features";
 import type { UnlockedVault } from "@veil/vault";
 
 // Same origin in production; e2e points the dev server at the local relay stand-in.
@@ -45,6 +47,23 @@ export interface PublishedShare {
   deleteKey: string;
 }
 
+/**
+ * Fresh-owner-intent proof for a publish: this device's share key signs
+ * "eic-share-publish:v1\n<sha256hex(bundle)>\n<timestamp>". The relay requires it so a
+ * captured share file can never be (re)published by anyone but the author.
+ */
+const buildPublishProof = async (vault: UnlockedVault, bundleText: string): Promise<{ signature: string; at: string }> => {
+  const identity = await loadOrCreateShareIdentity(vault);
+  const at = new Date().toISOString();
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bundleText))))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  const signature = await signPayload(identity.secretKey, new TextEncoder().encode(`eic-share-publish:v1
+${digest}
+${at}`));
+  return { signature: encodeBase64(signature), at };
+};
+
 const relayError = async (response: Response, fallback: string): Promise<AppError> => {
   try {
     const body = (await response.json()) as { error?: unknown };
@@ -55,12 +74,13 @@ const relayError = async (response: Response, fallback: string): Promise<AppErro
   return new AppError(fallback);
 };
 
-export async function publishSharedPost(bundleText: string): Promise<PublishedShare> {
+export async function publishSharedPost(vault: UnlockedVault, bundleText: string): Promise<PublishedShare> {
+  const proof = await buildPublishProof(vault, bundleText);
   let response: Response;
   try {
     response = await fetch(`${RELAY_BASE}/api/share`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-share-proof": proof.signature, "x-share-proof-at": proof.at },
       body: bundleText,
     });
   } catch {
@@ -73,7 +93,7 @@ export async function publishSharedPost(bundleText: string): Promise<PublishedSh
   if (typeof data.id !== "string" || typeof data.deleteKey !== "string") {
     throw new AppError("The share service answered in an unexpected way.");
   }
-  const base = RELAY_BASE || window.location.origin;
+  const base = RELAY_BASE || (globalThis.location?.origin ?? "");
   return { id: data.id, url: `${base}/s/${data.id}`, deleteKey: data.deleteKey };
 }
 
@@ -129,29 +149,46 @@ const asSharedLinkRef = (value: unknown): SharedLinkRef | null => {
   return { id, url, deleteKey, postId, createdAt } as SharedLinkRef;
 };
 
-const readSharedLinks = async (vault: UnlockedVault): Promise<Record<string, SharedLinkRef>> => {
+/**
+ * Every link this device published, per post, with its delete key. Append-only on
+ * publish and pruned only when a revoke is confirmed: a delete key is NEVER discarded
+ * while its link may still be live, so no published link becomes unrevocable here.
+ * (Legacy records stored a single ref per post; reads upgrade them in place.)
+ */
+const readSharedLinks = async (vault: UnlockedVault): Promise<Record<string, SharedLinkRef[]>> => {
   const raw = await vault.getJson(SHARED_LINKS_RECORD_ID);
   if (!isStringRecord(raw) || !isStringRecord(raw.links)) return {};
-  const links: Record<string, SharedLinkRef> = {};
+  const links: Record<string, SharedLinkRef[]> = {};
   for (const [postId, entry] of Object.entries(raw.links)) {
-    const ref = asSharedLinkRef(entry);
-    if (ref) links[postId] = ref;
+    const candidates = Array.isArray(entry) ? entry : [entry];
+    const refs = candidates.map(asSharedLinkRef).filter((ref): ref is SharedLinkRef => ref !== null);
+    if (refs.length > 0) links[postId] = refs;
   }
   return links;
 };
 
+/** All links this device published for the post, oldest first. */
+export async function loadSharedLinks(vault: UnlockedVault, postId: string): Promise<SharedLinkRef[]> {
+  return (await readSharedLinks(vault))[postId] ?? [];
+}
+
+/** The post's most recent live link - the one shown and copied. */
 export async function loadSharedLink(vault: UnlockedVault, postId: string): Promise<SharedLinkRef | null> {
-  return (await readSharedLinks(vault))[postId] ?? null;
+  const refs = await loadSharedLinks(vault, postId);
+  return refs.at(-1) ?? null;
 }
 
 export async function saveSharedLink(vault: UnlockedVault, ref: SharedLinkRef): Promise<void> {
   const links = await readSharedLinks(vault);
-  links[ref.postId] = ref;
+  links[ref.postId] = [...(links[ref.postId] ?? []).filter((existing) => existing.id !== ref.id), ref];
   await vault.putJson("identity", SHARED_LINKS_RECORD_ID, { links });
 }
 
-export async function dropSharedLink(vault: UnlockedVault, postId: string): Promise<void> {
+/** Drops one link ref by id, or every ref for the post when id is omitted. */
+export async function dropSharedLink(vault: UnlockedVault, postId: string, id?: string): Promise<void> {
   const links = await readSharedLinks(vault);
-  delete links[postId];
+  const remaining = id === undefined ? [] : (links[postId] ?? []).filter((ref) => ref.id !== id);
+  if (remaining.length === 0) delete links[postId];
+  else links[postId] = remaining;
   await vault.putJson("identity", SHARED_LINKS_RECORD_ID, { links });
 }
