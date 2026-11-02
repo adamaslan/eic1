@@ -72,6 +72,12 @@ jobs:
           set -u
           want="${HEAD_SHA:0:7}"
           echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+          # The probe file comes from the HEAD checkout; branches that predate it
+          # otherwise poll a missing file 90 times with stderr hidden (empty stamp).
+          if [ ! -f e2e/preview-stamp.mjs ]; then
+            echo "::error::e2e/preview-stamp.mjs is missing from the head checkout ($HEAD_SHA): this branch predates the stamp probe. Rebase onto main so the smoke suite and the probe come from the same commit."
+            exit 1
+          fi
           # Only the served build's own footer stamp proves WHAT the preview serves.
           # A bare 200 can be a previous branch build (the PR #58/#71 wrong-commit
           # smoke class), and even Netlify's deploy-preview commit status can flip
@@ -81,15 +87,27 @@ jobs:
           # stamp is correct, and a green status never passes it while the stamp lags.
           for i in $(seq 1 90); do
             state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" --jq '[.statuses[] | select(.context == "netlify/everybodyiscool/deploy-preview") | .state] | first // ""' 2>/dev/null || echo "")
-            stamp=$(node e2e/preview-stamp.mjs "$want" 2>/dev/null || true)
+            # Keep the probe's stderr for diagnosis instead of discarding it: a
+            # persistently empty stamp with a working preview means the probe itself
+            # is failing (missing browser, launch error, nav timeout), and silent
+            # stderr makes that indistinguishable from a stale deploy.
+            stamp=$(node e2e/preview-stamp.mjs "$want" 2>/tmp/preview-stamp-err.txt || true)
             if [ "$stamp" = "$want" ]; then
               echo "Served footer stamp $stamp == head $want (provider status: '$state')"
               exit 0
             fi
             echo "[$i/90] served_stamp='$stamp' status='$state' - waiting for $want"
+            if [ "$i" = 1 ] || [ "$i" = 30 ] || [ "$i" = 90 ]; then
+              err=$(head -c 300 /tmp/preview-stamp-err.txt | tr '\n' ' ')
+              if [ -n "$err" ]; then
+                echo "  probe stderr (bounded): $err"
+              fi
+            fi
             sleep 10
           done
           echo "Deploy preview never verifiably served the build of $HEAD_SHA" >&2
+          echo "Last probe stderr (bounded):" >&2
+          head -c 300 /tmp/preview-stamp-err.txt >&2 || true
           exit 1
       - name: Run transition smoke against the deploy preview
         run: npx playwright test
