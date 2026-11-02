@@ -7,16 +7,19 @@
     "packages/*"
   ],
   "devDependencies": {
-    "vitest": "^5.0.5",
     "@playwright/test": "^1.49.0",
     "eslint": "^9.15.0",
     "eslint-plugin-react-hooks": "^5.2.0",
-    "typescript-eslint": "^8.15.0"
+    "typescript-eslint": "^8.15.0",
+    "vitest": "^5.0.5"
   },
   "scripts": {
     "test": "vitest run",
     "lint": "eslint .",
     "test:e2e": "playwright test",
     "verify:prod": "EIC_TARGET_URL=https://everybodyiscool.netlify.app playwright test e2e/prod.spec.ts"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^11.1.7"
   }
 }
