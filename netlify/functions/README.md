@@ -12,7 +12,13 @@ Everything is gated OFF by default. A deploy preview builds these functions but 
 route answers 404 and nothing is written to blob storage while gated.
 
 To activate: set `EIC_SHARE_RELAY=on` (functions) and `VITE_EIC_SHARE_RELAY=on` (app
-build) as Netlify env vars scoped to production, then redeploy. Revoking the vars and
+build) as Netlify env vars scoped to production, then redeploy.
+
+Dependency layout: `@netlify/blobs` is declared in the root package.json (and lockfile)
+so the deploy build can trace it, and the wrappers import it lazily with
+`await import(...)` only after the gate has passed - a gated deployment never resolves
+the package at cold start (regression-tested in lib/wrappers-gate.test.ts with the
+package mocked as uninstalled). Revoking the vars and
 redeploying turns the feature off; stored shares remain until they expire or are
 deleted, but stop being served.
 
