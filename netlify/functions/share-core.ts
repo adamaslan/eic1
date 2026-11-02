@@ -436,4 +436,4 @@ export function extractPhoto(bundleText: string): { mime: string; bytes: Buffer 
   const share = parseSharedBundle(bundleText);
   const photo = share.posts[0].photo;
   return photo ? { mime: photo.mime, bytes: Buffer.from(photo.data, "base64") } : null;
-        }
+}
