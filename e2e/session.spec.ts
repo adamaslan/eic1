@@ -176,13 +176,14 @@ async function gatedTab(context: import("@playwright/test").BrowserContext) {
       await gate;
       return decrypt.apply(this, args);
     };
-    // Armed: flip the marker right after the last resume run reads it, as another tab's lock would,
-    // with no storage event: the gap between resume's final comparison and adoption.
+    // Armed (only after every resume run is parked at the decrypt gate): the marker reads that follow are
+    // the resume runs' final comparisons. Flip right after the last one, as another tab's lock would, with
+    // no storage event: the gap between resume's final comparison and adoption. Works on minified builds.
     const getItem = Storage.prototype.getItem;
     const setItem = Storage.prototype.setItem;
     Storage.prototype.getItem = function (this: Storage, key: string) {
       const value = getItem.call(this, key);
-      if (key === "eic.vault-lock" && w.__armFlip && (new Error().stack ?? "").includes("vaultResume")) {
+      if (key === "eic.vault-lock" && w.__armFlip) {
         resumeReads += 1;
         if (resumeReads === heldDecrypts) {
           w.__armFlip = false;
