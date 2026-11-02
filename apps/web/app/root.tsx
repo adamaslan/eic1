@@ -110,8 +110,10 @@ export default function App() {
       const state = useSessionStore.getState();
       // A manual unlock or lock while the resume was in flight wins; drop the stale result.
       if (state.revision !== startRevision) return;
-      if (resumed) state.setVault(resumed.vault, resumed.expiresAt);
-      else state.doneResuming();
+      if (resumed) {
+        try { state.setVault(resumed.vault, resumed.expiresAt, resumed.lockMarker); }
+        catch { useSessionStore.getState().doneResuming(); }
+      } else state.doneResuming();
     });
     return () => {
       cancelled = true;
