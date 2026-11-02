@@ -17,7 +17,7 @@
  * - escaping: every rendered field is HTML-escaped
  * - retention (proposed config, not an owner-set preference): entries carry createdAt;
  *   a read that finds an EXPIRED entry deletes it on sight (ordinary reads are never
- *   destructive), and cleanup.ts sweeps expired entries daily
+ *   destructive); sweepExpired is available for a later, separately-decided cron
  * - revocation: the creator alone gets a delete key at publish; presenting it deletes
  */
 
@@ -73,6 +73,7 @@ interface PhotoRef {
 }
 
 interface SharedPost {
+  id: string;
   title: string;
   description: string;
   category: string;
@@ -131,6 +132,7 @@ export function parseSharedBundle(text: string): ParsedShare {
       throw new ShareError("That photo is too large to share as a link.");
     }
     return {
+      id: typeof entry.id === "string" ? entry.id : "",
       title: entry.title,
       description: entry.description,
       category: typeof entry.category === "string" ? entry.category : "",
@@ -253,10 +255,65 @@ export async function verifyShareSignature(text: string): Promise<boolean> {
   }
 }
 
+export interface PublishProof {
+  signature: string | null;
+  at: string | null;
+}
+
+/** Maximum age of a publish proof. */
+export const PUBLISH_PROOF_WINDOW_MS = 5 * 60 * 1000;
+/** Small future allowance for client clock skew only - NOT a second validity window. */
+export const PUBLISH_PROOF_FUTURE_SKEW_MS = 60 * 1000;
+
+/**
+ * Fresh-owner-intent proof: every publish must carry a fresh Ed25519 signature from the
+ * bundle author's key over "eic-share-publish:v1\n<sha256hex(bundle)>\n<timestamp>".
+ * The bundle itself is long-lived signed content anyone can copy; this proof is what a
+ * captured bundle can never mint, so replayed files can never be published or
+ * resurrected, while the real author can always re-share (fresh id + delete key each
+ * time - no lockout, no dedupe oracle). Residual hole, documented: a body + proof
+ * captured together can be replayed inside the 5-minute window; treat shares as bearer
+ * content during that window.
+ */
+export async function verifyPublishProof(body: string, proof: PublishProof, now: Date): Promise<void> {
+  if (!proof.signature || !proof.at) {
+    throw new ShareError("Sharing needs a fresh signature from the author's device.", 401);
+  }
+  const atMs = Date.parse(proof.at);
+  const age = now.getTime() - atMs;
+  if (Number.isNaN(atMs) || age > PUBLISH_PROOF_WINDOW_MS) {
+    throw new ShareError("That share signature is stale - share the post again.", 401);
+  }
+  if (age < -PUBLISH_PROOF_FUTURE_SKEW_MS) {
+    throw new ShareError("That share signature is dated in the future - check the device clock and share again.", 401);
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(body);
+  } catch {
+    throw new ShareError("That share is not readable JSON.");
+  }
+  const pubkey = isRecord(raw) && isRecord(raw.author) && typeof raw.author.pubkey === "string" ? raw.author.pubkey : null;
+  if (!pubkey) throw new ShareError("That share is missing its author.");
+  const digest = createHash("sha256").update(body).digest("hex");
+  const payload = new TextEncoder().encode(`eic-share-publish:v1
+${digest}
+${proof.at}`);
+  try {
+    const key = await globalThis.crypto.subtle.importKey("raw", b64ToBytes(pubkey), { name: "Ed25519" }, false, ["verify"]);
+    const ok = await globalThis.crypto.subtle.verify({ name: "Ed25519" }, key, b64ToBytes(proof.signature) as BufferSource, payload);
+    if (!ok) throw new ShareError("That share signature does not match this post.", 403);
+  } catch (caught) {
+    if (caught instanceof ShareError) throw caught;
+    throw new ShareError("That share signature could not be verified.", 403);
+  }
+}
+
 export async function createShare(
   store: ShareStore,
   body: string,
   now: Date,
+  proof: PublishProof,
   clientKey?: string,
 ): Promise<{ id: string; deleteKey: string; expiresAt: string }> {
   if (clientKey) await checkPublishRate(store, clientKey, now);
@@ -269,8 +326,15 @@ export async function createShare(
   if (!(await verifyShareSignature(body))) {
     throw new ShareError("That share is not signed by its author.");
   }
+  await verifyPublishProof(body, proof, now);
+  // Count is derived live from the listing (self-healing); bytes stay incremental and
+  // are reconciled by sweepExpired, because list() exposes no sizes in blobs v11. There
+  // is NO hard bound: the store has no compare-and-swap, so concurrent in-flight
+  // publishes can all pass this check, and the publish rate limit is equally racy.
+  // These caps stop bulk abuse in the expected case; they are not a budget guarantee.
+  const count = (await store.list()).filter((key) => key.startsWith("posts/")).length;
   const stats = await readStats(store);
-  if (stats.count >= MAX_SHARE_COUNT || stats.bytes + bodyBytes > MAX_SHARE_STORE_BYTES) {
+  if (count >= MAX_SHARE_COUNT || stats.bytes + bodyBytes > MAX_SHARE_STORE_BYTES) {
     throw new ShareError("The share service is full right now. Try again later.", 503);
   }
   const id = randomBytes(12).toString("base64url");
@@ -280,8 +344,9 @@ export async function createShare(
   await store.put(keyFor(id), body, {
     createdAt,
     deleteKeySha256: createHash("sha256").update(deleteKey).digest("hex"),
+    bytes: String(bodyBytes),
   });
-  await writeStats(store, { count: stats.count + 1, bytes: stats.bytes + bodyBytes });
+  await writeStats(store, { count: count + 1, bytes: stats.bytes + bodyBytes });
   return { id, deleteKey, expiresAt };
 }
 
@@ -323,23 +388,33 @@ export async function deleteShare(store: ShareStore, id: string, deleteKey: stri
   return "deleted";
 }
 
-/** Deletes every expired share and reconciles the stats entry; returns the count removed. */
+/**
+ * Deletes every expired share, then rebuilds the stats entry authoritatively from the
+ * listing plus per-blob byte metadata (self-healing the incremental byte counter).
+ * Returns the count of shares removed. Note: nothing schedules this - it runs only if a
+ * later, separately-decided caller invokes it; expiry is otherwise lazy at read time.
+ */
 export async function sweepExpired(store: ShareStore, now: Date): Promise<number> {
   let removed = 0;
-  let removedBytes = 0;
   for (const key of await store.list()) {
     if (!key.startsWith("posts/")) continue;
     const entry = await store.get(key);
     if (entry && isExpired(entry, now)) {
       await store.delete(key);
       removed += 1;
-      removedBytes += Buffer.byteLength(entry.body, "utf8");
     }
   }
-  if (removed > 0) {
-    const stats = await readStats(store);
-    await writeStats(store, { count: Math.max(0, stats.count - removed), bytes: Math.max(0, stats.bytes - removedBytes) });
+  let liveCount = 0;
+  let liveBytes = 0;
+  for (const key of await store.list()) {
+    if (!key.startsWith("posts/")) continue;
+    const entry = await store.get(key);
+    if (!entry) continue;
+    liveCount += 1;
+    const metaBytes = Number.parseInt(entry.meta.bytes ?? "", 10);
+    liveBytes += Number.isFinite(metaBytes) && metaBytes >= 0 ? metaBytes : Buffer.byteLength(entry.body, "utf8");
   }
+  await writeStats(store, { count: liveCount, bytes: liveBytes });
   return removed;
 }
 
