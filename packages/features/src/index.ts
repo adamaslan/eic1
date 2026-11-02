@@ -6,6 +6,7 @@ export * from "./compose";
 export * from "./social";
 export * from "./sharing";
 export * from "./journal";
+export * from "./calendar";
 export * from "./journal-share";
 export * from "./chat";
 export * from "./share-link";
