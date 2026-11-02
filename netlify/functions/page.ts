@@ -8,7 +8,9 @@ import { extractPhoto, readShare, renderMissingPage, renderSharePage, type Share
 // Lazy import, same contract as api-share: no @netlify/blobs resolution before the gate.
 const blobStore = async (): Promise<ShareStore> => {
   const { getStore } = await import("@netlify/blobs");
-  const store = getStore("shared-posts");
+  // Strong consistency: reads must not serve a share after its delete landed (the
+  // default eventual mode can serve a deleted blob for up to ~60s on fresh edges).
+  const store = getStore({ name: "shared-posts", consistency: "strong" });
   return {
     put: async () => {
       throw new Error("read-only surface");
@@ -16,7 +18,7 @@ const blobStore = async (): Promise<ShareStore> => {
     get: async (key) => {
       const found = await store.getWithMetadata(key, { type: "text" });
       if (!found || typeof found.data !== "string") return null;
-      return { body: found.data, meta: (found.metadata ?? {}) as Record<string, string> };
+      return { body: found.data, meta: (found.metadata ?? {}) as Record<string, string>, etag: found.etag };
     },
     delete: async (key) => {
       await store.delete(key);
