@@ -43,17 +43,18 @@ export async function vaultUnlock(passphrase: string): Promise<{ vault: Unlocked
 }
 
 /** Reopens the vault from a session saved in the last eight hours, or returns null. */
-export async function vaultResume(): Promise<{ vault: UnlockedVault; expiresAt: number } | null> {
+export async function vaultResume(): Promise<{ vault: UnlockedVault; expiresAt: number; lockMarker: string | null } | null> {
   try {
     const saved = await loadSession(Date.now());
     if (!saved) return null;
     const vault = await resumeVault(deps, saved.key);
-    if (saved.expiresAt <= Date.now() || (saved.lockMarker ?? null) !== currentLockMarker()) {
+    const lockMarker = currentLockMarker();
+    if (saved.expiresAt <= Date.now() || (saved.lockMarker ?? null) !== lockMarker) {
       vault.lock();
       await clearSession();
       return null;
     }
-    return { vault, expiresAt: saved.expiresAt };
+    return { vault, expiresAt: saved.expiresAt, lockMarker: saved.lockMarker ?? null };
   } catch {
     await clearSession();
     return null;
@@ -81,3 +82,6 @@ export async function vaultImport(text: string): Promise<{ records: number }> {
 export function vaultWipe(vault: UnlockedVault): Promise<void> {
   return vault.wipe();
 }
+wRecordId,
+  
+  r
