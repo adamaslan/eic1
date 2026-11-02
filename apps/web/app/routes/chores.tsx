@@ -40,6 +40,7 @@ export default function Chores() {
     if (!vault) return false;
     try {
       setChores(await listChores(vault));
+      setError(null);
       return true;
     } catch {
       setError("The chore chart could not be read.");
@@ -121,7 +122,14 @@ export default function Chores() {
         </div>
 
         {chores === null ? (
-          <p className="text-[12px]">Loading…</p>
+          error ? (
+            <p className="text-[12px] text-[#800000]" role="alert">
+              {error}{" "}
+              <button type="button" className="underline" onClick={() => void reload()}>Try again</button>
+            </p>
+          ) : (
+            <p className="text-[12px]">Loading…</p>
+          )
         ) : chores.length === 0 ? (
           <p className="text-[12px]">No chores yet. Add one below to start the chart.</p>
         ) : (
@@ -215,7 +223,7 @@ export default function Chores() {
             </Button95>
           </div>
           {notice && <p role="status" className="text-[#008000]">{notice}</p>}
-          {error && <p role="alert" className="text-[#800000]">{error}</p>}
+          {error && chores !== null && <p role="alert" className="text-[#800000]">{error}</p>}
         </form>
         <p className="mt-2 text-[12px]">
           <Link to="/tools" className="text-[#0000cc] underline">Back to tools</Link>
