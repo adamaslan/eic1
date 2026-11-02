@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Journal share-as-link, end to end: the owner shares ONE entry explicitly; the link carries
@@ -8,18 +9,6 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
-
-async function watchRuntime(page: Page) {
-  // Netlify preview injects Segment analytics; it is external to app runtime and flaky in CI.
-  await page.route("https://cdn.segment.com/**", (route) => route.abort());
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
 
 function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
   const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
