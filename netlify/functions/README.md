@@ -32,7 +32,7 @@ and adding the cron is its own activation decision later.
   per view with no per-link throttle. Free-plan meters (Usage & billing) are the only
   backstop today.
 
-## Proposed config (defaults in share-core.ts, not owner-set preferences)
+## Proposed config (defaults in lib/share-core.ts, not owner-set preferences)
 
 - Retention: 90 days. A read that finds an EXPIRED share deletes it on sight (ordinary
   reads are never destructive). A scheduled sweep (cleanup) is deferred to a later phase.
