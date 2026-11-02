@@ -7,3 +7,6 @@
 
 # Local Netlify folder
 .netlify
+
+# 42b originals are staged from the repo root by scripts/copy-42b.mjs
+/public/42b/
