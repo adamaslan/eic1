@@ -46,7 +46,8 @@ export default async (request: Request, context?: RequestContext): Promise<Respo
   try {
     if (request.method === "POST" && url.pathname === "/api/share") {
       const body = await request.text();
-      const created = await createShare(store, body, new Date(), context?.ip ?? request.headers.get("x-nf-client-connection-ip") ?? "unknown");
+      const proof = { signature: request.headers.get("x-share-proof"), at: request.headers.get("x-share-proof-at") };
+      const created = await createShare(store, body, new Date(), proof, context?.ip ?? request.headers.get("x-nf-client-connection-ip") ?? "unknown");
       return json(201, created);
     }
     if (request.method === "GET" && idMatch) {
