@@ -20,6 +20,6 @@
     "verify:prod": "EIC_TARGET_URL=https://everybodyiscool.netlify.app playwright test e2e/prod.spec.ts"
   },
   "dependencies": {
-    "@netlify/blobs": "^11.1.7"
+    "@netlify/blobs": "11.1.7"
   }
 }
