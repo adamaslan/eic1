@@ -1,11 +1,20 @@
 import { expect, test } from "@playwright/test";
 
+// Feature-gated like share-relay.spec.ts and share-relay-recovery.spec.ts: the app
+// path needs VITE_EIC_SHARE_RELAY=on and the functions need EIC_SHARE_RELAY=on; locally
+// both are set by playwright.config, and against a remote target this spec runs only
+// when EIC_SHARE_RELAY_E2E=on says the relay has been activated there - previews stay
+// gated and skip. (Relay-inactive negative control is a separate concern, not skipped
+// coverage: it asserts the gated bundle-copy fallback and zero /api/share calls.)
+const remoteTarget = process.env.EIC_TARGET_URL ?? process.env.DEPLOY_PREVIEW_URL;
+
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
   "base64",
 );
 
 test("ambiguous publish shows the honest note, retry reuses the same link", async ({ browser }) => {
+  test.skip(Boolean(remoteTarget) && process.env.EIC_SHARE_RELAY_E2E !== "on", "relay gated off on remote targets until activation");
   const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
   const page = await context.newPage();
   // First publish attempt: abort the POST after it is sent (response lost).
