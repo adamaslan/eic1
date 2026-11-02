@@ -24,7 +24,7 @@ try {
     .catch(() => "");
   const stamp = text.match(/build ([0-9a-f]{7})/)?.[1] ?? "";
   console.log(stamp);
-  process.exit(stamp === want ? 0 : 1);
+  process.exitCode = stamp === want ? 0 : 1;
 } finally {
   await browser.close();
 }
