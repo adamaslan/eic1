@@ -163,32 +163,30 @@ async function gatedTab(context: import("@playwright/test").BrowserContext) {
     window.addEventListener = ((type: string, ...args: unknown[]) => {
       if (type !== "storage") (add as (...args: unknown[]) => void)(type, ...args);
     }) as typeof window.addEventListener;
-    const w = window as unknown as { __release: () => void; __armFlip: boolean; __held: number };
+    const w = window as unknown as { __release: () => void; __armFlip: boolean; __held: number; __flipAfter: number; __reads: (string | null)[] };
     let open: () => void = () => {};
     const gate = new Promise<void>((resolve) => { open = resolve; });
-    // React dev mode runs the resume effect twice and only the last run is adopted. Count the decrypts
-    // held at the gate; the flip lands on the last resume run's marker read, after its comparison.
+    // Every resume run parks at its first decrypt. React dev mode starts two runs (only the last is
+    // adopted); a minified build starts one. __held counts them, so no code name is needed.
     let heldDecrypts = 0;
-    let resumeReads = 0;
     const decrypt = SubtleCrypto.prototype.decrypt;
     SubtleCrypto.prototype.decrypt = async function (this: SubtleCrypto, ...args: Parameters<typeof decrypt>) {
       heldDecrypts += 1; w.__held = heldDecrypts;
       await gate;
       return decrypt.apply(this, args);
     };
-    // Armed (only after every resume run is parked at the decrypt gate): the marker reads that follow are
-    // the resume runs' final comparisons. Flip right after the last one, as another tab's lock would, with
-    // no storage event: the gap between resume's final comparison and adoption. Works on minified builds.
+    // Once armed, log every read of the lock marker. With all N runs past their loadSession reads, the
+    // first N reads are the runs' final comparisons and read N+1 is adoption (setVault). The marker is
+    // flipped right after read N, as another tab's lock would, with no storage event. The test asserts
+    // this order from the log, so a miscount fails loudly instead of passing by luck.
     const getItem = Storage.prototype.getItem;
     const setItem = Storage.prototype.setItem;
+    w.__reads = [];
     Storage.prototype.getItem = function (this: Storage, key: string) {
       const value = getItem.call(this, key);
       if (key === "eic.vault-lock" && w.__armFlip) {
-        resumeReads += 1;
-        if (resumeReads === heldDecrypts) {
-          w.__armFlip = false;
-          setItem.call(this, key, `other-tab:${Math.random()}`);
-        }
+        w.__reads.push(value);
+        if (w.__reads.length === w.__flipAfter) setItem.call(this, key, `other-tab:${Math.random()}`);
       }
       return value;
     };
@@ -212,18 +210,32 @@ test("lock landing between resume's final check and adoption is a revocation, no
   await create(page);
   const tab = await gatedTab(context);
   await tab.goto("/market");
-  // Let every resume run (React dev mode starts two) reach the held decrypt before releasing.
-  await expect.poll(() => tab.evaluate(() => (window as unknown as { __held?: number }).__held ?? 0)).toBeGreaterThan(0);
-  await tab.waitForTimeout(500);
-  await tab.evaluate(() => {
-    const w = window as unknown as { __release: () => void; __armFlip: boolean; __held: number };
+  // Release only once every resume run is parked at the decrypt gate: the held count must stop changing.
+  const heldNow = () => tab.evaluate(() => (window as unknown as { __held?: number }).__held ?? 0);
+  await expect.poll(heldNow).toBeGreaterThan(0);
+  let runs = await heldNow();
+  for (let stable = 0; stable < 3; ) {
+    await tab.waitForTimeout(500);
+    const now = await heldNow();
+    stable = now === runs ? stable + 1 : 0;
+    runs = now;
+  }
+  await tab.evaluate((n) => {
+    const w = window as unknown as { __release: () => void; __armFlip: boolean; __flipAfter: number };
+    w.__flipAfter = n;
     w.__armFlip = true;
     w.__release();
-  });
+  }, runs);
   await expect(tab).toHaveURL(/\/unlock/);
   await expect(tab.getByText("Enter your passphrase to unlock the vault.")).toBeVisible();
   await expect(tab.getByText("eight-hour persisted data")).toHaveCount(0);
   await expect.poll(() => savedDeadline(tab)).toBeNull();
+  // The flip landed between the last resume comparison and adoption: N reads saw the original marker,
+  // the next read (adoption) saw the other tab's lock.
+  const reads = await tab.evaluate(() => (window as unknown as { __reads: (string | null)[] }).__reads);
+  expect(reads.length).toBeGreaterThan(runs);
+  expect(reads.slice(0, runs).every((value) => value === reads[0])).toBe(true);
+  expect(reads[runs]).toMatch(/^other-tab:/);
   // Vault data is untouched: a normal unlock still shows it.
   await tab.getByLabel("Passphrase", { exact: true }).fill(passphrase);
   await tab.getByRole("button", { name: "Unlock", exact: true }).click();
