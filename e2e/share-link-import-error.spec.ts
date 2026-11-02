@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Share-link import error honesty. Before the fix in app/root.tsx, a recipient WITHOUT a
@@ -10,16 +11,6 @@ import { expect, test, type Page } from "@playwright/test";
  * is not lost) and this spec proves the recoverable path end to end: honest error shown,
  * then after saving a handle the SAME link imports successfully.
  */
-
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
 
 function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
   // Failed resource loads (e.g. favicon) are network noise, not runtime failures.
@@ -50,7 +41,7 @@ test("handle-less recipient sees an honest import error and can still import the
   // Sender: vault, handle, listing, share link.
   const contextA = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
   const pageA = await contextA.newPage();
-  const watchedA = watchRuntime(pageA);
+  const watchedA = await watchRuntime(pageA);
   await createVault(pageA, `share-err-sender-${Date.now()}`);
   await saveHandle(pageA, "sender");
   await pageA.getByRole("link", { name: "+ Post" }).click();
@@ -70,7 +61,7 @@ test("handle-less recipient sees an honest import error and can still import the
   // modal must keep the offer (bundle preserved) instead of swallowing it.
   const contextB = await browser.newContext();
   const pageB = await contextB.newPage();
-  const watchedB = watchRuntime(pageB);
+  const watchedB = await watchRuntime(pageB);
   await createVault(pageB, `share-err-recipient-${Date.now()}`);
   await pageB.goto(link);
   await expect(pageB.getByText("A friend shared a post with you")).toBeVisible();

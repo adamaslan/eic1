@@ -48,7 +48,15 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
+      # The deploy preview serves the PR HEAD build, never the merge ref. Specs must
+      # come from the same commit Netlify built, or any spec added on main after the
+      # branch point waits for UI the preview cannot serve (90s timeout class seen on
+      # PR #58: main's music/profile-studio specs vs a pre-music branch preview).
+      # lint/tsc/vitest keep the merge-ref default - they test the merged result; the
+      # post-publish prod gate covers the integrated result after every merge.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -58,29 +66,30 @@ jobs:
         id: preview
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIEW_URL: https://deploy-preview-${{ github.event.pull_request.number }}--everybodyiscool.netlify.app
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -u
-          sha="${{ github.event.pull_request.head.sha }}"
-          url="https://deploy-preview-${{ github.event.pull_request.number }}--everybodyiscool.netlify.app"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          # Prefer Netlify's commit status for THIS commit so we never test a stale
-          # preview; if Netlify posts no commit status, fall back to polling the URL.
+          want="${HEAD_SHA:0:7}"
+          echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+          # Only the served build's own footer stamp proves WHAT the preview serves.
+          # A bare 200 can be a previous branch build (the PR #58/#71 wrong-commit
+          # smoke class), and even Netlify's deploy-preview commit status can flip
+          # before the URL serves the new build, so status is diagnostic-only here.
+          # The stamp is client-rendered from the COMMIT_REF Vite define; chromium is
+          # already installed above. A missing status never fails this step when the
+          # stamp is correct, and a green status never passes it while the stamp lags.
           for i in $(seq 1 90); do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs" --jq '[.check_runs[] | select(.name | ascii_downcase | contains("deploy-preview")) | .conclusion] | first // ""' 2>/dev/null || echo "")
-            if [ "$state" = "success" ]; then
-              echo "Netlify reports a successful deploy for $sha"
+            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" --jq '[.statuses[] | select(.context == "netlify/everybodyiscool/deploy-preview") | .state] | first // ""' 2>/dev/null || echo "")
+            stamp=$(node e2e/preview-stamp.mjs "$want" 2>/dev/null || true)
+            if [ "$stamp" = "$want" ]; then
+              echo "Served footer stamp $stamp == head $want (provider status: '$state')"
               exit 0
             fi
-            if [ -z "$state" ]; then
-              code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)
-              if [ "$code" = "200" ]; then
-                echo "No Netlify commit status; preview URL answers 200"
-                exit 0
-              fi
-            fi
+            echo "[$i/90] served_stamp='$stamp' status='$state' - waiting for $want"
             sleep 10
           done
-          echo "Deploy preview never became ready" >&2
+          echo "Deploy preview never verifiably served the build of $HEAD_SHA" >&2
           exit 1
       - name: Run transition smoke against the deploy preview
         run: npx playwright test
@@ -92,4 +101,3 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
-
