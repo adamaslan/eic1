@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router";
 import { selectFeed, useVaultItems } from "@veil/features";
 import type { Route } from "./+types/feed";
 import { PhotoCard } from "~/components/cards";
@@ -13,6 +13,17 @@ export function meta(_args: Route.MetaArgs) {
 export default function Feed() {
   const vault = useSessionStore((state) => state.vault);
   const { state, reload } = useVaultItems(vault);
+  const location = useLocation();
+  // The save notice belongs to the history entry that arrived from a save. Keyed on that
+  // entry, it hides on any other navigation, including a re-click of this same tab.
+  const [savedEntry] = useState(() => ((location.state as { saved?: boolean } | null)?.saved === true ? location.key : null));
+  const justSaved = savedEntry !== null && savedEntry === location.key && (location.state as { saved?: boolean } | null)?.saved === true;
+  // Once shown, drop the flag from the browser's history entry so a reload or a Back to
+  // this entry does not re-announce the save. The React Router location keeps the same key.
+  useEffect(() => {
+    if (savedEntry === null) return;
+    window.history.replaceState({ ...window.history.state, usr: null }, "");
+  }, [savedEntry]);
   const [query, setQuery] = useState("");
 
   if (state.status === "loading") return <p className="text-[12px]">Loading posts…</p>;
@@ -23,6 +34,7 @@ export default function Feed() {
 
   return (
     <div className="flex flex-col gap-2">
+      {justSaved && <p role="status" className="text-[12px]">Saved - encrypted in this vault.</p>}
       <div className="flex items-center gap-2">
         <input
           type="search"

@@ -150,7 +150,7 @@ export default function Connections() {
       const withId = await ensureAuthorId(vault, settings, newItemId);
       await social.update({ ...withId, handle: clean.slice(0, HANDLE_MAX) });
       setHandle(null);
-      return "Handle saved.";
+      return "Handle saved. Encrypted in this vault.";
     });
   }
 
@@ -280,7 +280,7 @@ export default function Connections() {
       await setConnectionNickname(vault, connectionId, nicknameDraft);
       social.refresh();
       setRenamingId(null);
-      return nicknameDraft.trim() ? "Nickname saved." : "Nickname cleared.";
+      return nicknameDraft.trim() ? "Nickname saved. Encrypted in this vault." : "Nickname cleared.";
     });
   }
 
