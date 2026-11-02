@@ -103,14 +103,26 @@ export async function deleteChore(vault: UnlockedVault, id: string): Promise<voi
   await vault.deleteRecords([id]);
 }
 
-/** Flips one day's check-off. Re-reads the chore first so a stale row cannot resurrect old check-offs. */
+/** Flips one day's check-off. Compare-and-swap with one retry: two tabs can hold the same vault
+ *  unlocked, and a plain read-modify-write would silently drop one side's check-off. */
 export async function toggleChoreDone(vault: UnlockedVault, id: string, dateKey: string): Promise<Chore> {
-  const existing = await vault.getJson(id);
-  const parsed = ChoreSchema.safeParse(existing);
-  if (!parsed.success) throw new AppError("That chore no longer exists.");
-  const chore = parsed.data;
-  const done = chore.done.includes(dateKey) ? chore.done.filter((key) => key !== dateKey) : [...chore.done, dateKey];
-  const updated: Chore = { ...chore, done };
-  await vault.putJson("chore", chore.id, updated);
-  return updated;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const existing = await vault.getJson(id);
+    const parsed = ChoreSchema.safeParse(existing);
+    if (!parsed.success) throw new AppError("That chore no longer exists.");
+    const chore = parsed.data;
+    const done = chore.done.includes(dateKey) ? chore.done.filter((key) => key !== dateKey) : [...chore.done, dateKey];
+    const updated: Chore = { ...chore, done };
+    try {
+      await vault.putJsonIfUnchanged("chore", chore.id, updated, existing);
+      return updated;
+    } catch (err) {
+      if (attempt === 1) {
+        throw err instanceof AppError
+          ? new AppError("That chore changed in another tab before this check-off saved. Nothing was overwritten. Try again.")
+          : err;
+      }
+    }
+  }
+  throw new AppError("That chore changed in another tab before this check-off saved. Nothing was overwritten. Try again.");
 }
