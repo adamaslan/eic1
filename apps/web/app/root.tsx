@@ -24,6 +24,7 @@ import {
   isJournalShareBundle,
   parseJournalShareBundle,
   readPostShareLink,
+  readRelayLinkId,
   saveSharedJournalEntry,
   type ChatLink,
 } from "@veil/features";
@@ -48,6 +49,7 @@ import { Window } from "~/ui95/Window";
 import { useSessionStore } from "~/platform/session";
 import { useAutoLock, useSessionExpiry } from "~/platform/use-auto-lock";
 import { newItemId, vaultResume } from "~/platform/vault-service";
+import { fetchSharedBundle, takeRelaySaveIntent } from "~/platform/share-relay";
 
 export const links: Route.LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
@@ -244,6 +246,34 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
       }
       if (!kind) return;
       try {
+        // A relay link carries only the share id. First tap: read the post in the app's
+        // own read-only view - no import prompt. The explicit "Save to my vault" tap
+        // there re-enters with a save intent and lands here, running the standard import.
+        const relayId = readRelayLinkId(hash);
+        if (relayId !== null && !takeRelaySaveIntent(relayId)) {
+          dropStash(sessionSlotStore(), "post");
+          stripUrlHash();
+          navigate(`/shared/${relayId}`);
+          return;
+        }
+        if (relayId !== null) {
+          try {
+            const text = await fetchSharedBundle(relayId);
+            try {
+              const parsed = parseShareBundle(text);
+              setIsKeyCard(parsed.version === 2 && parsed.posts.length === 0);
+              setClaimed({ handle: parsed.author.handle, pubkey: parsed.version === 2 ? parsed.author.pubkey : null });
+            } catch {
+              setIsKeyCard(false);
+              setClaimed(null);
+            }
+            setPending((current) => current ?? { kind: "post", text });
+            setMessage(null);
+          } catch (caught) {
+            setMessage(caught instanceof AppError ? caught.message : "That shared post could not be loaded.");
+          }
+          return;
+        }
         const link = readPendingLink(hash);
         if (link === null) return;
         if (link.kind === "post") {

@@ -18,13 +18,30 @@ export default defineConfig({
     baseURL: targetUrl ?? "http://localhost:5173",
     trace: "retain-on-failure",
   },
+  // Locally the share relay runs as its own node server on :4180 (same share-core.ts
+  // the Netlify functions wrap (lib/share-core.ts)) and the app is pointed at it. Against a deploy preview
+  // or prod (targetUrl set), app and relay share one origin, so nothing extra boots.
+  // reuseExistingServer stays FALSE everywhere, not just CI: reusing a long-running
+  // server once masked a stale import in the relay stand-in, so every run boots fresh
+  // servers. The relay's stdout/stderr (with its pid and bound port) is preserved in
+  // e2e/logs/local-relay.log (outside test-results, which Playwright clears each run).
   webServer: targetUrl
     ? undefined
-    : {
-        command: "npm run dev --workspace web",
-        url: "http://localhost:5173",
-        timeout: 120_000,
-        reuseExistingServer: !process.env.CI,
-      },
+    : [
+        {
+          command: "npm run dev --workspace web",
+          url: "http://localhost:5173",
+          timeout: 120_000,
+          reuseExistingServer: false,
+          env: { VITE_EIC_RELAY_BASE: "http://localhost:4180", VITE_EIC_SHARE_RELAY: "on" },
+        },
+        {
+          command: "mkdir -p e2e/logs && node e2e/support/local-relay-server.mjs >> e2e/logs/local-relay.log 2>&1",
+          url: "http://localhost:4180/healthz",
+          timeout: 30_000,
+          reuseExistingServer: false,
+          env: { PORT: "4180", APP_ORIGIN: "http://localhost:5173" },
+        },
+      ],
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });
