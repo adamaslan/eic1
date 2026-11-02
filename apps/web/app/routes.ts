@@ -15,6 +15,8 @@ export default [
     route("tools", "routes/tools.tsx"),
     route("tools/journal", "routes/journal.tsx"),
     route("tools/music", "routes/music.tsx"),
+    route("tools/calendar", "routes/calendar.tsx"),
+    route("tools/chores", "routes/chores.tsx"),
     route("vault", "routes/vault.tsx"),
     route("item/:id", "routes/item.tsx"),
   ]),
