@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { watchRuntime } from "./fixtures/runtime-watch";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Share-link import error honesty. Before the fix in app/root.tsx, a recipient WITHOUT a
@@ -12,9 +12,9 @@ import { watchRuntime } from "./fixtures/runtime-watch";
  * then after saving a handle the SAME link imports successfully.
  */
 
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
+function expectCleanRuntime(watched: WatchedRuntime) {
   // Failed resource loads (e.g. favicon) are network noise, not runtime failures.
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
 }
