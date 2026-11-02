@@ -230,3 +230,85 @@ describe("resolveGraphFocus", () => {
     expect(resolveGraphFocus(graph, "")).toBeNull();
   });
 });
+
+describe("buildSocialGraph item windows", () => {
+  function datedItems(count: number): Item[] {
+    // Newest-first distinct dates: item index i is the (i+1)-th newest.
+    return Array.from({ length: count }, (_, i) =>
+      item({
+        id: `w${i}`,
+        title: `Window post ${i}`,
+        createdAt: new Date(Date.UTC(2026, 9, 31, 12, 0, 0) - i * 60_000).toISOString(),
+      }),
+    );
+  }
+
+  it("defaults to the newest window with honest truncation counts", () => {
+    const graph = buildSocialGraph({ myHandle: "me", connections: [], items: datedItems(105) });
+    expect(graph.itemWindowStart).toBe(0);
+    expect(graph.graphableItems).toBe(105);
+    expect(graph.newerItems).toBe(0);
+    expect(graph.truncatedItems).toBe(5);
+    expect(graph.nodes.filter((node) => node.kind === "post")).toHaveLength(MAX_GRAPH_ITEMS);
+    // The newest item is mapped, the 101st-newest is not.
+    expect(graph.nodes.some((node) => node.id === "item:w0")).toBe(true);
+    expect(graph.nodes.some((node) => node.id === "item:w100")).toBe(false);
+  });
+
+  it("pages to older windows with correct bounds and edges that reference shown items only", () => {
+    const graph = buildSocialGraph(
+      { myHandle: "me", connections: [], items: datedItems(105) },
+      { itemOffset: MAX_GRAPH_ITEMS },
+    );
+    expect(graph.itemWindowStart).toBe(100);
+    expect(graph.newerItems).toBe(100);
+    expect(graph.truncatedItems).toBe(0);
+    const itemNodes = graph.nodes.filter((node) => node.kind === "post");
+    expect(itemNodes).toHaveLength(5);
+    expect(itemNodes.map((node) => node.id)).toEqual([
+      "item:w100",
+      "item:w101",
+      "item:w102",
+      "item:w103",
+      "item:w104",
+    ]);
+    // Every edge endpoint resolves inside the shown window (plus me).
+    const ids = new Set(graph.nodes.map((node) => node.id));
+    for (const edge of graph.edges) {
+      expect(ids.has(edge.source)).toBe(true);
+      expect(ids.has(edge.target)).toBe(true);
+    }
+  });
+
+  it("clamps an out-of-range offset to the last page instead of showing an empty map", () => {
+    const graph = buildSocialGraph(
+      { myHandle: "me", connections: [], items: datedItems(105) },
+      { itemOffset: 900 },
+    );
+    expect(graph.itemWindowStart).toBe(100);
+    expect(graph.nodes.filter((node) => node.kind === "post")).toHaveLength(5);
+  });
+
+  it("treats a negative offset as the newest window", () => {
+    const graph = buildSocialGraph(
+      { myHandle: "me", connections: [], items: datedItems(3) },
+      { itemOffset: -50 },
+    );
+    expect(graph.itemWindowStart).toBe(0);
+    expect(graph.truncatedItems).toBe(0);
+    expect(graph.newerItems).toBe(0);
+    expect(graph.graphableItems).toBe(3);
+  });
+
+  it("keeps newest-first ordering across the window boundary", () => {
+    const first = buildSocialGraph({ myHandle: "me", connections: [], items: datedItems(105) });
+    const second = buildSocialGraph(
+      { myHandle: "me", connections: [], items: datedItems(105) },
+      { itemOffset: MAX_GRAPH_ITEMS },
+    );
+    const lastOfFirst = first.nodes.filter((node) => node.kind === "post").at(-1);
+    const firstOfSecond = second.nodes.filter((node) => node.kind === "post")[0];
+    expect(lastOfFirst?.id).toBe("item:w99");
+    expect(firstOfSecond?.id).toBe("item:w100");
+  });
+});
