@@ -46,6 +46,12 @@ export function dateFromKey(key: string): Date {
   return new Date(year, month - 1, day, 12);
 }
 
+/** True only for keys naming a real local day: 2026-02-30 normalizes to Mar 2 inside Date, so the round trip rejects it. */
+export function isRealDateKey(key: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
+  return localDateKey(dateFromKey(key)) === key;
+}
+
 export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 /** The 7 local dates (Sunday first) of the week containing `date`. */
