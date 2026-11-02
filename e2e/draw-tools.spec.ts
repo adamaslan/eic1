@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Paint editing and discoverability. Canvas behavior is asserted by counting inked
@@ -9,16 +10,6 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
-
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
 
 function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
   const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
@@ -100,7 +91,7 @@ async function open(page: Page) {
 }
 
 test("fill bucket floods a closed shape only, and undo restores it", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await open(page);
   await tool(page, "Rect").click();
   await tool(page, "2px").click();
@@ -123,7 +114,7 @@ test("fill bucket floods a closed shape only, and undo restores it", async ({ pa
 });
 
 test("negative control: fill leaks across an open shape and a fill on same color adds no undo step", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await open(page);
   await tool(page, "Line").click();
   await drag(page, [40, 40], [120, 120]);
@@ -144,7 +135,7 @@ test("negative control: fill leaks across an open shape and a fill on same color
 });
 
 test("eyedropper picks a drawn color; picking paper picks white; brush then uses it", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await open(page);
   await swatch(page, "#ff0000").click();
   await drag(page, [20, 96], [172, 96]);
@@ -167,7 +158,7 @@ test("eyedropper picks a drawn color; picking paper picks white; brush then uses
 });
 
 test("spray is sparser than the brush, sprays in the chosen color, and undoes in one step", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await open(page);
   await tool(page, "Brush").click();
   await tool(page, "14px").click();
@@ -195,7 +186,7 @@ test("spray is sparser than the brush, sprays in the chosen color, and undoes in
 });
 
 test("shapes: filled marks more than outline, drag preview leaves no trail, one undo per shape", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await open(page);
   await tool(page, "Rect").click();
   await tool(page, "2px").click();
@@ -227,7 +218,7 @@ test("shapes: filled marks more than outline, drag preview leaves no trail, one 
 });
 
 test("ellipse defaults to an outline (hollow centre) and Fill shapes makes it solid", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await open(page);
   await swatch(page, "#0000ff").click();
   await tool(page, "Ellipse").click();
@@ -242,7 +233,7 @@ test("ellipse defaults to an outline (hollow centre) and Fill shapes makes it so
 });
 
 test("fine 1px brush marks less than 14px and classic mode hides every new tool", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await open(page);
   await tool(page, "1px").click();
   await drag(page, [20, 96], [172, 96]);
@@ -272,7 +263,7 @@ test.describe("phone-width (390px) drawing tools", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test("new tools fit with no sideways scroll and still draw", async ({ page }) => {
-    const watched = watchRuntime(page);
+    const watched = await watchRuntime(page);
     await open(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     for (const name of ["Fill", "Pick", "Spray", "Line", "Rect", "Ellipse"]) {
