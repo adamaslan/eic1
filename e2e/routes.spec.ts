@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * All-routes render smoke. Every route mounts and renders its own content - no crash
@@ -14,16 +15,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
 const CRASH_HEADING = "Oops!";
-
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
 
 function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
   const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
@@ -43,7 +34,7 @@ async function createVault(page: Page) {
 }
 
 test("signed-out routes render clean; a bad route gets the honest 404, not a crash", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
 
   await page.goto("/");
   await expect(page).toHaveTitle("Everybody is Cool — a private marketplace that lives on your device");
@@ -64,7 +55,7 @@ test("signed-out routes render clean; a bad route gets the honest 404, not a cra
 });
 
 test("every desktop route mounts clean on an unlocked vault", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
 
   const routes: Array<[string, string | RegExp]> = [
