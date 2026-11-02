@@ -2,7 +2,15 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "
 import { useNavigate } from "react-router";
 import { AppError, type Bytes } from "@veil/core";
 import {
+  dragBox,
   encodePalettePng,
+  floodFill,
+  hexToRgb,
+  isShapeTool,
+  nearestPaletteHex,
+  pixelColor,
+  seededRandom,
+  sprayDots,
   PaintHistory,
   PHOTO_CATEGORY,
   saveComposedItem,
@@ -37,6 +45,9 @@ const PALETTE = [
   "#ffffff", "#c0c0c0", "#ff0000", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff",
 ] as const;
 const BRUSHES = [3, 7, 14] as const;
+// 1px and 2px are the fine lines for detail work; classic mode hides them.
+const FINE_BRUSHES = [1, 2] as const;
+const DEFAULT_BRUSH = 7;
 const FORMATS = [
   { id: "png", mime: "image/png", label: "PNG", hint: "crisp lines" },
   { id: "jpeg", mime: "image/jpeg", label: "JPG", hint: "smallest" },
@@ -49,11 +60,6 @@ const mimeFor = (format: FormatId) => FORMATS.find((candidate) => candidate.id =
 // The PNG export is palette-indexed (encodePalettePng): the fixed 16-color canvas snaps
 // to ~1-2KB for line art instead of ~6.5KB as RGBA, which is what lets a drawing fit a
 // share-one-post link. White moves to the last palette slot as the transparency fallback.
-const hexToRgb = (hex: string) => ({
-  r: parseInt(hex.slice(1, 3), 16),
-  g: parseInt(hex.slice(3, 5), 16),
-  b: parseInt(hex.slice(5, 7), 16),
-});
 const PNG_PALETTE = [...PALETTE.filter((hex) => hex !== "#ffffff"), "#ffffff"].map(hexToRgb);
 
 async function encodeCanvas(canvas: HTMLCanvasElement, mime: string, quality?: number): Promise<Bytes> {
@@ -111,12 +117,19 @@ export default function Draw() {
   // While the text tool is armed, this holds the pixels under the live preview so the
   // preview can redraw on every keystroke without becoming part of the undo history.
   const textBase = useRef<ImageData | null>(null);
+  // Shape tools drag out a line/rectangle/ellipse: the pixels before the drag live here so
+  // the rubber-band preview redraws from a clean base and only the final shape stays.
+  const shapeBase = useRef<ImageData | null>(null);
+  const shapeStart = useRef<{ x: number; y: number } | null>(null);
+  const sprayRandom = useRef(seededRandom(1));
+  const [shapeFilled, setShapeFilled] = useState(false);
+  const [pickedNotice, setPickedNotice] = useState<string | null>(null);
 
   const [color, setColor] = useState<string>(PALETTE[0]);
   // Paper is the background color the canvas starts in, Clear restores, and the eraser
   // reveals. It defaults to white, so an untouched workflow behaves exactly as before.
   const [paperColor, setPaperColor] = useState<string>("#ffffff");
-  const [brush, setBrush] = useState<number>(BRUSHES[1]);
+  const [brush, setBrush] = useState<number>(DEFAULT_BRUSH);
   const [tool, setTool] = useState<Tool>("brush");
   const [textValue, setTextValue] = useState("");
   const [textSizeId, setTextSizeId] = useState<TextSizeId>("m");
@@ -249,6 +262,7 @@ export default function Draw() {
 
   const selectTool = (next: Tool) => {
     if (next === tool) return;
+    setPickedNotice(null);
     discardTextPreview();
     setCrosshair(null);
     setTool(next);
@@ -327,9 +341,39 @@ export default function Draw() {
       return;
     }
     const before = snapshotCanvas();
+    if (tool === "pick") {
+      if (!before) return;
+      const at = canvasPoint(event);
+      const found = pixelColor(before, at.x, at.y);
+      if (found) {
+        const hex = nearestPaletteHex(found, PALETTE);
+        setColor(hex);
+        setPickedNotice(`Picked ${hex}`);
+        setTool("brush");
+      }
+      return;
+    }
+    if (tool === "fill") {
+      if (!before) return;
+      const filled = snapshotCanvas();
+      const point = canvasPoint(event);
+      if (!filled) return;
+      // Only a fill that changes pixels earns an undo entry.
+      if (floodFill(filled, point.x, point.y, hexToRgb(color)) > 0) {
+        history.current.record(before);
+        syncHistoryState();
+        context2d()?.putImageData(filled, 0, 0);
+        void refreshSize();
+      }
+      return;
+    }
     if (before) {
       history.current.record(before);
       syncHistoryState();
+    }
+    if (isShapeTool(tool)) {
+      shapeBase.current = before;
+      shapeStart.current = canvasPoint(event);
     }
     drawing.current = true;
     last.current = canvasPoint(event);
@@ -345,6 +389,36 @@ export default function Draw() {
     if (!canvas || !context) return;
     const point = canvasPoint(event);
     const from = last.current ?? point;
+    if (isShapeTool(tool)) {
+      const origin = shapeStart.current;
+      if (!origin || !shapeBase.current) return;
+      context.putImageData(shapeBase.current, 0, 0);
+      context.strokeStyle = color;
+      context.fillStyle = color;
+      context.lineWidth = brush;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.beginPath();
+      const box = dragBox(origin, point);
+      if (tool === "line") {
+        context.moveTo(origin.x, origin.y);
+        context.lineTo(point.x, point.y);
+      } else if (tool === "rect") {
+        context.rect(box.x, box.y, box.w, box.h);
+      } else {
+        context.ellipse(box.x + box.w / 2, box.y + box.h / 2, box.w / 2, box.h / 2, 0, 0, Math.PI * 2);
+      }
+      if (shapeFilled && tool !== "line") context.fill();
+      else context.stroke();
+      last.current = point;
+      return;
+    }
+    if (tool === "spray") {
+      context.fillStyle = color;
+      for (const dot of sprayDots(point.x, point.y, brush * 1.5, 14, sprayRandom.current)) context.fillRect(dot.x, dot.y, 1, 1);
+      last.current = point;
+      return;
+    }
     context.strokeStyle = strokeColor(tool, color, paperColor);
     context.lineWidth = brush;
     context.lineCap = "round";
@@ -360,6 +434,8 @@ export default function Draw() {
     if (!drawing.current) return;
     drawing.current = false;
     last.current = null;
+    shapeBase.current = null;
+    shapeStart.current = null;
     void refreshSize();
   };
 
@@ -491,8 +567,8 @@ export default function Draw() {
         <p className="text-[#404040]">
           Small canvas, flat colors: drawings stay a few KB, saved as {format === "png" ? "PNG" : "JPG"}.
         </p>
-        <div className="flex items-start gap-2">
-          <div className="flex flex-col gap-1 pt-0.5">
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-1" role="toolbar" aria-label="Paint tools">
             <Button95 pressed={tool === "brush"} onClick={() => selectTool("brush")} disabled={saving}>
               Brush
             </Button95>
@@ -502,8 +578,28 @@ export default function Draw() {
             <Button95 pressed={tool === "text"} onClick={() => selectTool("text")} disabled={saving}>
               Text
             </Button95>
-            {(tool === "brush" || tool === "eraser") &&
-              BRUSHES.map((option) => (
+            {!classic &&
+              (
+                [
+                  ["fill", "Fill"],
+                  ["pick", "Pick"],
+                  ["spray", "Spray"],
+                  ["line", "Line"],
+                  ["rect", "Rect"],
+                  ["ellipse", "Ellipse"],
+                ] as const
+              ).map(([id, label]) => (
+                <Button95 key={id} pressed={tool === id} onClick={() => selectTool(id)} disabled={saving}>
+                  {label}
+                </Button95>
+              ))}
+            {(tool === "rect" || tool === "ellipse") && (
+              <Button95 pressed={shapeFilled} onClick={() => setShapeFilled((value) => !value)}>
+                Fill shapes
+              </Button95>
+            )}
+            {(tool === "brush" || tool === "eraser" || tool === "spray" || isShapeTool(tool)) &&
+              (classic ? BRUSHES : [...FINE_BRUSHES, ...BRUSHES]).map((option) => (
                 <Button95 key={option} pressed={brush === option} onClick={() => setBrush(option)}>
                   {option}px
                 </Button95>
@@ -529,8 +625,8 @@ export default function Draw() {
             height={CANVAS_SIZE}
             style={{
               // Fit phones: 320px preferred, shrink before the window overflows
-              // (toolbar column + window padding reserve ~120px of the viewport).
-              width: `min(${DISPLAY_SIZE}px, calc(100vw - 120px))`,
+              // (window padding reserves ~80px of the viewport; the toolbar wraps above the canvas).
+              width: `min(${DISPLAY_SIZE}px, calc(100vw - 80px))`,
               height: "auto",
               imageRendering: "pixelated",
               cursor: "crosshair",
@@ -582,6 +678,11 @@ export default function Draw() {
           )}
           </div>
         </div>
+        {pickedNotice && (
+          <p role="status" className="text-[11px] text-[#404040]">
+            {pickedNotice}
+          </p>
+        )}
         {tool === "text" && (
           <div className="flex flex-wrap items-center gap-1">
             <textarea
@@ -622,8 +723,12 @@ export default function Draw() {
           </div>
         )}
         <label className="flex items-center gap-1 text-[11px] text-[#404040]">
-          <input type="checkbox" checked={classic} onChange={(event) => setClassic(event.target.checked)} />
-          Classic tools: hide the new paper, wrap, preview, and tiny-text options
+          <input type="checkbox" checked={classic} onChange={(event) => {
+              setClassic(event.target.checked);
+              if (event.target.checked && !["brush", "eraser", "text"].includes(tool)) selectTool("brush");
+              if (event.target.checked && brush < BRUSHES[0]) setBrush(DEFAULT_BRUSH);
+            }} />
+          Classic tools: hide the new paper, wrap, preview, tiny-text, fill, shape, spray, and pick options
         </label>
         <div className="flex flex-wrap items-center gap-0.5">
           {PALETTE.map((option) => (
