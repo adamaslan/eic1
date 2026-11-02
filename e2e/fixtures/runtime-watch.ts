@@ -5,15 +5,19 @@ import type { Page } from "@playwright/test";
  * per-spec zero-error assertions, and isolates specs from preview analytics noise at the
  * network boundary.
  *
- * Netlify deploy previews inject Segment analytics (cdn.segment.com) via the CDP preview
- * widget. Its loader's console errors ("[analytics.js] Failed to load Analytics.js
- * TypeError: Failed to fetch") flaked seeded CI across graph, calendar, and draw specs
- * (iterator trace). Aborting the external script keeps the boundary narrow: genuine app
- * console errors - including any app-origin "Failed to fetch" - still fail the spec.
- * Negative control: an injected app-origin console.error("Failed to fetch") fails specs
- * using this watcher. Precedent: the journal-share watchRuntime (0824743).
+ * Netlify deploy previews inject a CDP bootstrap (<script async src="/.netlify/scripts/cdp">)
+ * that loads Segment analytics. When the Segment fetch fails (CI egress), the loader logs
+ * "[analytics.js] Failed to load Analytics.js TypeError: Failed to fetch" as a console
+ * error, flaking the zero-error assertions (CI run 41391023003: graph.spec, routes.spec).
+ * Aborting cdn.segment.com alone was not enough: the loader still runs and still logs.
+ * Blocking the bootstrap itself removes the loader; the aborted script tag only yields a
+ * "Failed to load resource" line, which every spec already filters. Genuine app console
+ * errors - including any app-origin "Failed to fetch" - still fail the spec.
+ * Negative control: e2e/runtime-watch.spec.ts proves an app-origin console.error fails.
+ * Precedent: the journal-share watchRuntime (0824743).
  */
 export async function watchRuntime(page: Page) {
+  await page.route("**/.netlify/scripts/**", (route) => route.abort());
   await page.route("https://cdn.segment.com/**", (route) => route.abort());
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
