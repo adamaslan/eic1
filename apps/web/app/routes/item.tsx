@@ -12,6 +12,7 @@ import {
   RELAY_ENABLED,
   dropSharedLink,
   loadSharedLink,
+  loadSharedLinks,
   publishSharedPost,
   revokeSharedPost,
   saveSharedLink,
@@ -57,7 +58,18 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
     // hand the short link to the share sheet. The link's preview shows this post's photo
     // and text to anyone who has it; the delete key stays in this vault for Revoke.
     if (RELAY_ENABLED) try {
-      const published = await publishSharedPost(text);
+      // Re-sharing this post: retire every earlier link first (best effort), so the
+      // normal path keeps exactly one live link per post. A failed revoke keeps its
+      // ref - and its delete key - so the link stays revocable instead of orphaned.
+      for (const previous of await loadSharedLinks(vault, item.id)) {
+        try {
+          await revokeSharedPost(previous.id, previous.deleteKey);
+          await dropSharedLink(vault, item.id, previous.id);
+        } catch {
+          // keep the ref: its key is the only way to revoke that link later
+        }
+      }
+      const published = await publishSharedPost(vault, text);
       const ref: SharedLinkRef = { ...published, postId: item.id, createdAt: new Date().toISOString() };
       await saveSharedLink(vault, ref);
       setSharedLink(ref);
@@ -80,7 +92,12 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
         setShareNote("Share cancelled - but the link was already published and still shows this post. Copy it or revoke it here.");
       } else {
         await navigator.clipboard.writeText(published.url);
-        setShareNote("Link copied. It shows this post's photo and text to anyone who has it - revoke it here anytime.");
+        const leftover = (await loadSharedLinks(vault, item.id)).length - 1;
+        setShareNote(
+          leftover > 0
+            ? `Link copied. An earlier link could not be revoked and may still show this post - revoke it below.`
+            : "Link copied. It shows this post's photo and text to anyone who has it - revoke it here anytime."
+        );
       }
       return;
     } catch (caught) {
@@ -112,16 +129,27 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
   }
 
   async function revokeShare(item: Item) {
-    if (!vault || !sharedLink) return;
+    if (!vault) return;
+    const refs = await loadSharedLinks(vault, item.id);
+    if (refs.length === 0) return;
     setShareNote(null);
-    try {
-      await revokeSharedPost(sharedLink.id, sharedLink.deleteKey);
-      await dropSharedLink(vault, item.id);
-      setSharedLink(null);
-      setShareNote("Shared link revoked - it no longer shows the post.");
-    } catch (caught) {
-      setShareNote(caught instanceof AppError ? caught.message : "The link could not be revoked. Please try again.");
+    let failed = 0;
+    for (const ref of refs) {
+      try {
+        await revokeSharedPost(ref.id, ref.deleteKey);
+        await dropSharedLink(vault, item.id, ref.id);
+      } catch {
+        failed += 1;
+      }
     }
+    setSharedLink(await loadSharedLink(vault, item.id));
+    setShareNote(
+      failed === 0
+        ? "Shared link revoked - it no longer shows the post."
+        : failed === refs.length
+          ? "The link could not be revoked. Please try again."
+          : `Revoked ${refs.length - failed} of ${refs.length} links; ${failed} could not be revoked - please try again.`
+    );
   }
 
   const itemId = state.status === "ready" ? (state.items.find((candidate) => candidate.id === params.id)?.id ?? null) : null;
