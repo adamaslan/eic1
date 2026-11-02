@@ -218,7 +218,16 @@ describe("store-only zip", () => {
     tampered[35]! ^= 0xff; // flip a data byte after the 30-byte header + 5-byte name
     expect(() => readZip(tampered)).toThrow(/Damaged/);
     expect(() => buildZip([{ name: "../evil", data: new Uint8Array(1) }])).toThrow(/Unsafe/);
+    expect(() => buildZip([{ name: "folder/../evil", data: new Uint8Array(1) }])).toThrow(/Unsafe/);
+    expect(() => buildZip([{ name: "song..mix.mp3", data: new Uint8Array(1) }])).not.toThrow();
     expect(() => readZip(new Uint8Array([1, 2, 3]))).toThrow();
+  });
+
+  it("rejects an advertised uncompressed size over the import budget before copying", () => {
+    const zip = buildZip([{ name: "a.bin", data: new Uint8Array() }]);
+    const centralOffset = 30 + "a.bin".length;
+    new DataView(zip.buffer).setUint32(centralOffset + 24, 26 * 1024 * 1024 + 1, true);
+    expect(() => readZip(zip)).toThrow(/26 MiB uncompressed limit/);
   });
 
   it("crc32 matches the known check value", () => {

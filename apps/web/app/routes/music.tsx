@@ -447,7 +447,9 @@ export default function Music() {
       });
       setShrunk((prev) => ({ ...prev, [index]: { ...track, file, title: track.title } }));
       store.setNote(
-        `Shrunk "${track.title}" from ${formatBytes(originalBytes)} to ${formatBytes(file.size)}. The original is untouched.`,
+        file.size < originalBytes
+          ? `Shrunk "${track.title}" from ${formatBytes(originalBytes)} to ${formatBytes(file.size)}. The original is untouched.`
+          : `Re-encoded "${track.title}" from ${formatBytes(originalBytes)} to ${formatBytes(file.size)}; the result is not smaller. The original is untouched.`,
       );
     } catch (err) {
       store.setNote(err instanceof Error ? err.message : "Could not shrink that song.");

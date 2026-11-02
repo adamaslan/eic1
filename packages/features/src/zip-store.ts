@@ -8,6 +8,8 @@ const END_SIG = 0x06054b50;
 const METHOD_STORE = 0;
 /** One stored entry must fit a 32-bit size field; the bundle cap keeps us far below it. */
 const MAX_ENTRIES = 1000;
+/** Music bundles carry at most 25 MiB audio plus a 1 MiB manifest. */
+const MAX_UNCOMPRESSED_BYTES = 26 * 1024 * 1024;
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -42,7 +44,7 @@ export function buildZip(entries: readonly ZipEntry[], now: Date = new Date()): 
   if (entries.length === 0 || entries.length > MAX_ENTRIES) throw new Error("A bundle needs between 1 and 1000 files.");
   const encoder = new TextEncoder();
   const names = entries.map((e) => {
-    if (!e.name || e.name.includes("\\") || e.name.startsWith("/") || e.name.includes("..")) {
+    if (!e.name || e.name.includes("\\") || e.name.startsWith("/") || e.name.split("/").includes("..")) {
       throw new Error(`Unsafe bundle file name: ${e.name}`);
     }
     return encoder.encode(e.name);
@@ -51,8 +53,11 @@ export function buildZip(entries: readonly ZipEntry[], now: Date = new Date()): 
   const crcs = entries.map((e) => zipCrc32(e.data));
 
   let total = 22; // end record
+  let totalPayload = 0;
   entries.forEach((e, i) => {
     if (e.data.length > 0xffffffff) throw new Error(`File too large for a bundle: ${e.name}`);
+    totalPayload += e.data.length;
+    if (totalPayload > MAX_UNCOMPRESSED_BYTES) throw new Error("That bundle is over the 26 MiB uncompressed limit.");
     total += 30 + names[i]!.length + e.data.length + 46 + names[i]!.length;
   });
   const out = new Uint8Array(total);
@@ -125,12 +130,15 @@ export function readZip(bytes: Uint8Array): ZipEntry[] {
   let offset = view.getUint32(end + 16, true);
   const entries: ZipEntry[] = [];
   const decoder = new TextDecoder();
+  let totalSize = 0;
   for (let i = 0; i < count; i++) {
     if (view.getUint32(offset, true) !== CENTRAL_SIG) throw new Error("That bundle is damaged.");
     const method = view.getUint16(offset + 10, true);
     if (method !== METHOD_STORE) throw new Error("That bundle uses compression eic cannot read.");
     const crc = view.getUint32(offset + 16, true);
     const size = view.getUint32(offset + 24, true);
+    totalSize += size;
+    if (totalSize > MAX_UNCOMPRESSED_BYTES) throw new Error("That bundle is over the 26 MiB uncompressed limit.");
     const nameLen = view.getUint16(offset + 28, true);
     const extraLen = view.getUint16(offset + 30, true);
     const commentLen = view.getUint16(offset + 32, true);
