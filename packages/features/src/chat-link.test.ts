@@ -162,7 +162,10 @@ describe("chat links", () => {
     const { link } = await buildChatShareLink(bob, conn, BASE);
     const parsed = readChatShareLink(new URL(link).hash)!;
     // Corrupt the second envelope's ciphertext: a crypto failure, not a structural one.
-    const envelopes = parsed.envelopes.map((e, i) => (i === 1 ? { ...e, ciphertext: `A${e.ciphertext.slice(1)}` } : e));
+    const envelopes = parsed.envelopes.map((e, i) => (i === 1
+      ? { ...e, ciphertext: `${e.ciphertext[0] === "A" ? "B" : "A"}${e.ciphertext.slice(1)}` }
+      : e));
+    expect(envelopes[1].ciphertext).not.toBe(parsed.envelopes[1].ciphertext);
     const result = await applyChatShareLink(alice, { ...parsed, envelopes }, deps);
     expect(result).toMatchObject({ applied: 1, failed: 1, total: 2 });
     expect((await listChatThread(alice, "bob-id")).map((m) => m.body)).toEqual(["one"]);

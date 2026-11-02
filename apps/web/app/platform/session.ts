@@ -18,6 +18,11 @@ interface SessionState {
   lock: () => Promise<void>;
 }
 
+/** Lock a decrypted resume result that was not adopted into the active session. */
+export function discardResumedVault(vault: UnlockedVault | null | undefined): void {
+  vault?.lock();
+}
+
 // Holds the unlocked vault in memory. The key behind it may also be kept for SESSION_MS so a reload
 // does not ask for the passphrase again (see session-persist.ts); locking always removes it.
 export const useSessionStore = create<SessionState>((set) => ({

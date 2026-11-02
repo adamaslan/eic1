@@ -7,7 +7,7 @@ vi.mock("./session-persist", () => ({
   clearSession,
 }));
 
-import { useSessionStore } from "./session";
+import { discardResumedVault, useSessionStore } from "./session";
 
 const fakeVault = () => ({ lock: vi.fn() }) as never;
 
@@ -35,6 +35,12 @@ describe("session store", () => {
     expect(useSessionStore.getState().expiresAt).toBeNull();
     expect(useSessionStore.getState().revision).toBe(revision + 1);
     expect((vault as { lock: ReturnType<typeof vi.fn> }).lock).toHaveBeenCalled();
+  });
+
+  it("locks a decrypted resume result when it is discarded", () => {
+    const vault = fakeVault();
+    discardResumedVault(vault);
+    expect((vault as { lock: ReturnType<typeof vi.fn> }).lock).toHaveBeenCalledOnce();
   });
 
   it("lock reports a failed key deletion instead of throwing", async () => {
