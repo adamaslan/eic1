@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createHash } from "node:crypto";
 import tracks from "../apps/web/app/data/music-library.json" with { type: "json" };
 
-test("homepage library works signed out, plays real audio, and keeps controls inside a phone", async ({ page }) => {
+test("homepage library works signed out, plays real audio, and keeps controls inside a phone", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.setViewportSize({ width: 390, height: 844 });
@@ -25,7 +25,7 @@ test("homepage library works signed out, plays real audio, and keeps controls in
   await page.getByLabel("Find a song").fill("nothing-matches-this");
   await expect(page.getByText("No songs match that search.")).toBeVisible();
   await page.getByLabel("Find a song").fill("");
-  await page.screenshot({ path: "/downloads/music-library-390.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("music-library-390.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.reload();
   await expect(page.getByTestId("library-current")).toHaveText("Choose a song");
