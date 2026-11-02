@@ -47,6 +47,7 @@ export default function Calendar() {
     if (!vault) return false;
     try {
       setEvents(await listCalendarEvents(vault));
+      setError(null);
       return true;
     } catch {
       setError("The calendar could not be read.");
@@ -173,7 +174,14 @@ export default function Calendar() {
 
       <Window title={`${dayLabel(selectedKey)}${selectedEvents.length ? ` (${selectedEvents.length})` : ""}`}>
         {events === null ? (
-          <p className="text-[12px]">Loading…</p>
+          error ? (
+            <p className="text-[12px] text-[#800000]" role="alert">
+              {error}{" "}
+              <button type="button" className="underline" onClick={() => void reload()}>Try again</button>
+            </p>
+          ) : (
+            <p className="text-[12px]">Loading…</p>
+          )
         ) : selectedEvents.length === 0 ? (
           <p className="text-[12px]">Nothing planned for this day.</p>
         ) : (
@@ -232,7 +240,7 @@ export default function Calendar() {
             <Button95 type="submit" disabled={saving || !title.trim()}>{saving ? "Encrypting…" : "🔒 Save event"}</Button95>
           </div>
           {notice && <p role="status" className="text-[#008000]">{notice}</p>}
-          {error && <p role="alert" className="text-[#800000]">{error}</p>}
+          {error && events !== null && <p role="alert" className="text-[#800000]">{error}</p>}
         </form>
         <p className="mt-2 text-[12px]">
           <Link to="/tools" className="text-[#0000cc] underline">Back to tools</Link>
