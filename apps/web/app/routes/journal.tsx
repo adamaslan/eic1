@@ -147,7 +147,7 @@ export default function Journal() {
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button95 type="submit" className="shrink-0 whitespace-nowrap" disabled={saving || !text.trim()}>{saving ? "Encrypting…" : "🔒 Save entry"}</Button95>
-            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay encrypted in this vault. Share bundles never include them; they leave only when you export a copy or share an entry's link yourself.</span>
+            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay encrypted in this vault. Post share files never include journal entries; they leave only when you export a copy or share an entry's link yourself.</span>
           </div>
           {error && <p role="alert" className="text-[#800000]">{error}</p>}
           {notice && <p role="status">{notice}</p>}

@@ -86,6 +86,8 @@ test("compose write fault shows an error and carries no saved notice", async ({ 
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page).toHaveURL(/\/compose/);
   await page.goto("/market");
+  // Wait for Market to finish loading before asserting absence, so the checks cannot pass mid-load.
+  await expect(page.getByLabel("Sort")).toBeVisible();
   await expect(page.getByText("Saved - encrypted in this vault.")).toHaveCount(0);
   await expect(page.getByText(title)).toHaveCount(0);
   expectCleanRuntime(watched);

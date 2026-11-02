@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router";
 import { selectFeed, useVaultItems } from "@veil/features";
 import type { Route } from "./+types/feed";
 import { PhotoCard } from "~/components/cards";
@@ -14,21 +14,16 @@ export default function Feed() {
   const vault = useSessionStore((state) => state.vault);
   const { state, reload } = useVaultItems(vault);
   const location = useLocation();
-  const navigate = useNavigate();
-  // One-shot save notice: capture the flag once, then clear it from history state so a
-  // reload or a later Back to this entry does not re-announce a stale success.
-  const [justSaved] = useState(() => (location.state as { saved?: boolean } | null)?.saved === true);
-  const cleared = useRef(false);
+  // The save notice belongs to the history entry that arrived from a save. Keyed on that
+  // entry, it hides on any other navigation, including a re-click of this same tab.
+  const [savedEntry] = useState(() => ((location.state as { saved?: boolean } | null)?.saved === true ? location.key : null));
+  const justSaved = savedEntry !== null && savedEntry === location.key && (location.state as { saved?: boolean } | null)?.saved === true;
+  // Once shown, drop the flag from the browser's history entry so a reload or a Back to
+  // this entry does not re-announce the save. The React Router location keeps the same key.
   useEffect(() => {
-    if (!justSaved || cleared.current) return;
-    cleared.current = true;
-    const rest = { ...(location.state as Record<string, unknown> | null) };
-    delete rest.saved;
-    navigate(`${location.pathname}${location.search}${location.hash}`, {
-      replace: true,
-      state: Object.keys(rest).length > 0 ? rest : null,
-    });
-  }, [justSaved, location, navigate]);
+    if (savedEntry === null) return;
+    window.history.replaceState({ ...window.history.state, usr: null }, "");
+  }, [savedEntry]);
   const [query, setQuery] = useState("");
 
   if (state.status === "loading") return <p className="text-[12px]">Loading posts…</p>;
