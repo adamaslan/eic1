@@ -1,4 +1,4 @@
-import { CHAT_LINK_PREFIX, CONNECT_LINK_PREFIX, POST_LINK_PREFIX, isJournalShareBundle, readPostShareLink } from "@veil/features";
+import { CHAT_LINK_PREFIX, CONNECT_LINK_PREFIX, POST_LINK_PREFIX, RELAY_LINK_PREFIX, isJournalShareBundle, readPostShareLink } from "@veil/features";
 
 /**
  * Pending-link slots: where a tapped eic link waits while the app locks, unlocks, or routes.
@@ -56,7 +56,15 @@ export const PENDING_KINDS: PendingKind[] = ["connect", "chat", "post"];
 export const pendingKey = (kind: PendingKind) => `eic.pendingLink.v2.${kind}`;
 
 export const kindOfHash = (hash: string): PendingKind | null =>
-  hash.startsWith(CHAT_LINK_PREFIX) ? "chat" : hash.startsWith(CONNECT_LINK_PREFIX) ? "connect" : hash.startsWith(POST_LINK_PREFIX) ? "post" : null;
+  hash.startsWith(CHAT_LINK_PREFIX)
+    ? "chat"
+    : hash.startsWith(CONNECT_LINK_PREFIX)
+      ? "connect"
+      : // Relay links carry only a share id; the app fetches the bundle, so they park in
+        // the post slot and resolve in root.tsx before the import prompt.
+        hash.startsWith(POST_LINK_PREFIX) || hash.startsWith(RELAY_LINK_PREFIX)
+        ? "post"
+        : null;
 
 export function readStash(store: SlotStore, kind: PendingKind): StashedLink | null {
   const raw = store.get(pendingKey(kind));
