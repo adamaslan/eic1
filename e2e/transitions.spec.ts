@@ -55,7 +55,7 @@ test("connections mounts through loading -> loaded on one component instance", a
 });
 
 test("compose write fault shows an error and carries no saved notice", async ({ page, context }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await context.addInitScript(() => {
     const original = IDBObjectStore.prototype.put;
     (window as unknown as { __eicFaultPut?: boolean }).__eicFaultPut = false;
