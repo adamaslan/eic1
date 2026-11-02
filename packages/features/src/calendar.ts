@@ -6,6 +6,7 @@ import {
   CalendarEventSchema,
   ChoreSchema,
   dateFromKey,
+  isRealDateKey,
   type CalendarEvent,
   type Chore,
 } from "@veil/core";
@@ -37,7 +38,7 @@ export async function addCalendarEvent(
   const title = input.title.trim();
   if (!title) throw new AppError("Give the event a title.");
   if (title.length > CALENDAR_TITLE_MAX) throw new AppError(`Keep the title under ${CALENDAR_TITLE_MAX} characters.`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || Number.isNaN(dateFromKey(input.date).getTime())) {
+  if (!isRealDateKey(input.date)) {
     throw new AppError("Pick a real date.");
   }
   const note = (input.note ?? "").trim();
@@ -106,6 +107,7 @@ export async function deleteChore(vault: UnlockedVault, id: string): Promise<voi
 /** Flips one day's check-off. Compare-and-swap with one retry: two tabs can hold the same vault
  *  unlocked, and a plain read-modify-write would silently drop one side's check-off. */
 export async function toggleChoreDone(vault: UnlockedVault, id: string, dateKey: string): Promise<Chore> {
+  if (!isRealDateKey(dateKey)) throw new AppError("That day does not exist.");
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const existing = await vault.getJson(id);
     const parsed = ChoreSchema.safeParse(existing);
