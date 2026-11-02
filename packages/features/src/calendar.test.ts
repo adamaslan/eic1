@@ -29,6 +29,30 @@ describe("calendar events", () => {
     expect(await listCalendarEvents(vault)).toEqual([]);
   });
 
+  it("rejects dates that do not exist instead of saving an event no day cell can show", async () => {
+    const vault = await freshVault();
+    // JS Date normalizes 2026-02-30 to Mar 2; a regex alone would save it and the grid groups by the raw key.
+    await expect(addCalendarEvent(vault, { title: "ghost", date: "2026-02-30" }, deps())).rejects.toThrow("Pick a real date.");
+    await expect(addCalendarEvent(vault, { title: "ghost", date: "2026-13-01" }, deps())).rejects.toThrow("Pick a real date.");
+    await expect(addCalendarEvent(vault, { title: "ghost", date: "2026-04-31" }, deps())).rejects.toThrow("Pick a real date.");
+    expect(await listCalendarEvents(vault)).toEqual([]);
+    // Positive edges: real days, including a leap day, still save.
+    await addCalendarEvent(vault, { title: "leap", date: "2024-02-29" }, deps());
+    await addCalendarEvent(vault, { title: "april", date: "2026-04-30" }, deps());
+    expect((await listCalendarEvents(vault)).map((event) => event.title).sort()).toEqual(["april", "leap"]);
+  });
+
+  it("refuses a check-off for a day that does not exist and writes nothing", async () => {
+    const vault = await freshVault();
+    const chore = await addChore(vault, { name: "water plants", days: [0, 3] }, deps());
+    // A malformed key would fail ChoreSchema on the next read, hiding the chore and making it undeletable.
+    await expect(toggleChoreDone(vault, chore.id, "junk")).rejects.toThrow("That day does not exist.");
+    await expect(toggleChoreDone(vault, chore.id, "2026-02-30")).rejects.toThrow("That day does not exist.");
+    const chores = await listChores(vault);
+    expect(chores).toHaveLength(1);
+    expect(chores[0]!.done).toEqual([]);
+  });
+
   it("keeps the note and trims it", async () => {
     const vault = await freshVault();
     const event = await addCalendarEvent(vault, { title: "dentist", date: "2026-11-05", note: "  bring card  " }, deps());
