@@ -50,12 +50,23 @@ export default async (request: Request): Promise<Response> => {
     if (!photo) return new Response("No photo.", { status: 404 });
     return new Response(new Uint8Array(photo.bytes), {
       status: 200,
-      headers: { "content-type": photo.mime, "cache-control": "public, max-age=300, must-revalidate" },
+      headers: {
+        "content-type": photo.mime,
+        "cache-control": "public, max-age=300, must-revalidate",
+        // Edge-cache reads so repeat fetches do not re-invoke the function or re-read
+        // the blob (read-cost mitigation). Revoke/expiry go stale at the edge for at
+        // most this max-age; origin stops serving immediately.
+        "netlify-cdn-cache-control": "public, max-age=300, durable",
+      },
     });
   }
   return new Response(renderSharePage(entry.body, id, bases), {
     status: 200,
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, must-revalidate" },
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "public, max-age=60, must-revalidate",
+      "netlify-cdn-cache-control": "public, max-age=60, durable",
+    },
   });
 };
 
