@@ -21,6 +21,12 @@ export const PROFILE_TOTAL_ASSET_MAX_BYTES = 256 * 1024;
 export const PROFILE_BIO_MAX = 500;
 export const PROFILE_DISPLAY_NAME_MAX = 40;
 
+/** Exact decoded byte count for a standard padded Base64 string. */
+export function profileBase64ByteLength(data: string): number {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - padding;
+}
+
 // Built-in palette (design draft section 4a: the enum value IS the theme - no asset bytes).
 export const WALLPAPERS = ["teal", "clouds", "dither", "none"] as const;
 export const COLOR_SCHEMES = ["win95", "vapor", "midnight", "hot-dog-stand"] as const;
@@ -67,7 +73,7 @@ export const ProfileSchema = z
   })
   .superRefine((profile, ctx) => {
     const assetBytes = (asset: { mime?: string; data: string } | null): number =>
-      asset ? Math.floor((asset.data.length * 3) / 4) : 0;
+      asset ? profileBase64ByteLength(asset.data) : 0;
     if (assetBytes(profile.avatar) > PROFILE_AVATAR_MAX_BYTES) {
       ctx.addIssue({ code: "custom", message: "Avatar is over the 25 KB cap.", path: ["avatar"] });
     }

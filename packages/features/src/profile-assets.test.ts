@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { addProfileSticker, changeProfileSticker, PROFILE_STICKERS } from "./profile-assets";
-import { defaultProfile, ProfileSchema } from "./profile";
+import { defaultProfile, ProfileSchema, PROFILE_AVATAR_MAX_BYTES } from "./profile";
 const base = () => defaultProfile("alice", "alice", new Date("2026-11-01T16:00:00Z"));
 describe("profile decorations", () => {
+  it("accepts an avatar exactly at the decoded byte cap and rejects one byte over", () => {
+    const exactData = `${"A".repeat(34134)}==`;
+    const overData = `${"A".repeat(34135)}=`;
+    expect(exactData.length).toBe(34136);
+    expect(ProfileSchema.safeParse({ ...base(), avatar: { kind: "data-uri", mime: "image/png", data: exactData } }).success).toBe(true);
+    expect(ProfileSchema.safeParse({ ...base(), avatar: { kind: "data-uri", mime: "image/png", data: overData } }).success).toBe(false);
+    expect(PROFILE_AVATAR_MAX_BYTES).toBe(25_600);
+  });
   it("all four stickers are small embedded assets accepted by the legacy schema", () => {
     for (const kind of PROFILE_STICKERS) {
       const profile = addProfileSticker(base(), kind, kind);

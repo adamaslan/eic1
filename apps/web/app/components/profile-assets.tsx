@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { addProfileSticker, changeProfileSticker, PROFILE_STICKERS, PROFILE_AVATARS, PROFILE_AVATAR_MAX_BYTES, ProfileSchema, type Profile } from "@veil/features";
+import { addProfileSticker, changeProfileSticker, PROFILE_STICKERS, PROFILE_AVATARS, PROFILE_AVATAR_MAX_BYTES, profileBase64ByteLength, ProfileSchema, type Profile } from "@veil/features";
 import { Button95 } from "~/ui95/Button95";
 
 /** Local raster decode only, flattened to an embedded PNG. Nothing reaches an image host. */
@@ -16,7 +16,7 @@ async function avatarFromFile(file: File): Promise<Profile["avatar"]> {
     const width = Math.max(1, Math.round(bitmap.width * ratio)); const height = Math.max(1, Math.round(bitmap.height * ratio));
     ctx.drawImage(bitmap, (96 - width) / 2, (96 - height) / 2, width, height);
     const data = canvas.toDataURL("image/png").split(",")[1];
-    if ((Math.floor(data.length * 3 / 4) - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0)) > PROFILE_AVATAR_MAX_BYTES) throw new Error("The resized PNG is over 25 KB. Try a simpler image.");
+    if (profileBase64ByteLength(data) > PROFILE_AVATAR_MAX_BYTES) throw new Error("The resized PNG is over 25 KB. Try a simpler image.");
     return { kind: "data-uri", mime: "image/png", data };
   } finally { bitmap.close(); }
 }
@@ -45,7 +45,7 @@ export function ProfileAssets({ profile, change }: { profile: Profile; change: (
     <p>Or choose an avatar drawn in Paint. Nothing is selected or shared automatically.</p>
     <div role="group" aria-label="Paint avatars" className="grid grid-cols-3 gap-2 sm:grid-cols-4">{PROFILE_AVATARS.map(avatar => <Button95 key={avatar.id} onClick={() => change(ProfileSchema.parse({ ...profile, avatar: { kind: "data-uri", mime: "image/png", data: avatar.data } }))}><span className="flex flex-col items-center"><img width={64} height={64} src={`data:image/png;base64,${avatar.data}`} alt="" /><span>{avatar.label}</span></span></Button95>)}</div>
     <Button95 disabled={!profile.avatar} onClick={() => change({ ...profile, avatar: null })}>Remove avatar</Button95>
-    {profile.avatar && <p>{(Math.floor(profile.avatar.data.length * 3 / 4) - (profile.avatar.data.endsWith("==") ? 2 : profile.avatar.data.endsWith("=") ? 1 : 0)).toLocaleString()} encoded avatar bytes</p>}
+    {profile.avatar && <p>{profileBase64ByteLength(profile.avatar.data).toLocaleString()} encoded avatar bytes</p>}
     <p>{profile.decorations.length}/32 decorations. Small built-in SVGs, no downloads. Decorations are behind the profile window and may be covered by it.</p>
     <div className="flex flex-wrap gap-2">{PROFILE_STICKERS.map(kind => <Button95 key={kind} disabled={profile.decorations.length >= 32} onClick={() => {
       try { const id = `sticker-${crypto.randomUUID()}`; change(addProfileSticker(profile, kind, id)); setSelected(id); setError(""); }
