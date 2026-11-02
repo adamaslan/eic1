@@ -50,10 +50,19 @@ export class ShareError extends Error {
 export interface ShareStoreEntry {
   body: string;
   meta: Record<string, string>;
+  /** Store ETag for conditional writes; undefined on stores without CAS (e.g. tests). */
+  etag?: string;
+}
+
+export interface SharePutCondition {
+  /** Create only if the key is absent (blobs v11 onlyIfNew). */
+  onlyIfNew?: boolean;
+  /** Update only if the current ETag matches (blobs v11 onlyIfMatch). */
+  onlyIfMatch?: string;
 }
 
 export interface ShareStore {
-  put(key: string, body: string, meta: Record<string, string>): Promise<void>;
+  put(key: string, body: string, meta: Record<string, string>, condition?: SharePutCondition): Promise<{ modified: boolean }>;
   get(key: string): Promise<ShareStoreEntry | null>;
   delete(key: string): Promise<void>;
   list(): Promise<string[]>;
@@ -258,6 +267,8 @@ export async function verifyShareSignature(text: string): Promise<boolean> {
 export interface PublishProof {
   signature: string | null;
   at: string | null;
+  /** Client-provisioned share id the signature binds (see createShare). */
+  id: string | null;
 }
 
 /** Maximum age of a publish proof. */
@@ -267,7 +278,7 @@ export const PUBLISH_PROOF_FUTURE_SKEW_MS = 60 * 1000;
 
 /**
  * Fresh-owner-intent proof: every publish must carry a fresh Ed25519 signature from the
- * bundle author's key over "eic-share-publish:v1\n<sha256hex(bundle)>\n<timestamp>".
+ * bundle author's key over "eic-share-publish:v1\n<sha256hex(bundle)>\n<timestamp>\n<share id>".
  * The bundle itself is long-lived signed content anyone can copy; this proof is what a
  * captured bundle can never mint, so replayed files can never be published or
  * resurrected, while the real author can always re-share (fresh id + delete key each
@@ -275,9 +286,12 @@ export const PUBLISH_PROOF_FUTURE_SKEW_MS = 60 * 1000;
  * captured together can be replayed inside the 5-minute window; treat shares as bearer
  * content during that window.
  */
-export async function verifyPublishProof(body: string, proof: PublishProof, now: Date): Promise<void> {
-  if (!proof.signature || !proof.at) {
+export async function verifyPublishProof(body: string, proof: PublishProof, provision: ShareProvision, now: Date): Promise<void> {
+  if (!proof.signature || !proof.at || !proof.id) {
     throw new ShareError("Sharing needs a fresh signature from the author's device.", 401);
+  }
+  if (proof.id !== provision.id) {
+    throw new ShareError("That share signature does not match this link id.", 401);
   }
   const atMs = Date.parse(proof.at);
   const age = now.getTime() - atMs;
@@ -296,9 +310,14 @@ export async function verifyPublishProof(body: string, proof: PublishProof, now:
   const pubkey = isRecord(raw) && isRecord(raw.author) && typeof raw.author.pubkey === "string" ? raw.author.pubkey : null;
   if (!pubkey) throw new ShareError("That share is missing its author.");
   const digest = createHash("sha256").update(body).digest("hex");
+  // The signed intent binds the delete key's hash too: swapping the key in a captured
+  // request fails verification instead of becoming a TLS-only residual.
+  const keyDigest = createHash("sha256").update(provision.deleteKey).digest("hex");
   const payload = new TextEncoder().encode(`eic-share-publish:v1
 ${digest}
-${proof.at}`);
+${proof.at}
+${proof.id}
+${keyDigest}`);
   try {
     const key = await globalThis.crypto.subtle.importKey("raw", b64ToBytes(pubkey), { name: "Ed25519" }, false, ["verify"]);
     const ok = await globalThis.crypto.subtle.verify({ name: "Ed25519" }, key, b64ToBytes(proof.signature) as BufferSource, payload);
@@ -309,14 +328,37 @@ ${proof.at}`);
   }
 }
 
+export interface ShareProvision {
+  /** Client-generated id (16-64 base64url chars); persisted client-side before publishing. */
+  id: string;
+  /** Client-generated delete key (>=32 chars); only its sha256 is stored. */
+  deleteKey: string;
+}
+
+const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
+
+/**
+ * Publishes are client-provisioned and idempotent: the caller generates id + deleteKey
+ * and keeps them in its vault BEFORE posting, so a lost response or a dead tab can
+ * never orphan a live link - retrying the same id with a fresh proof is safe. The proof
+ * binds the id, so only the bundle author can claim an id. An existing id with the same
+ * bytes is the retry of an already-committed publish (200-style "existed"); the same id
+ * with different bytes is rejected 409.
+ */
 export async function createShare(
   store: ShareStore,
   body: string,
   now: Date,
   proof: PublishProof,
+  provision: ShareProvision,
   clientKey?: string,
-): Promise<{ id: string; deleteKey: string; expiresAt: string }> {
-  if (clientKey) await checkPublishRate(store, clientKey, now);
+): Promise<{ id: string; deleteKey: string; expiresAt: string; existed: boolean }> {
+  if (!SHARE_ID_PATTERN.test(provision.id)) {
+    throw new ShareError("That share link id is malformed.");
+  }
+  if (typeof provision.deleteKey !== "string" || provision.deleteKey.length < 32) {
+    throw new ShareError("That share delete key is malformed.");
+  }
   const bodyBytes = Buffer.byteLength(body, "utf8");
   if (bodyBytes > MAX_RELAY_BUNDLE_BYTES) {
     throw new ShareError("That post is too large to share as a link.", 413);
@@ -326,28 +368,162 @@ export async function createShare(
   if (!(await verifyShareSignature(body))) {
     throw new ShareError("That share is not signed by its author.");
   }
-  await verifyPublishProof(body, proof, now);
+  await verifyPublishProof(body, proof, provision, now);
+  // A live revoke marker for this id+key blocks the create before any write.
+  await checkRevokeMarker(store, provision, now);
+  if (clientKey) await checkPublishRate(store, clientKey, now);
   // Count is derived live from the listing (self-healing); bytes stay incremental and
-  // are reconciled by sweepExpired, because list() exposes no sizes in blobs v11. There
-  // is NO hard bound: the store has no compare-and-swap, so concurrent in-flight
-  // publishes can all pass this check, and the publish rate limit is equally racy.
-  // These caps stop bulk abuse in the expected case; they are not a budget guarantee.
+  // are reconciled by sweepExpired, because list() exposes no sizes in blobs v11. The
+  // count/bytes caps remain SOFT: onlyIfNew makes each create atomic per key, but the
+  // cap check itself is a read-then-write, so concurrent in-flight publishes of
+  // distinct ids can all pass it. These caps stop bulk abuse in the expected case;
+  // they are not a budget guarantee.
   const count = (await store.list()).filter((key) => key.startsWith("posts/")).length;
   const stats = await readStats(store);
   if (count >= MAX_SHARE_COUNT || stats.bytes + bodyBytes > MAX_SHARE_STORE_BYTES) {
     throw new ShareError("The share service is full right now. Try again later.", 503);
   }
-  const id = randomBytes(12).toString("base64url");
-  const deleteKey = randomBytes(24).toString("base64url");
   const createdAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + SHARE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  await store.put(keyFor(id), body, {
+  const meta = {
     createdAt,
-    deleteKeySha256: createHash("sha256").update(deleteKey).digest("hex"),
+    deleteKeySha256: createHash("sha256").update(provision.deleteKey).digest("hex"),
     bytes: String(bodyBytes),
-  });
-  await writeStats(store, { count: count + 1, bytes: stats.bytes + bodyBytes });
-  return { id, deleteKey, expiresAt };
+    expiresAt,
+  };
+  // Atomic create-if-absent (blobs v11 onlyIfNew): concurrent creates of the same id
+  // cannot double-store; a delayed/retried create is resolved exactly once.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const put = await store.put(keyFor(provision.id), body, meta, { onlyIfNew: true });
+    if (put.modified) {
+      // Revoke ordering closure: deleteShare writes its marker BEFORE deleting the
+      // post, so if a revoke's marker is visible now (strong read), our create lost
+      // and we undo it. If the marker lands after this read, the revoke's own post
+      // delete removes our entry: either way revoke wins, bounded by one request's
+      // latency, up to the store's strong-consistency guarantee. The recheck blocks
+      // markers live at the request's start OR at the recheck itself, so even a
+      // create stalled past the marker TTL mid-request cannot resurrect the link.
+      // (Platform sync-function execution limits are far below the TTL anyway.)
+      if ((await readRevokeMarker(store, provision, now)) || (await readRevokeMarker(store, provision, new Date()))) {
+        await store.delete(keyFor(provision.id)).catch(() => undefined);
+        throw new ShareError("That link was revoked.", 410);
+      }
+      await writeStats(store, { count: count + 1, bytes: stats.bytes + bodyBytes });
+      return { id: provision.id, deleteKey: provision.deleteKey, expiresAt, existed: false };
+    }
+    const existing = await store.get(keyFor(provision.id));
+    if (!existing) continue; // lost a create/delete race; retry the atomic create
+    if (existing.body !== body) {
+      throw new ShareError("That link id is already used for different content.", 409);
+    }
+    if (!isExpired(existing, now)) {
+      // Idempotent retry of an already-committed publish: a TRUE no-op - the stored
+      // entry (including createdAt/expiresAt) is left untouched and stats do not
+      // double-count. Entries predating expiresAt meta expire by their createdAt.
+      const existingExpiresAt =
+        existing.meta.expiresAt ??
+        (Number.isNaN(Date.parse(existing.meta.createdAt ?? ""))
+          ? expiresAt
+          : new Date(Date.parse(existing.meta.createdAt!) + SHARE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString());
+      return { id: provision.id, deleteKey: provision.deleteKey, expiresAt: existingExpiresAt, existed: true };
+    }
+    // Expired entry, same id: never silently renew retention. A re-share is an
+    // explicit NEW intent with a NEW id (the client drops the stale pending intent
+    // on this refusal), matching the established expiry semantics.
+    throw new ShareError("That share link expired. Share again for a new link.", 410);
+  }
+  throw new ShareError("That share is being concurrently modified. Try again.", 409);
+}
+
+/**
+ * Revoke markers are id-scoped sets of revoked key hashes, NOT content scoped, and
+ * deliberately SHORT-lived: 15 minutes outlives the proof window plus every realistic
+ * network/retry margin, and is far beyond the platform's maximum function execution
+ * time (single-digit seconds to ~26s on Netlify), so an already-validated in-flight
+ * create cannot outlive the marker that blocks it. Client discipline covers the rest:
+ * a revoked intent's vault record is deleted, so no client path retries that id again
+ * (a later re-share mints a fresh id). Markers cannot be used for arbitrary-id denial:
+ * a create presenting a key whose hash is not in the set ignores the marker. Marker
+ * writes MERGE into a verified/unverified split via CAS. Verified hashes come only
+ * from key-checked deletes of a live entry (one per id incarnation; always recorded,
+ * never dropped for junk). Unverified hashes come from absent-id deletes: junk-
+ * tolerant, capped, droppable - they can never evict a verified hash. Forging a
+ * legitimate hash needs a sha256 preimage. Two junk bounds hold: unverified merges
+ * never extend the marker's window (deletedAt is refreshed only by verified writes),
+ * so junk cannot keep a marker alive past its TTL; and a saturated unverified bucket
+ * never silently drops a hash - the revoke fails loudly (409) so the client keeps its
+ * pending delete key and the user's retry succeeds once the junk window expires.
+ * Expired marker sets are reset on write, so stale junk carries no weight.
+ * Residual, stated: after the marker TTL a delayed
+ * create of the revoked id is not blocked server-side; that requires a client that
+ * still retains the intent (its vault record was not synced with the revoke) AND a
+ * fresh proof, which a third party cannot mint.
+ */
+const REVOKE_MARKER_TTL_MS = 15 * 60 * 1000;
+const MARKER_MAX_VERIFIED = 16;
+const MARKER_MAX_UNVERIFIED = 64;
+
+const revokeMarkerKeyFor = (id: string) => `revoked/${id}`;
+
+type MarkerSet = { verified: string[]; unverified: string[] };
+
+const readMarkerSet = (marker: ShareStoreEntry | null): MarkerSet => {
+  if (!marker) return { verified: [], unverified: [] };
+  try {
+    const parsed = JSON.parse(marker.body) as { verified?: unknown; unverified?: unknown };
+    const pick = (value: unknown): string[] => (Array.isArray(value) ? value.filter((hash): hash is string => typeof hash === "string") : []);
+    return { verified: pick(parsed.verified), unverified: pick(parsed.unverified) };
+  } catch {
+    return { verified: [], unverified: [] };
+  }
+};
+
+const markerLive = (marker: ShareStoreEntry, now: Date): boolean => {
+  const deletedAt = Date.parse(marker.meta.deletedAt ?? "");
+  return !Number.isNaN(deletedAt) && now.getTime() - deletedAt <= REVOKE_MARKER_TTL_MS;
+};
+
+async function readRevokeMarker(store: ShareStore, provision: ShareProvision, now: Date): Promise<boolean> {
+  const marker = await store.get(revokeMarkerKeyFor(provision.id));
+  if (!marker || !markerLive(marker, now)) return false;
+  const set = readMarkerSet(marker);
+  const hash = createHash("sha256").update(provision.deleteKey).digest("hex");
+  return set.verified.includes(hash) || set.unverified.includes(hash);
+}
+
+/** Adds a key hash to the id's marker set; CAS retry on contention. */
+async function writeRevokeMarker(store: ShareStore, id: string, keyHashHex: string, now: Date, verified: boolean): Promise<void> {
+  const key = revokeMarkerKeyFor(id);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const existing = await store.get(key);
+    // An expired marker carries no weight: start fresh rather than inherit stale junk.
+    const set = existing && markerLive(existing, now) ? readMarkerSet(existing) : { verified: [], unverified: [] };
+    if (verified) {
+      if (!set.verified.includes(keyHashHex)) {
+        set.verified = [...set.verified.slice(-(MARKER_MAX_VERIFIED - 1)), keyHashHex];
+      }
+    } else if (!set.verified.includes(keyHashHex) && !set.unverified.includes(keyHashHex)) {
+      if (set.unverified.length >= MARKER_MAX_UNVERIFIED) {
+        // Saturated with junk (a coordinated flood within one window): never silently
+        // report a revoke that was not durably recorded. Fail loudly - the client keeps
+        // the pending delete key, and junk expires within the TTL so a retry succeeds.
+        throw new ShareError("That revoke is contended right now. Try again.", 409);
+      }
+      set.unverified = [...set.unverified, keyHashHex];
+    }
+    // Junk cannot hold a marker alive: unverified merges keep the original deletedAt;
+    // only verified writes (or a fresh marker) extend the window.
+    const deletedAt = existing && markerLive(existing, now) && !verified ? existing.meta.deletedAt : now.toISOString();
+    const put = await store.put(key, JSON.stringify(set), { deletedAt }, existing?.etag ? { onlyIfMatch: existing.etag } : { onlyIfNew: true });
+    if (put.modified) return;
+  }
+  throw new ShareError("That revoke is contended right now. Try again.", 409);
+}
+
+async function checkRevokeMarker(store: ShareStore, provision: ShareProvision, now: Date): Promise<void> {
+  if (await readRevokeMarker(store, provision, now)) {
+    throw new ShareError("That link was revoked.", 410);
+  }
 }
 
 const isExpired = (entry: ShareStoreEntry, now: Date): boolean => {
@@ -372,13 +548,25 @@ export async function readShare(store: ShareStore, id: string, now: Date): Promi
   return entry;
 }
 
-export async function deleteShare(store: ShareStore, id: string, deleteKey: string): Promise<"deleted" | "missing" | "forbidden"> {
+export async function deleteShare(store: ShareStore, id: string, deleteKey: string, now: Date = new Date(), clientKey?: string): Promise<"deleted" | "missing" | "forbidden"> {
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(id)) return "missing";
   const entry = await store.get(keyFor(id));
-  if (!entry) return "missing";
+  if (!entry) {
+    // Absent-id revoke: record the presented key's hash so a delayed/retried create
+    // presenting the same key cannot resurrect the link. The merge keeps any existing
+    // (legitimate) hashes, so this cannot clobber a real revoke. Rate-limited per
+    // client like publishes, because junk hashes are the only abuse this path allows.
+    if (clientKey) await checkPublishRate(store, `revoke:${clientKey}`, now);
+    await writeRevokeMarker(store, id, createHash("sha256").update(deleteKey).digest("hex"), now, false);
+    return "missing";
+  }
   const expected = Buffer.from(entry.meta.deleteKeySha256 ?? "", "hex");
   const presented = createHash("sha256").update(deleteKey).digest();
   if (expected.length !== presented.length || !timingSafeEqual(expected, presented)) return "forbidden";
+  // Marker before post delete: a concurrent create's post-put marker recheck observes
+  // the revoke (strong read) and undoes itself; if the create's recheck ran first, this
+  // post delete removes its entry. Either ordering ends revoked.
+  await writeRevokeMarker(store, id, entry.meta.deleteKeySha256 ?? "", now, true);
   await store.delete(keyFor(id));
   const stats = await readStats(store);
   await writeStats(store, {
