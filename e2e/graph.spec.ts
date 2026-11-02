@@ -9,6 +9,8 @@ import { watchRuntime } from "./fixtures/runtime-watch";
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
 
+// Shared watcher blocks the Netlify preview analytics bootstrap that flaked this spec in CI.
+
 function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
   const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);

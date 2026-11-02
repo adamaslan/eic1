@@ -35,10 +35,7 @@ async function imageInk(page: Page, name: string): Promise<number> {
 }
 
 test("a drawing saved by the pre-expansion Paint still restores and renders", async ({ page }) => {
-  // Netlify deploy previews inject Segment analytics (cdn.segment.com) via the CDP
-  // preview widget; abort at the network boundary so genuine app console errors
-  // still fail this spec. Precedent: journal-share.spec.ts watchRuntime.
-  await page.route("https://cdn.segment.com/**", (route) => route.abort());
+  // Shared watcher also blocks Netlify's injected preview analytics bootstrap (CI flake source).
   const { consoleErrors, pageErrors } = await watchRuntime(page);
 
   const backup = await readFile(FIXTURE, "utf8");
