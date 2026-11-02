@@ -37,7 +37,7 @@ const DataUriAssetSchema = z.object({
   kind: z.literal("data-uri"),
   // Raster/vector image bytes only; anything else (text/html et al.) is rejected on save and on import.
   mime: z.string().regex(/^image\//).max(100),
-  data: z.string().min(1), // base64; byte cap enforced below
+  data: z.string().min(1).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/, "Asset data must be standard Base64."),
 });
 
 const ThemeSchema = z.object({

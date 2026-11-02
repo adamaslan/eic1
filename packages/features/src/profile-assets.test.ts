@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addProfileSticker, changeProfileSticker, PROFILE_STICKERS } from "./profile-assets";
-import { defaultProfile, ProfileSchema, PROFILE_AVATAR_MAX_BYTES } from "./profile";
+import { defaultProfile, ProfileSchema, PROFILE_AVATAR_MAX_BYTES, profileBase64ByteLength } from "./profile";
 const base = () => defaultProfile("alice", "alice", new Date("2026-11-01T16:00:00Z"));
 describe("profile decorations", () => {
   it("accepts an avatar exactly at the decoded byte cap and rejects one byte over", () => {
@@ -10,6 +10,13 @@ describe("profile decorations", () => {
     expect(ProfileSchema.safeParse({ ...base(), avatar: { kind: "data-uri", mime: "image/png", data: exactData } }).success).toBe(true);
     expect(ProfileSchema.safeParse({ ...base(), avatar: { kind: "data-uri", mime: "image/png", data: overData } }).success).toBe(false);
     expect(PROFILE_AVATAR_MAX_BYTES).toBe(25_600);
+  });
+  it("rejects malformed Base64 instead of undercounting multibyte profile data", () => {
+    const unicode = "😀".repeat(10_000);
+    expect(profileBase64ByteLength(unicode)).toBe(15_000);
+    expect(new TextEncoder().encode(unicode).byteLength).toBeGreaterThan(PROFILE_AVATAR_MAX_BYTES);
+    expect(ProfileSchema.safeParse({ ...base(), avatar: { kind: "data-uri", mime: "image/png", data: unicode } }).success).toBe(false);
+    expect(ProfileSchema.safeParse({ ...base(), avatar: { kind: "data-uri", mime: "image/png", data: "%%%" } }).success).toBe(false);
   });
   it("all four stickers are small embedded assets accepted by the legacy schema", () => {
     for (const kind of PROFILE_STICKERS) {
