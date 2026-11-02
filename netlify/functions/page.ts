@@ -4,7 +4,7 @@
  * GET /s/<id>/photo serves the photo bytes.
  */
 import { getStore } from "@netlify/blobs";
-import { extractPhoto, readShare, renderMissingPage, renderSharePage, type ShareStore } from "./share-core.ts";
+import { extractPhoto, readShare, renderMissingPage, renderSharePage, type ShareStore } from "./lib/share-core.ts";
 
 const blobStore = (): ShareStore => {
   const store = getStore("shared-posts");
