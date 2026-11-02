@@ -84,6 +84,37 @@ describe("chores", () => {
     expect(chores[0]!.done).toEqual(["2026-11-04"]);
   });
 
+  it("merges a check-off that raced another tab instead of dropping one side", async () => {
+    const vault = await freshVault();
+    const chore = await addChore(vault, { name: "water plants", days: [0, 3] }, deps());
+    const original = vault.putJsonIfUnchanged.bind(vault);
+    let injected = false;
+    vault.putJsonIfUnchanged = async (kind, id, value, expected) => {
+      if (!injected) {
+        injected = true;
+        // The other tab commits its own check-off first, so ours must not overwrite it.
+        await original("chore", id, { ...chore, done: ["2026-11-04"] }, expected);
+        throw new AppError("The saved profile changed. Review the latest feed profile before updating. Nothing was overwritten.");
+      }
+      return original(kind, id, value, expected);
+    };
+    const updated = await toggleChoreDone(vault, chore.id, "2026-11-01");
+    expect([...updated.done].sort()).toEqual(["2026-11-01", "2026-11-04"]);
+    const chores = await listChores(vault);
+    expect([...chores[0]!.done].sort()).toEqual(["2026-11-01", "2026-11-04"]);
+  });
+
+  it("overwrites nothing and says so when a check-off keeps racing", async () => {
+    const vault = await freshVault();
+    const chore = await addChore(vault, { name: "dishes", days: [1] }, deps());
+    vault.putJsonIfUnchanged = async () => {
+      throw new AppError("The saved profile changed. Review the latest feed profile before updating. Nothing was overwritten.");
+    };
+    await expect(toggleChoreDone(vault, chore.id, "2026-11-02")).rejects.toThrow("Nothing was overwritten. Try again.");
+    const chores = await listChores(vault);
+    expect(chores[0]!.done).toEqual([]);
+  });
+
   it("deletes only chores", async () => {
     const vault = await freshVault();
     const chore = await addChore(vault, { name: "dishes", days: [1, 2, 3, 4, 5] }, deps());
