@@ -16,6 +16,7 @@ describe("watchRuntime analytics isolation", () => {
 
   it("blocks Segment only for deploy previews, not the production gate", async () => {
     const previewPage = mockPage();
+    vi.stubEnv("EIC_TARGET_URL", "");
     vi.stubEnv("DEPLOY_PREVIEW_URL", "https://deploy-preview.example.test");
     await watchRuntime(previewPage);
     expect(previewPage.route).toHaveBeenCalledWith("https://cdn.segment.com/**", expect.any(Function));
