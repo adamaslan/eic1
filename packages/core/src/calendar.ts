@@ -120,6 +120,8 @@ export function monthGrid(year: number, month: number): MonthCell[][] {
   return rows;
 }
 
+/** Year 0000 is 1 BC; without the era, it would read the same as year 0001. */
 export function monthLabel(year: number, month: number): string {
-  return noonOn(year, month, 1).toLocaleString([], { month: "long", year: "numeric" });
+  const era = year < 1 ? { era: "short" as const } : {};
+  return noonOn(year, month, 1).toLocaleString([], { month: "long", year: "numeric", ...era });
 }

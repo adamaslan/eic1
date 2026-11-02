@@ -3,7 +3,7 @@ import { SubtleCryptoPort } from "@veil/crypto";
 import { VaultCorruptError } from "@veil/core";
 import { createVault, exportBackup, importBackup, unlockVault } from "@veil/vault";
 import { MemoryStore } from "../../vault/src/memory-store";
-import { AppError, dateFromKey, localDateKey, monthGrid, weekOf } from "@veil/core";
+import { AppError, dateFromKey, localDateKey, monthGrid, monthLabel, weekOf } from "@veil/core";
 import { addCalendarEvent, addChore, deleteCalendarEvent, deleteChore, listCalendarEvents, listChores, toggleChoreDone } from "./calendar";
 
 let counter = 0;
@@ -75,6 +75,8 @@ describe("calendar events", () => {
     const grid = monthGrid(50, 2);
     expect(grid.flat().find((cell) => cell.inMonth)!.key).toBe("0050-03-01");
     expect(weekOf(dateFromKey("0050-03-01")).map(localDateKey)[0]!.startsWith("0050-")).toBe(true);
+    // Year 0000 must not read the same as year 0001 in the month heading.
+    expect(monthLabel(0, 1)).not.toBe(monthLabel(1, 1));
   });
 
   it("rejects a malformed time instead of failing with a raw schema error", async () => {
