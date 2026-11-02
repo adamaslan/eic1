@@ -49,6 +49,20 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The deploy preview serves the PR head build, so smoke that exact
+          # commit. The default merge ref only matches head while the branch is
+          # up to date with main; trailing branches would smoke the wrong tree.
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Fail if the checkout is not the previewed head commit
+        run: |
+          set -u
+          expected="${{ github.event.pull_request.head.sha }}"
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::transition-smoke must test the PR head the deploy preview serves ($expected), but checked out $actual. Restore the head.sha checkout pin."
+            exit 1
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -92,4 +106,3 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
-
