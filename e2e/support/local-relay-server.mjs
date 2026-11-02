@@ -21,9 +21,15 @@ const PORT = Number(process.env.PORT ?? 4180);
 const APP_ORIGIN = process.env.APP_ORIGIN ?? "http://localhost:5173";
 
 const entries = new Map();
+let etagSeq = 0;
 const store = {
-  put: async (key, body, meta) => {
-    entries.set(key, { body, meta });
+  put: async (key, body, meta, condition) => {
+    const existing = entries.get(key);
+    if (condition?.onlyIfNew && existing) return { modified: false };
+    if (condition?.onlyIfMatch && (!existing || existing.etag !== condition.onlyIfMatch)) return { modified: false };
+    etagSeq += 1;
+    entries.set(key, { body, meta, etag: String(etagSeq) });
+    return { modified: true };
   },
   get: async (key) => entries.get(key) ?? null,
   delete: async (key) => {
@@ -37,7 +43,7 @@ const store = {
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
-  "access-control-allow-headers": "content-type, x-delete-key, x-share-proof, x-share-proof-at",
+  "access-control-allow-headers": "content-type, x-delete-key, x-share-id, x-share-proof, x-share-proof-at, x-share-proof-id",
 };
 
 const json = (res, status, payload) => {
@@ -64,9 +70,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/share") {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
-      const proof = { signature: req.headers["x-share-proof"] ?? null, at: req.headers["x-share-proof-at"] ?? null };
-      const created = await createShare(store, Buffer.concat(chunks).toString("utf8"), new Date(), proof, req.socket.remoteAddress ?? "local");
-      json(res, 201, created);
+      const proof = {
+        signature: req.headers["x-share-proof"] ?? null,
+        at: req.headers["x-share-proof-at"] ?? null,
+        id: req.headers["x-share-proof-id"] ?? null,
+      };
+      const provision = { id: req.headers["x-share-id"] ?? "", deleteKey: req.headers["x-delete-key"] ?? "" };
+      const created = await createShare(store, Buffer.concat(chunks).toString("utf8"), new Date(), proof, provision, req.socket.remoteAddress ?? "local");
+      json(res, created.existed ? 200 : 201, created);
       return;
     }
     if (req.method === "GET" && apiMatch) {
@@ -80,7 +91,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "DELETE" && apiMatch) {
-      const outcome = await deleteShare(store, apiMatch[1], req.headers["x-delete-key"] ?? "");
+      const outcome = await deleteShare(store, apiMatch[1], req.headers["x-delete-key"] ?? "", new Date(), req.socket.remoteAddress ?? "local");
       if (outcome === "missing") json(res, 404, { error: "That shared post is no longer available." });
       else if (outcome === "forbidden") json(res, 403, { error: "That delete key does not match." });
       else {
