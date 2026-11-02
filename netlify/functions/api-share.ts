@@ -8,15 +8,18 @@ import { createShare, deleteShare, readShare, ShareError, type ShareStore } from
 // gated deployment never resolves @netlify/blobs at cold start and stays truly inert.
 const blobStore = async (): Promise<ShareStore> => {
   const { getStore } = await import("@netlify/blobs");
-  const store = getStore("shared-posts");
+  // Strong consistency so the revoke-marker recheck in createShare closes the
+  // check/put interleaving (see share-core.ts).
+  const store = getStore({ name: "shared-posts", consistency: "strong" });
   return {
-    put: async (key, body, meta) => {
-      await store.set(key, body, { metadata: meta });
+    put: async (key, body, meta, condition) => {
+      const result = await store.set(key, body, { metadata: meta, onlyIfNew: condition?.onlyIfNew, onlyIfMatch: condition?.onlyIfMatch });
+      return { modified: result.modified };
     },
     get: async (key) => {
       const found = await store.getWithMetadata(key, { type: "text" });
       if (!found || typeof found.data !== "string") return null;
-      return { body: found.data, meta: (found.metadata ?? {}) as Record<string, string> };
+      return { body: found.data, meta: (found.metadata ?? {}) as Record<string, string>, etag: found.etag };
     },
     delete: async (key) => {
       await store.delete(key);
@@ -46,9 +49,14 @@ export default async (request: Request, context?: RequestContext): Promise<Respo
   try {
     if (request.method === "POST" && url.pathname === "/api/share") {
       const body = await request.text();
-      const proof = { signature: request.headers.get("x-share-proof"), at: request.headers.get("x-share-proof-at") };
-      const created = await createShare(store, body, new Date(), proof, context?.ip ?? request.headers.get("x-nf-client-connection-ip") ?? "unknown");
-      return json(201, created);
+      const proof = {
+        signature: request.headers.get("x-share-proof"),
+        at: request.headers.get("x-share-proof-at"),
+        id: request.headers.get("x-share-proof-id"),
+      };
+      const provision = { id: request.headers.get("x-share-id") ?? "", deleteKey: request.headers.get("x-delete-key") ?? "" };
+      const created = await createShare(store, body, new Date(), proof, provision, context?.ip ?? request.headers.get("x-nf-client-connection-ip") ?? "unknown");
+      return json(created.existed ? 200 : 201, created);
     }
     if (request.method === "GET" && idMatch) {
       const entry = await readShare(store, idMatch[1], new Date());
@@ -57,7 +65,7 @@ export default async (request: Request, context?: RequestContext): Promise<Respo
     }
     if (request.method === "DELETE" && idMatch) {
       const key = request.headers.get("x-delete-key") ?? "";
-      const outcome = await deleteShare(store, idMatch[1], key);
+      const outcome = await deleteShare(store, idMatch[1], key, new Date(), context?.ip ?? request.headers.get("x-nf-client-connection-ip") ?? "unknown");
       if (outcome === "missing") return json(404, { error: "That shared post is no longer available." });
       if (outcome === "forbidden") return json(403, { error: "That delete key does not match." });
       return new Response(null, { status: 204 });
