@@ -18,13 +18,26 @@ export default defineConfig({
     baseURL: targetUrl ?? "http://localhost:5173",
     trace: "retain-on-failure",
   },
+  // Locally the share relay runs as its own node server on :4180 (same share-core.ts
+  // the Netlify functions wrap) and the app is pointed at it. Against a deploy preview
+  // or prod (targetUrl set), app and relay share one origin, so nothing extra boots.
   webServer: targetUrl
     ? undefined
-    : {
-        command: "npm run dev --workspace web",
-        url: "http://localhost:5173",
-        timeout: 120_000,
-        reuseExistingServer: !process.env.CI,
-      },
+    : [
+        {
+          command: "npm run dev --workspace web",
+          url: "http://localhost:5173",
+          timeout: 120_000,
+          reuseExistingServer: !process.env.CI,
+          env: { VITE_EIC_RELAY_BASE: "http://localhost:4180", VITE_EIC_SHARE_RELAY: "on" },
+        },
+        {
+          command: "node e2e/support/local-relay-server.mjs",
+          url: "http://localhost:4180/healthz",
+          timeout: 30_000,
+          reuseExistingServer: !process.env.CI,
+          env: { PORT: "4180", APP_ORIGIN: "http://localhost:5173" },
+        },
+      ],
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });
