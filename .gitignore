@@ -9,3 +9,4 @@ build/
 playwright-report/
 test-results/
 *.tsbuildinfo
+e2e/logs/
