@@ -74,4 +74,39 @@ describe("session store", () => {
     expect(useSessionStore.getState().vault).toBeNull();
   });
 
+
+  describe("resumed vault adoption", () => {
+    const stubStorage = (marker: { v: string | null }) => {
+      vi.stubGlobal("window", {});
+      vi.stubGlobal("localStorage", { getItem: () => marker.v, setItem: vi.fn() });
+    };
+
+    it("locks and clears the saved key when the marker changed after resume validated it", () => {
+      const marker = { v: "A" as string | null };
+      stubStorage(marker);
+      const vault = fakeVault();
+      marker.v = "B"; // another tab locked in the gap; no event reached this tab
+      expect(() => useSessionStore.getState().setVault(vault, Date.now() + 1000, "A")).toThrow();
+      expect((vault as { lock: ReturnType<typeof vi.fn> }).lock).toHaveBeenCalled();
+      expect(useSessionStore.getState().vault).toBeNull();
+      expect(useSessionStore.getState().expiresAt).toBeNull();
+      expect(clearSession).toHaveBeenCalled();
+    });
+
+    it("adopts a resumed vault whose marker is unchanged", () => {
+      const marker = { v: "A" as string | null };
+      stubStorage(marker);
+      const vault = fakeVault();
+      useSessionStore.getState().setVault(vault, Date.now() + 1000, "A");
+      expect(useSessionStore.getState().vault).not.toBeNull();
+      expect(clearSession).not.toHaveBeenCalled();
+    });
+
+    it("treats a null-bound marker as bound: a new marker revokes", () => {
+      const marker = { v: "B" as string | null };
+      stubStorage(marker);
+      expect(() => useSessionStore.getState().setVault(fakeVault(), Date.now() + 1000, null)).toThrow();
+      expect(useSessionStore.getState().vault).toBeNull();
+    });
+  });
 });

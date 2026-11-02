@@ -82,6 +82,3 @@ export async function vaultImport(text: string): Promise<{ records: number }> {
 export function vaultWipe(vault: UnlockedVault): Promise<void> {
   return vault.wipe();
 }
-wRecordId,
-  
-  r
