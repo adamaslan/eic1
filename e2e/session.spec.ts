@@ -153,3 +153,81 @@ test("blocked localStorage never resumes a saved vault even when IndexedDB works
   await expect(page.getByText("eight-hour persisted data")).toHaveCount(0);
   await expect.poll(() => savedDeadline(page)).toBeNull();
 });
+
+// Resume races. The returning tab has no lock listeners, and its resume decrypt is held open.
+async function gatedTab(context: import("@playwright/test").BrowserContext) {
+  const tab = await context.newPage();
+  await tab.addInitScript(() => {
+    Object.defineProperty(window, "BroadcastChannel", { value: undefined });
+    const add = window.addEventListener.bind(window);
+    window.addEventListener = ((type: string, ...args: unknown[]) => {
+      if (type !== "storage") (add as (...args: unknown[]) => void)(type, ...args);
+    }) as typeof window.addEventListener;
+    const w = window as unknown as { __release: () => void; __armFlip: boolean; __held: number };
+    let open: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    // React dev mode runs the resume effect twice and only the last run is adopted. Count the decrypts
+    // held at the gate; the flip lands on the last resume run's marker read, after its comparison.
+    let heldDecrypts = 0;
+    let resumeReads = 0;
+    const decrypt = SubtleCrypto.prototype.decrypt;
+    SubtleCrypto.prototype.decrypt = async function (this: SubtleCrypto, ...args: Parameters<typeof decrypt>) {
+      heldDecrypts += 1; w.__held = heldDecrypts;
+      await gate;
+      return decrypt.apply(this, args);
+    };
+    // Armed: flip the marker right after the last resume run reads it, as another tab's lock would,
+    // with no storage event: the gap between resume's final comparison and adoption.
+    const getItem = Storage.prototype.getItem;
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.getItem = function (this: Storage, key: string) {
+      const value = getItem.call(this, key);
+      if (key === "eic.vault-lock" && w.__armFlip && (new Error().stack ?? "").includes("vaultResume")) {
+        resumeReads += 1;
+        if (resumeReads === heldDecrypts) {
+          w.__armFlip = false;
+          setItem.call(this, key, `other-tab:${Math.random()}`);
+        }
+      }
+      return value;
+    };
+    w.__release = open;
+  });
+  return tab;
+}
+test("lock from another tab while resume decrypt is in flight never shows decrypted data", async ({ page, context }) => {
+  await create(page);
+  const tab = await gatedTab(context);
+  await tab.goto("/market");
+  await expect(tab.getByText("eight-hour persisted data")).toHaveCount(0);
+  await page.getByRole("button", { name: "Lock", exact: true }).click();
+  await expect(page).toHaveURL(/\/unlock/);
+  await tab.evaluate(() => (window as unknown as { __release: () => void }).__release());
+  await expect(tab).toHaveURL(/\/unlock/);
+  await expect(tab.getByText("eight-hour persisted data")).toHaveCount(0);
+  await expect.poll(() => savedDeadline(tab)).toBeNull();
+});
+test("lock landing between resume's final check and adoption is a revocation, not a new baseline", async ({ page, context }) => {
+  await create(page);
+  const tab = await gatedTab(context);
+  await tab.goto("/market");
+  // Let every resume run (React dev mode starts two) reach the held decrypt before releasing.
+  await expect.poll(() => tab.evaluate(() => (window as unknown as { __held?: number }).__held ?? 0)).toBeGreaterThan(0);
+  await tab.waitForTimeout(500);
+  await tab.evaluate(() => {
+    const w = window as unknown as { __release: () => void; __armFlip: boolean; __held: number };
+    w.__armFlip = true;
+    w.__release();
+  });
+  await expect(tab).toHaveURL(/\/unlock/);
+  await expect(tab.getByText("Enter your passphrase to unlock the vault.")).toBeVisible();
+  await expect(tab.getByText("eight-hour persisted data")).toHaveCount(0);
+  await expect.poll(() => savedDeadline(tab)).toBeNull();
+  // Vault data is untouched: a normal unlock still shows it.
+  await tab.getByLabel("Passphrase", { exact: true }).fill(passphrase);
+  await tab.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(tab.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+  const fresh = await context.newPage(); // the gated tab holds every new load's decrypt, so check on a clean page
+  await fresh.goto("/market");
+  await expect(fresh.getByText("eight-hour persisted data")).toBeVisible();
+});
