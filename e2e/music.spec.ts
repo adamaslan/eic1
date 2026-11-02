@@ -100,13 +100,19 @@ test("saves a playlist and reopens it by re-picking the songs", async ({ page })
   await page.getByRole("button", { name: "Save playlist" }).click();
   await expect(page.getByRole("status")).toContainText('Saved "Gym Mix" - the list, not the songs');
 
+  const playlist = page.getByRole("list", { name: "Playlist" });
+  await playlist.getByRole("button", { name: /^2\. 2 tone/ }).click();
+  await expect.poll(() => page.getByTestId("player").evaluate((audio: HTMLAudioElement) => audio.currentTime)).toBeGreaterThan(0.2);
+  await page.getByRole("button", { name: "⏸ Pause" }).click();
+
   // Clear, then reopen through the saved list: the same picks re-link in saved order.
   page.once("dialog", (d) => void d.accept());
   await page.getByRole("button", { name: "Clear" }).click();
   await expect(page.getByTestId("track-display")).toContainText("No folder loaded");
   await page.getByRole("button", { name: "Open…" }).click();
   await page.getByLabel("Pick the songs for this playlist").setInputFiles(FILES);
-  await expect(page.getByRole("status")).toContainText('Opened "Gym Mix"');
+  await expect(page.getByRole("status")).toContainText('Resumed "Gym Mix"');
+  await expect(page.getByTestId("track-display")).toContainText("2/3  2 tone");
   await expect(page.getByRole("list", { name: "Playlist" }).getByRole("button", { name: /\d\. / })).toHaveText([
     /1\. 1 tone/,
     /2\. 2 tone/,

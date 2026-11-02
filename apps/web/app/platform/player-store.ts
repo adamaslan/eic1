@@ -56,6 +56,7 @@ interface PlayerState {
 
   loadFiles: (files: File[], opts?: { playlistName?: string | null; keepOrder?: boolean }) => void;
   replaceTracks: (tracks: PlayerTrack[], opts?: { playlistName?: string | null; startIndex?: number; autoplay?: boolean }) => void;
+  replaceTrack: (index: number, track: PlayerTrack) => void;
   playAt: (index: number) => void;
   setPlaying: (playing: boolean) => void;
   move: (direction: 1 | -1, auto: boolean) => void;
@@ -164,6 +165,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       note: "",
     })),
 
+  replaceTrack: (index, track) => set((state) => {
+    if (index < 0 || index >= state.tracks.length) return state;
+    const tracks = [...state.tracks];
+    tracks[index] = track;
+    return index === state.index
+      ? { tracks, currentTime: 0, duration: 0, seekTo: 0 }
+      : { tracks };
+  }),
+
   playAt: (index) => {
     if (index < 0 || index >= get().tracks.length) return;
     set({ index, currentTime: 0 });
@@ -222,7 +232,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   playNext: (index) => set((s) => ({ queue: enqueue(s.queue, index), note: `Queued "${s.tracks[index]?.title ?? "track"}" to play next.` })),
 
   reorderTrack: (from, direction) => {
-    const { tracks, index } = get();
+    const { tracks, index, queue } = get();
     const to = from + direction;
     if (to < 0 || to >= tracks.length) return;
     const next = [...tracks];
@@ -232,26 +242,35 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     let newIndex = index;
     if (index === from) newIndex = to;
     else if (index === to) newIndex = from;
-    set({ tracks: next, index: newIndex, order: [], shuffle: false });
+    const remap = (queued: number) => queued === from ? to : queued === to ? from : queued;
+    set({ tracks: next, index: newIndex, queue: queue.map(remap), order: [], shuffle: false });
   },
 
   applyOrder: (indexes) => {
-    const { tracks, index } = get();
+    const { tracks, index, queue } = get();
     if (indexes.length !== tracks.length) return;
     const current = tracks[index];
     const next = indexes.map((i) => tracks[i]!);
     const newIndex = current ? next.findIndex((t) => t.id === current.id) : 0;
-    set({ tracks: next, index: newIndex < 0 ? 0 : newIndex, order: [], shuffle: false });
+    const newIndexForOld = new Map(indexes.map((oldIndex, newIndex) => [oldIndex, newIndex]));
+    set({
+      tracks: next,
+      index: newIndex < 0 ? 0 : newIndex,
+      queue: queue.map((queued) => newIndexForOld.get(queued)).filter((queued): queued is number => queued !== undefined),
+      order: [],
+      shuffle: false,
+    });
   },
 
   removeTrack: (index) => {
-    const { tracks, index: current } = get();
+    const { tracks, index: current, queue } = get();
     if (index < 0 || index >= tracks.length) return;
     const next = tracks.filter((_, i) => i !== index);
     set({
       tracks: next,
       index: next.length === 0 ? 0 : index < current ? current - 1 : Math.min(current, next.length - 1),
       playing: next.length === 0 ? false : index === current ? false : get().playing,
+      queue: queue.filter((queued) => queued !== index).map((queued) => queued > index ? queued - 1 : queued),
       order: [],
       shuffle: false,
     });

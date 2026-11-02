@@ -88,10 +88,10 @@ export default function Music() {
   const [resumeHint, setResumeHint] = useState<string | null>(null);
   const [showShrink, setShowShrink] = useState(false);
   const [bitrate, setBitrate] = useState<number>(128_000);
-  const [shrinking, setShrinking] = useState<number | null>(null);
+  const [shrinking, setShrinking] = useState<string | null>(null);
   const [shrinkProgress, setShrinkProgress] = useState(0);
-  const [shrunk, setShrunk] = useState<Record<number, PlayerTrack>>({});
-  const [originals, setOriginals] = useState<Record<number, PlayerTrack>>({});
+  const [shrunk, setShrunk] = useState<Record<string, PlayerTrack>>({});
+  const [originals, setOriginals] = useState<Record<string, PlayerTrack>>({});
   const [sharing, setSharing] = useState(false);
 
   const openPickRef = useRef<HTMLInputElement>(null);
@@ -99,6 +99,7 @@ export default function Music() {
   const importRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const durationScan = useRef(0);
+  const preserveResumedSession = useRef(false);
 
   const refreshSaved = useCallback(async () => {
     if (!vault) return;
@@ -129,7 +130,12 @@ export default function Music() {
 
   // Remember where playback stopped, so a reopen can offer resume. Metadata only.
   useEffect(() => {
-    if (!vault || !current || store.playing) return;
+    if (!vault || !current) return;
+    if (preserveResumedSession.current) {
+      if (store.playing) preserveResumedSession.current = false;
+      return;
+    }
+    if (store.playing) return;
     void saveMusicSession(vault, {
       format: "eic-music-session",
       version: 1,
@@ -177,6 +183,7 @@ export default function Music() {
   // Lazily read durations with one off-screen element, a few files at a time.
   function readDurations() {
     const scanId = ++durationScan.current;
+    const generation = usePlayerStore.getState().generation;
     const probe = document.createElement("audio");
     probe.preload = "metadata";
     const pending = store.tracks
@@ -185,7 +192,8 @@ export default function Music() {
     let pos = 0;
     store.setNote(pending.length === 0 ? "All track lengths are known." : `Reading ${pending.length} track lengths…`);
     const step = () => {
-      if (durationScan.current !== scanId) return;
+      const liveStore = usePlayerStore.getState();
+      if (durationScan.current !== scanId || liveStore.generation !== generation) return;
       const next = pending[pos++];
       if (!next) {
         store.setNote("Track lengths are in.");
@@ -194,7 +202,8 @@ export default function Music() {
       const url = URL.createObjectURL(next.t.file);
       probe.onloadedmetadata = () => {
         URL.revokeObjectURL(url);
-        usePlayerStore.getState().setDuration(next.i, probe.duration);
+        const currentIndex = usePlayerStore.getState().tracks.findIndex((track) => track.id === next.t.id);
+        if (currentIndex >= 0) usePlayerStore.getState().setDuration(currentIndex, probe.duration);
         step();
       };
       probe.onerror = () => {
@@ -274,19 +283,20 @@ export default function Music() {
       store.setNote(`None of the songs in "${name}" were in that selection. Pick the files the playlist lists.`);
       return;
     }
+    const session = await loadMusicSession(vault);
+    const resumeAt = session?.playlistName === name
+      ? tracks.findIndex((t) => t.file.name === session.trackName)
+      : -1;
+    preserveResumedSession.current = resumeAt >= 0;
     store.replaceTracks(tracks, { playlistName: name });
     setShrunk({});
     setOriginals({});
     // Resume where this playlist stopped, when we know.
-    const session = await loadMusicSession(vault);
-    if (session && session.playlistName === name) {
-      const at = tracks.findIndex((t) => t.file.name === session.trackName);
-      if (at >= 0) {
-        store.playAt(at);
-        store.requestSeek(session.positionSeconds);
-        store.setNote(`Resumed "${name}" at ${formatDuration(session.positionSeconds)}.${missing.length ? ` ${missing.length} song(s) not re-picked.` : ""}`);
-        return;
-      }
+    if (resumeAt >= 0 && session) {
+      store.playAt(resumeAt);
+      store.requestSeek(session.positionSeconds);
+      store.setNote(`Resumed "${name}" at ${formatDuration(session.positionSeconds)}.${missing.length ? ` ${missing.length} song(s) not re-picked.` : ""}`);
+      return;
     }
     store.setNote(
       missing.length > 0
@@ -438,14 +448,18 @@ export default function Music() {
   async function onShrink(index: number) {
     const track = store.tracks[index];
     if (!track || shrinking !== null) return;
-    setShrinking(index);
+    const generation = usePlayerStore.getState().generation;
+    setShrinking(track.id);
     setShrinkProgress(0);
     try {
       const { file, originalBytes } = await compressAudio(track.file, {
         bitsPerSecond: bitrate,
         onProgress: setShrinkProgress,
       });
-      setShrunk((prev) => ({ ...prev, [index]: { ...track, file, title: track.title } }));
+      const latest = usePlayerStore.getState();
+      if (latest.generation === generation && latest.tracks.some((currentTrack) => currentTrack.id === track.id)) {
+        setShrunk((prev) => ({ ...prev, [track.id]: { ...track, file, title: track.title } }));
+      }
       store.setNote(
         file.size < originalBytes
           ? `Shrunk "${track.title}" from ${formatBytes(originalBytes)} to ${formatBytes(file.size)}. The original is untouched.`
@@ -459,31 +473,38 @@ export default function Music() {
   }
 
   function applyShrunk(index: number) {
-    const replacement = shrunk[index];
-    if (!replacement) return;
-    const tracks = [...store.tracks];
+    const current = store.tracks[index];
+    const replacement = current ? shrunk[current.id] : undefined;
+    if (!current || !replacement) return;
     // The original File stays recoverable via "Original" until the list changes.
-    setOriginals((prev) => ({ ...prev, [index]: tracks[index]! }));
-    tracks[index] = { ...replacement, starred: tracks[index]!.starred };
-    store.replaceTracks(tracks, { playlistName: store.playlistName, startIndex: store.index });
+    setOriginals((prev) => ({ ...prev, [current.id]: current }));
+    store.replaceTrack(index, { ...replacement, starred: current.starred });
     setShrunk((prev) => {
       const next = { ...prev };
-      delete next[index];
+      delete next[current.id];
       return next;
     });
   }
 
   function revertToOriginal(index: number) {
-    const original = originals[index];
-    if (!original) return;
-    const tracks = [...store.tracks];
-    tracks[index] = original;
-    store.replaceTracks(tracks, { playlistName: store.playlistName, startIndex: store.index });
+    const current = store.tracks[index];
+    const original = current ? originals[current.id] : undefined;
+    if (!current || !original) return;
+    store.replaceTrack(index, original);
     setOriginals((prev) => {
       const next = { ...prev };
-      delete next[index];
+      delete next[current.id];
       return next;
     });
+  }
+
+  function removeTrack(index: number) {
+    const removed = store.tracks[index];
+    if (removed) {
+      setShrunk((prev) => { const next = { ...prev }; delete next[removed.id]; return next; });
+      setOriginals((prev) => { const next = { ...prev }; delete next[removed.id]; return next; });
+    }
+    store.removeTrack(index);
   }
 
   function downloadFile(file: File) {
@@ -727,14 +748,14 @@ export default function Music() {
                   </label>
                   <ul aria-label="Shrink songs" className="mt-1 bg-white">
                     {store.tracks.map((t, i) => {
-                      const done = shrunk[i];
+                      const done = shrunk[t.id];
                       const estimate = t.duration ? estimateCompressedBytes(t.duration, bitrate) : null;
                       return (
                         <li key={t.id} className="flex flex-wrap items-center gap-1 border-b border-[#dfdfdf] px-1 py-0.5">
                           <span className="min-w-0 flex-1 truncate">
                             {t.title} <span className="text-[#404040]">({formatBytes(t.file.size)})</span>
                           </span>
-                          {originals[i] ? (
+                          {originals[t.id] ? (
                             <>
                               <span className="text-[#404040]">(shrunk copy in use)</span>
                               <Button95 onClick={() => revertToOriginal(i)}>Original</Button95>
@@ -748,7 +769,7 @@ export default function Music() {
                               <Button95 onClick={() => applyShrunk(i)}>Use</Button95>
                               <Button95 onClick={() => downloadFile(done.file)}>Download</Button95>
                             </>
-                          ) : shrinking === i ? (
+                          ) : shrinking === t.id ? (
                             <span aria-label="Shrinking">{Math.round(shrinkProgress * 100)}%</span>
                           ) : (
                             <Button95 onClick={() => void onShrink(i)} disabled={shrinking !== null}>
@@ -843,7 +864,7 @@ export default function Music() {
                       <Button95 aria-label={`Move ${track.title} down`} onClick={() => store.reorderTrack(i, 1)} className="min-h-0 min-w-[28px]">
                         ↓
                       </Button95>
-                      <Button95 aria-label={`Remove ${track.title}`} onClick={() => store.removeTrack(i)} className="min-h-0 min-w-[28px]">
+                      <Button95 aria-label={`Remove ${track.title}`} onClick={() => removeTrack(i)} className="min-h-0 min-w-[28px]">
                         ✕
                       </Button95>
                     </span>

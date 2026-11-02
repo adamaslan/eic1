@@ -52,6 +52,9 @@ export async function compressAudio(
 
   const bytes = await file.arrayBuffer();
   const ctx = new AudioContext();
+  let recorder: MediaRecorder | null = null;
+  let source: AudioBufferSourceNode | null = null;
+  let tick: number | null = null;
   try {
     await ctx.resume();
     let decoded: AudioBuffer;
@@ -61,39 +64,49 @@ export async function compressAudio(
       throw new Error(`"${file.name}" could not be decoded by this browser.`);
     }
     const dest = ctx.createMediaStreamDestination();
-    const recorder = new MediaRecorder(dest.stream, {
+    const activeRecorder = new MediaRecorder(dest.stream, {
       mimeType: target.mimeType,
       audioBitsPerSecond: opts.bitsPerSecond,
     });
+    recorder = activeRecorder;
     const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => {
+    activeRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data);
     };
-    const stopped = new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve();
+    const stopped = new Promise<void>((resolve, reject) => {
+      activeRecorder.onstop = () => resolve();
+      activeRecorder.onerror = () => reject(new Error("The browser's audio encoder failed."));
     });
-    const source = ctx.createBufferSource();
-    source.buffer = decoded;
-    source.connect(dest);
+    const activeSource = ctx.createBufferSource();
+    source = activeSource;
+    activeSource.buffer = decoded;
+    activeSource.connect(dest);
     const ended = new Promise<void>((resolve) => {
-      source.onended = () => resolve();
+      activeSource.onended = () => resolve();
     });
-    recorder.start(250);
-    source.start();
-    const tick = window.setInterval(() => {
+    activeRecorder.start(250);
+    activeSource.start();
+    tick = window.setInterval(() => {
       opts.onProgress?.(Math.min(1, ctx.currentTime / decoded.duration));
     }, 250);
-    await ended;
+    await Promise.race([ended, stopped.then(() => { throw new Error("The audio recorder stopped before conversion finished."); })]);
     // Let the recorder drain the tail of the stream before stopping.
     await new Promise((r) => setTimeout(r, 300));
-    recorder.stop();
+    if (activeRecorder.state === "inactive") throw new Error("The browser's audio encoder stopped unexpectedly.");
+    activeRecorder.stop();
     await stopped;
-    window.clearInterval(tick);
     const blob = new Blob(chunks, { type: target.mimeType });
     if (blob.size === 0) throw new Error("That conversion produced nothing - the browser encoder failed.");
     const base = file.name.replace(/\.[^./\\]+$/, "");
     return { file: new File([blob], `${base}.${target.extension}`, { type: target.mimeType }), originalBytes: file.size };
   } finally {
+    if (tick !== null) window.clearInterval(tick);
+    if (source) {
+      try { source.stop(); } catch { /* already ended */ }
+    }
+    if (recorder && recorder.state !== "inactive") {
+      try { recorder.stop(); } catch { /* recorder already stopping */ }
+    }
     void ctx.close();
   }
 }

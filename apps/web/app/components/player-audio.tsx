@@ -19,6 +19,7 @@ export function PlayerAudio() {
   const muted = usePlayerStore((s) => s.muted);
   const seekTo = usePlayerStore((s) => s.seekTo);
   const generation = usePlayerStore((s) => s.generation);
+  const previousGeneration = useRef(generation);
 
   // Point the element at the current file; revoke the previous object URL.
   useEffect(() => {
@@ -31,7 +32,10 @@ export function PlayerAudio() {
       audio.load();
       return;
     }
-    failures.current = 0;
+    if (previousGeneration.current !== generation) {
+      failures.current = 0;
+      previousGeneration.current = generation;
+    }
     const url = URL.createObjectURL(current.file);
     urlRef.current = url;
     audio.src = url;
