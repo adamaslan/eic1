@@ -5,6 +5,7 @@ import type { Route } from "./+types/feed";
 import { PhotoCard } from "~/components/cards";
 import { DemoSeed } from "~/components/demo-seed";
 import { useSessionStore } from "~/platform/session";
+import { clearSavedNoticeFromHistory } from "~/platform/history-state";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Feed — Everybody is Cool" }];
@@ -22,7 +23,7 @@ export default function Feed() {
   // this entry does not re-announce the save. The React Router location keeps the same key.
   useEffect(() => {
     if (savedEntry === null) return;
-    window.history.replaceState({ ...window.history.state, usr: null }, "");
+    clearSavedNoticeFromHistory(window.history, null);
   }, [savedEntry]);
   const [query, setQuery] = useState("");
 

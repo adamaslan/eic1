@@ -6,6 +6,7 @@ import type { Route } from "./+types/market";
 import { ListingRow } from "~/components/cards";
 import { DemoSeed } from "~/components/demo-seed";
 import { useSessionStore } from "~/platform/session";
+import { clearSavedNoticeFromHistory } from "~/platform/history-state";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Market — Everybody is Cool" }];
@@ -30,7 +31,7 @@ export default function Market() {
   // this entry does not re-announce the save. The React Router location keeps the same key.
   useEffect(() => {
     if (savedEntry === null) return;
-    window.history.replaceState({ ...window.history.state, usr: null }, "");
+    clearSavedNoticeFromHistory(window.history, null);
   }, [savedEntry]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<Category | "all">("all");
