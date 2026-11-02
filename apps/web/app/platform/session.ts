@@ -12,9 +12,15 @@ interface SessionState {
   resuming: boolean;
   /** Bumped on every unlock and lock, so a slow resume cannot apply a stale vault. */
   revision: number;
-  setVault: (vault: UnlockedVault, expiresAt?: number) => void;
+  /** `boundMarker`: the lock marker a resumed vault was validated against; adoption fails closed if it changed. */
+  setVault: (vault: UnlockedVault, expiresAt?: number, boundMarker?: string | null) => void;
   doneResuming: () => void;
   lock: () => Promise<void>;
+}
+
+/** Lock a decrypted resume result that was not adopted into the active session. */
+export function discardResumedVault(vault: UnlockedVault | null | undefined): void {
+  vault?.lock();
 }
 
 // Holds the unlocked vault in memory. The key behind it may also be kept for SESSION_MS so a reload
@@ -24,10 +30,17 @@ export const useSessionStore = create<SessionState>((set) => ({
   expiresAt: null,
   resuming: true,
   revision: 0,
-  setVault: (vault, expiresAt = Date.now() + SESSION_MS) =>
+  setVault: (vault, expiresAt = Date.now() + SESSION_MS, ...bound) =>
     set((state) => {
       lockMarkerAtUnlock = readLockMarker();
       if (lockMarkerAtUnlock === "storage-unavailable") { vault.lock(); throw new VaultLockedError("Session storage is unavailable. Allow browser storage to unlock safely."); }
+      // A resumed vault must still match the marker it was validated against. A lock from another tab
+      // in the gap (with its event missed) changes the marker: lock this vault and drop the saved key.
+      if (bound.length > 0 && bound[0] !== lockMarkerAtUnlock) {
+        vault.lock();
+        void clearSession().catch((err) => console.error("veil: saved session key could not be deleted", err));
+        throw new VaultLockedError("The vault was locked in another tab.");
+      }
       return { vault: guardedVault(vault, expiresAt, lockMarkerAtUnlock), expiresAt, resuming: false, revision: state.revision + 1 };
     }),
   doneResuming: () => set({ resuming: false }),

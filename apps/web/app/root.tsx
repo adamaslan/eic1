@@ -45,7 +45,7 @@ import {
 } from "~/pending-links";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
-import { useSessionStore } from "~/platform/session";
+import { discardResumedVault, useSessionStore } from "~/platform/session";
 import { useAutoLock, useSessionExpiry } from "~/platform/use-auto-lock";
 import { newItemId, vaultResume } from "~/platform/vault-service";
 
@@ -106,12 +106,20 @@ export default function App() {
     let cancelled = false;
     const startRevision = useSessionStore.getState().revision;
     vaultResume().then((resumed) => {
-      if (cancelled) return;
+      if (cancelled) {
+        discardResumedVault(resumed?.vault);
+        return;
+      }
       const state = useSessionStore.getState();
       // A manual unlock or lock while the resume was in flight wins; drop the stale result.
-      if (state.revision !== startRevision) return;
-      if (resumed) state.setVault(resumed.vault, resumed.expiresAt);
-      else state.doneResuming();
+      if (state.revision !== startRevision) {
+        discardResumedVault(resumed?.vault);
+        return;
+      }
+      if (resumed) {
+        try { state.setVault(resumed.vault, resumed.expiresAt, resumed.lockMarker); }
+        catch { useSessionStore.getState().doneResuming(); }
+      } else state.doneResuming();
     });
     return () => {
       cancelled = true;
