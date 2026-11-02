@@ -9,7 +9,7 @@ test("homepage library works signed out, plays real audio, and keeps controls in
   const audioRequests: string[] = [];
   page.on("request", (r) => { if (r.url().includes("/42b/")) audioRequests.push(r.url()); });
   await page.goto("/");
-  await page.getByRole("link", { name: "music-library", exact: true }).click();
+  await page.getByRole("link", { name: "Open the music library", exact: true }).click();
   await expect(page).toHaveURL(/\/music-library$/);
   const songs = page.getByRole("list", { name: "42b songs" });
   await expect(songs.getByRole("button")).toHaveCount(40);
