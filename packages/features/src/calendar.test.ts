@@ -64,6 +64,19 @@ describe("calendar events", () => {
     expect(localDateKey(dateFromKey("0050-03-01"))).toBe("0050-03-01");
   });
 
+  it("keeps an event on a day a timezone skipped, since the day is real regardless of the reader's zone", async () => {
+    const vault = await freshVault();
+    // Pacific/Apia skipped 2011-12-30 entirely; validation must not depend on the device's timezone.
+    await addCalendarEvent(vault, { title: "skipped in some zones", date: "2011-12-30" }, deps());
+    expect((await listCalendarEvents(vault)).map((event) => event.title)).toEqual(["skipped in some zones"]);
+  });
+
+  it("builds week and month grids for early years without shifting them into the 1900s", () => {
+    const grid = monthGrid(50, 2);
+    expect(grid.flat().find((cell) => cell.inMonth)!.key).toBe("0050-03-01");
+    expect(weekOf(dateFromKey("0050-03-01")).map(localDateKey)[0]!.startsWith("0050-")).toBe(true);
+  });
+
   it("rejects a malformed time instead of failing with a raw schema error", async () => {
     const vault = await freshVault();
     await expect(addCalendarEvent(vault, { title: "x", date: "2026-11-01", time: "25:00" }, deps())).rejects.toThrow("Pick a real time");

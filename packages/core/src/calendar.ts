@@ -40,25 +40,44 @@ export function localDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-/** Noon local time on the given key, so calendar math never crosses a DST midnight. setFullYear keeps years 0-99 out of the 1900s. */
-export function dateFromKey(key: string): Date {
-  const [year, month, day] = key.split("-").map(Number);
+/**
+ * Noon local time on the given calendar day. setFullYear keeps years 0-99 out of the 1900s,
+ * and noon keeps calendar math clear of DST midnights.
+ */
+function noonOn(year: number, monthIndex: number, day: number): Date {
   const date = new Date(2000, 0, 1, 12);
-  date.setFullYear(year!, month! - 1, day);
+  date.setFullYear(year, monthIndex, day);
   return date;
 }
 
-/** True only for keys naming a real local day: 2026-02-30 normalizes to Mar 2 inside Date, so the round trip rejects it. */
+/** Noon local time on the given key, so calendar math never crosses a DST midnight. */
+export function dateFromKey(key: string): Date {
+  const [year, month, day] = key.split("-").map(Number);
+  return noonOn(year!, month! - 1, day!);
+}
+
+/**
+ * True only for keys naming a real Gregorian day. Pure arithmetic, no Date, so the answer
+ * never depends on the reader's timezone: a day skipped by a zone's DST change is still a
+ * real day, and a stored event on it must still parse.
+ */
 export function isRealDateKey(key: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
-  return localDateKey(dateFromKey(key)) === key;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12) return false;
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]!;
+  return day >= 1 && day <= daysInMonth;
 }
 
 export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 /** The 7 local dates (Sunday first) of the week containing `date`. */
 export function weekOf(date: Date): Date[] {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12);
+  const start = noonOn(date.getFullYear(), date.getMonth(), date.getDate());
   start.setDate(start.getDate() - start.getDay());
   return Array.from({ length: 7 }, (_, index) => {
     const day = new Date(start);
@@ -82,7 +101,7 @@ export interface MonthCell {
 
 /** Six rows of 7 cells (Sunday first) covering the given month, so the grid keeps a stable height. */
 export function monthGrid(year: number, month: number): MonthCell[][] {
-  const first = new Date(year, month, 1, 12);
+  const first = noonOn(year, month, 1);
   const start = addDays(first, -first.getDay());
   const rows: MonthCell[][] = [];
   for (let week = 0; week < 6; week++) {
@@ -102,5 +121,5 @@ export function monthGrid(year: number, month: number): MonthCell[][] {
 }
 
 export function monthLabel(year: number, month: number): string {
-  return new Date(year, month, 1).toLocaleString([], { month: "long", year: "numeric" });
+  return noonOn(year, month, 1).toLocaleString([], { month: "long", year: "numeric" });
 }
