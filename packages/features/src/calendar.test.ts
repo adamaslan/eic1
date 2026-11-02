@@ -53,6 +53,24 @@ describe("calendar events", () => {
     expect(chores[0]!.done).toEqual([]);
   });
 
+  it("accepts early-year real dates instead of shifting them into the 1900s or rejecting them", async () => {
+    const vault = await freshVault();
+    // localDateKey must zero-pad years, and Date must not map years 0-99 to 1900-1999.
+    await addCalendarEvent(vault, { title: "ancient", date: "0050-03-01" }, deps());
+    await addCalendarEvent(vault, { title: "millennium", date: "0100-01-01" }, deps());
+    await addCalendarEvent(vault, { title: "year zero", date: "0000-02-29" }, deps());
+    const keys = (await listCalendarEvents(vault)).map((event) => event.date);
+    expect(keys).toEqual(["0000-02-29", "0050-03-01", "0100-01-01"]);
+    expect(localDateKey(dateFromKey("0050-03-01"))).toBe("0050-03-01");
+  });
+
+  it("rejects a malformed time instead of failing with a raw schema error", async () => {
+    const vault = await freshVault();
+    await expect(addCalendarEvent(vault, { title: "x", date: "2026-11-01", time: "25:00" }, deps())).rejects.toThrow("Pick a real time");
+    await expect(addCalendarEvent(vault, { title: "x", date: "2026-11-01", time: "9am" }, deps())).rejects.toBeInstanceOf(AppError);
+    expect(await listCalendarEvents(vault)).toEqual([]);
+  });
+
   it("keeps the note and trims it", async () => {
     const vault = await freshVault();
     const event = await addCalendarEvent(vault, { title: "dentist", date: "2026-11-05", note: "  bring card  " }, deps());
@@ -67,6 +85,21 @@ describe("calendar events", () => {
     expect(await listChores(vault)).toHaveLength(1);
     await deleteCalendarEvent(vault, event.id);
     expect(await listCalendarEvents(vault)).toEqual([]);
+  });
+
+  it("skips a stored event whose date does not exist, so it can never land in a grid cell by accident", async () => {
+    const vault = await freshVault();
+    await addCalendarEvent(vault, { title: "ok", date: "2026-11-01" }, deps());
+    await vault.putJson("calendar", "calendar:ghost", {
+      id: "calendar:ghost",
+      title: "ghost",
+      date: "2026-02-30",
+      time: null,
+      note: "",
+      createdAt: new Date().toISOString(),
+      schemaVersion: 1,
+    });
+    expect((await listCalendarEvents(vault)).map((event) => event.title)).toEqual(["ok"]);
   });
 
   it("skips a record that no longer parses instead of failing the list", async () => {

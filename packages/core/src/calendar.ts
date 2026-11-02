@@ -5,7 +5,7 @@ export const CALENDAR_NOTE_MAX = 500;
 export const CHORE_NAME_MAX = 60;
 
 /** Local day identity, YYYY-MM-DD. Always produced by localDateKey so it never shifts with UTC. */
-const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealDateKey, "Not a real calendar date");
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 
 export const CalendarEventSchema = z.object({
@@ -34,16 +34,18 @@ export type Chore = z.infer<typeof ChoreSchema>;
 
 /** Local YYYY-MM-DD for a Date in the device's own timezone (never UTC-shifted). */
 export function localDateKey(date: Date): string {
-  const year = date.getFullYear();
+  const year = String(date.getFullYear()).padStart(4, "0");
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
-/** Noon local time on the given key, so calendar math never crosses a DST midnight. */
+/** Noon local time on the given key, so calendar math never crosses a DST midnight. setFullYear keeps years 0-99 out of the 1900s. */
 export function dateFromKey(key: string): Date {
   const [year, month, day] = key.split("-").map(Number);
-  return new Date(year, month - 1, day, 12);
+  const date = new Date(2000, 0, 1, 12);
+  date.setFullYear(year!, month! - 1, day);
+  return date;
 }
 
 /** True only for keys naming a real local day: 2026-02-30 normalizes to Mar 2 inside Date, so the round trip rejects it. */

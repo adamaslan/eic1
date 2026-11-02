@@ -17,6 +17,8 @@ import type { UnlockedVault } from "@veil/vault";
  * vault and are never put in a share file.
  */
 
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 /** Sorted by day, then untimed first, then by time. Bad records are skipped, never fatal. */
 export async function listCalendarEvents(vault: UnlockedVault): Promise<CalendarEvent[]> {
   const raw = await vault.listJson("calendar", { skipUndecryptable: true });
@@ -38,16 +40,16 @@ export async function addCalendarEvent(
   const title = input.title.trim();
   if (!title) throw new AppError("Give the event a title.");
   if (title.length > CALENDAR_TITLE_MAX) throw new AppError(`Keep the title under ${CALENDAR_TITLE_MAX} characters.`);
-  if (!isRealDateKey(input.date)) {
-    throw new AppError("Pick a real date.");
-  }
+  if (!isRealDateKey(input.date)) throw new AppError("Pick a real date.");
+  const time = input.time || null;
+  if (time !== null && !TIME_PATTERN.test(time)) throw new AppError("Pick a real time, or leave it empty for all day.");
   const note = (input.note ?? "").trim();
   if (note.length > CALENDAR_NOTE_MAX) throw new AppError(`Keep the note under ${CALENDAR_NOTE_MAX} characters.`);
   const event = CalendarEventSchema.parse({
     id: `calendar:${deps.newId()}`,
     title,
     date: input.date,
-    time: input.time || null,
+    time,
     note,
     createdAt: deps.now.toISOString(),
     schemaVersion: 1,
