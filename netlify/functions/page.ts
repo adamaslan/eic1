@@ -3,10 +3,11 @@
  * preview crawler reads - og:title/description/image come from the shared post itself),
  * GET /s/<id>/photo serves the photo bytes.
  */
-import { getStore } from "@netlify/blobs";
 import { extractPhoto, readShare, renderMissingPage, renderSharePage, type ShareStore } from "./lib/share-core.ts";
 
-const blobStore = (): ShareStore => {
+// Lazy import, same contract as api-share: no @netlify/blobs resolution before the gate.
+const blobStore = async (): Promise<ShareStore> => {
+  const { getStore } = await import("@netlify/blobs");
   const store = getStore("shared-posts");
   return {
     put: async () => {
@@ -40,7 +41,7 @@ export default async (request: Request): Promise<Response> => {
   if (request.method !== "GET" || !id) {
     return new Response(renderMissingPage(bases), { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
   }
-  const entry = await readShare(blobStore(), id, new Date());
+  const entry = await readShare(await blobStore(), id, new Date());
   if (!entry) {
     return new Response(renderMissingPage(bases), { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
   }
