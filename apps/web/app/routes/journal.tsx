@@ -26,28 +26,84 @@ export default function Journal() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
-  const [shareNote, setShareNote] = useState<{ id: string; note: string } | null>(null);
+  // Per-entry share state. A blocked automatic copy keeps the built link in component state
+  // ONLY (never storage) and offers explicit next steps; the text the link was built from is
+  // remembered so a later edit marks the link stale instead of silently handing out old text.
+  type ShareState =
+    | { id: string; kind: "copied" }
+    | { id: string; kind: "error"; note: string }
+    | { id: string; kind: "fallback"; link: string; builtFrom: string; note: string | null };
+  const [shareState, setShareState] = useState<ShareState | null>(null);
 
   // Sharing one entry is always the owner's explicit per-entry choice. The entry travels inside
   // the link fragment; the recipient opens the app and sees it, no server involved.
+  async function buildEntryLink(entry: JournalEntry): Promise<string> {
+    if (!vault) throw new AppError("Unlock your vault before sharing.");
+    const settings = await loadSettings(vault);
+    if (!settings.authorId || !settings.handle) throw new AppError("Choose a handle before sharing.");
+    const bundle = buildJournalShareBundle({
+      authorId: settings.authorId,
+      authorHandle: settings.handle,
+      text: entry.text,
+      createdAt: entry.createdAt,
+      now: new Date(),
+    });
+    return buildJournalShareLink(bundle, `${window.location.origin}/`);
+  }
+
   async function shareEntry(entry: JournalEntry) {
     if (!vault) return;
-    setShareNote(null);
+    setShareState(null);
     try {
-      const settings = await loadSettings(vault);
-      if (!settings.authorId || !settings.handle) throw new AppError("Choose a handle before sharing.");
-      const bundle = buildJournalShareBundle({
-        authorId: settings.authorId,
-        authorHandle: settings.handle,
-        text: entry.text,
-        createdAt: entry.createdAt,
-        now: new Date(),
-      });
-      const link = buildJournalShareLink(bundle, `${window.location.origin}/`);
-      await navigator.clipboard.writeText(link);
-      setShareNote({ id: entry.id, note: "Link copied. It opens the app and shows this entry - it travels in the link itself, no server involved." });
+      const link = await buildEntryLink(entry);
+      try {
+        await navigator.clipboard.writeText(link);
+        setShareState({ id: entry.id, kind: "copied" });
+      } catch {
+        // The automatic copy was blocked. Nothing left the vault: the link stays in memory
+        // only and the next step - share sheet, download, or nothing - is the owner's choice.
+        setShareState({ id: entry.id, kind: "fallback", link, builtFrom: entry.text, note: null });
+      }
     } catch (caught) {
-      setShareNote({ id: entry.id, note: caught instanceof AppError ? caught.message : "That entry could not be shared. Please try again." });
+      setShareState({ id: entry.id, kind: "error", note: caught instanceof AppError ? caught.message : "That entry could not be shared. Please try again." });
+    }
+  }
+
+  // Hands the link out through one explicit choice. A stale link (entry edited since it was
+  // built) is rebuilt from the current text first, so a choice never hands out old text.
+  async function handOutShared(entry: JournalEntry, state: Extract<ShareState, { kind: "fallback" }>, via: "sheet" | "file") {
+    let link = state.link;
+    if (entry.text !== state.builtFrom) {
+      try {
+        link = await buildEntryLink(entry);
+      } catch (caught) {
+        setShareState({ id: entry.id, kind: "error", note: caught instanceof AppError ? caught.message : "That entry could not be shared. Please try again." });
+        return;
+      }
+    }
+    if (via === "sheet") {
+      if (typeof navigator.share !== "function") {
+        setShareState({ id: entry.id, kind: "fallback", link, builtFrom: entry.text, note: "This browser has no share sheet - download the file instead." });
+        return;
+      }
+      try {
+        await navigator.share({ title: "A journal entry", text: link });
+        setShareState({ id: entry.id, kind: "fallback", link, builtFrom: entry.text, note: "Shared from the sheet." });
+      } catch (caught) {
+        if (caught instanceof DOMException && caught.name === "AbortError") return; // canceled: nothing handed out, no state change
+        setShareState({ id: entry.id, kind: "fallback", link, builtFrom: entry.text, note: "The share sheet did not complete. Nothing else was sent." });
+      }
+    } else {
+      const blob = new Blob([link], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "shared-journal-entry.txt";
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setShareState({ id: entry.id, kind: "fallback", link, builtFrom: entry.text, note: "Downloaded. The file holds the link as readable text." });
     }
   }
 
@@ -257,8 +313,27 @@ export default function Journal() {
                         </button>
                       )}
                     </div>
-                    {shareNote?.id === entry.id && (
-                      <p className="mt-0.5 text-[11px] text-[#404040]">{shareNote.note}</p>
+                    {shareState?.id === entry.id && shareState.kind !== "fallback" && (
+                      <p className="mt-0.5 text-[11px] text-[#404040]">
+                        {shareState.kind === "copied"
+                          ? "Link copied. It opens the app and shows this entry - it travels in the link itself, no server involved."
+                          : shareState.note}
+                      </p>
+                    )}
+                    {shareState?.id === entry.id && shareState.kind === "fallback" && (
+                      <div className="mt-0.5 flex flex-col gap-1 text-[11px] text-[#404040]">
+                        {entry.text === shareState.builtFrom ? (
+                          <p>Your browser blocked the automatic copy - the link was not copied. Choose a next step, or do nothing.</p>
+                        ) : (
+                          <p>This link still holds the entry's older text - it does not include your latest edit. Your next share or download will rebuild it from the current text.</p>
+                        )}
+                        <p className="font-bold">Either choice hands out this entry as readable text - anyone who gets the link can read it.</p>
+                        <div className="flex flex-wrap gap-1">
+                          <Button95 onClick={() => void handOutShared(entry, shareState, "sheet")}>Open share sheet</Button95>
+                          <Button95 onClick={() => void handOutShared(entry, shareState, "file")}>Download as file</Button95>
+                        </div>
+                        {shareState.note && <p role="status">{shareState.note}</p>}
+                      </div>
                     )}
                   </>
                 )}
