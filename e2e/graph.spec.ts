@@ -23,8 +23,7 @@ let vaultCounter = 0;
 async function createVault(page: Page) {
   vaultCounter += 1;
   const passphrase = `ci-graph-passphrase-${Date.now()}-${vaultCounter}`;
-  await page.goto("/");
-  await page.getByRole("link", { name: "Create or open your vault" }).first().click();
+  await page.goto("/unlock");
   await page.getByLabel("Passphrase", { exact: true }).fill(passphrase);
   await page.getByLabel("Confirm passphrase").fill(passphrase);
   await page.getByRole("button", { name: "Create vault" }).click();
@@ -425,7 +424,7 @@ async function expectAllNodesInsideViewBox(page: Page) {
 }
 
 test("graph pages past the 100-item window with honest counts and bounds", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
 
   // Handle first (imports need one), then two authors: 100 newer posts + 5 older posts.
