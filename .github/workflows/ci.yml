@@ -50,7 +50,7 @@ jobs:
     steps:
       # The deploy preview serves the PR HEAD build, never the merge ref. Specs must
       # come from the same commit Netlify built, or any spec added on main after the
-      # branch point waits for UI the preview cannot serve (90s timeout class seen on
+      # branch point waits for UI the preview cannot serve (timeout class seen on
       # PR #58: main's music/profile-studio specs vs a pre-music branch preview).
       # lint/tsc/vitest keep the merge-ref default - they test the merged result; the
       # post-publish prod gate covers the integrated result after every merge.
@@ -60,7 +60,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Assert smoke checkout is the PR head
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node e2e/ci-preview.mjs assert-head
       - run: npm ci
+      - name: Test transition-smoke safety guards
+        run: node --test e2e/ci-preview.test.mjs
       - run: npx playwright install --with-deps chromium
       - name: Wait for the Netlify deploy preview of this commit
         id: preview
@@ -68,47 +74,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PREVIEW_URL: https://deploy-preview-${{ github.event.pull_request.number }}--everybodyiscool.netlify.app
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -u
-          want="${HEAD_SHA:0:7}"
-          echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
-          # The probe file comes from the HEAD checkout; branches that predate it
-          # otherwise poll a missing file 90 times with stderr hidden (empty stamp).
-          if [ ! -f e2e/preview-stamp.mjs ]; then
-            echo "::error::e2e/preview-stamp.mjs is missing from the head checkout ($HEAD_SHA): this branch predates the stamp probe. Rebase onto main so the smoke suite and the probe come from the same commit."
-            exit 1
-          fi
-          # Only the served build's own footer stamp proves WHAT the preview serves.
-          # A bare 200 can be a previous branch build (the PR #58/#71 wrong-commit
-          # smoke class), and even Netlify's deploy-preview commit status can flip
-          # before the URL serves the new build, so status is diagnostic-only here.
-          # The stamp is client-rendered from the COMMIT_REF Vite define; chromium is
-          # already installed above. A missing status never fails this step when the
-          # stamp is correct, and a green status never passes it while the stamp lags.
-          for i in $(seq 1 90); do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" --jq '[.statuses[] | select(.context == "netlify/everybodyiscool/deploy-preview") | .state] | first // ""' 2>/dev/null || echo "")
-            # Keep the probe's stderr for diagnosis instead of discarding it: a
-            # persistently empty stamp with a working preview means the probe itself
-            # is failing (missing browser, launch error, nav timeout), and silent
-            # stderr makes that indistinguishable from a stale deploy.
-            stamp=$(node e2e/preview-stamp.mjs "$want" 2>/tmp/preview-stamp-err.txt || true)
-            if [ "$stamp" = "$want" ]; then
-              echo "Served footer stamp $stamp == head $want (provider status: '$state')"
-              exit 0
-            fi
-            echo "[$i/90] served_stamp='$stamp' status='$state' - waiting for $want"
-            if [ "$i" = 1 ] || [ "$i" = 30 ] || [ "$i" = 90 ]; then
-              err=$(head -c 300 /tmp/preview-stamp-err.txt | tr '\n' ' ')
-              if [ -n "$err" ]; then
-                echo "  probe stderr (bounded): $err"
-              fi
-            fi
-            sleep 10
-          done
-          echo "Deploy preview never verifiably served the build of $HEAD_SHA" >&2
-          echo "Last probe stderr (bounded):" >&2
-          head -c 300 /tmp/preview-stamp-err.txt >&2 || true
-          exit 1
+        run: node e2e/ci-preview.mjs wait
       - name: Run transition smoke against the deploy preview
         run: npx playwright test
         env:
