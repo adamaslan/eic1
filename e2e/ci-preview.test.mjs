@@ -103,7 +103,7 @@ test("every command receives the smaller per-call and remaining attempt budgets"
     log: () => {},
     writeOutput: async () => {},
   }), /did not verifiably serve/);
-  assert.ok(budgets.length > 0);
+  assert.ok(budgets.length > 2, "polling must continue until the overall deadline");
   assert.ok(budgets.every((budget) => budget > 0 && budget <= 80));
 });
 

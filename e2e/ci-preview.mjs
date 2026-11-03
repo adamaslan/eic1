@@ -160,7 +160,7 @@ export async function waitForPreview({
     }
 
     log(`[${attempt}] served_stamp='${boundedText(servedStamp, 40)}' status='${providerStatus || "unknown"}' - waiting for ${wantedStamp}`);
-    const sleepMs = Math.min(pollIntervalMs, remaining());
+    const sleepMs = Math.min(pollIntervalMs, deadline - now());
     if (sleepMs <= 0) break;
     await sleep(sleepMs);
   }
