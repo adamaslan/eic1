@@ -91,7 +91,7 @@ test("chore rotation: people rotate per week, a date switch persists, nav caps a
   expectCleanRuntime(watched);
 });
 
-test("unsupported encrypted chart preserves data and shows one honest error on desktop and phone", async ({ page }) => {
+test("unsupported encrypted chart preserves data and shows one honest error on desktop and phone", async ({ page }, testInfo) => {
   const watched = await watchRuntime(page);
   const passphrase = `unsupported-chart-${Date.now()}`;
   // Generate a real encrypted backup in the test process. Restore/export use only
@@ -127,10 +127,10 @@ test("unsupported encrypted chart preserves data and shows one honest error on d
   await expect(page.getByRole("alert")).toHaveCount(1);
   await expect(page.getByRole("status")).toHaveCount(0);
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.screenshot({ path: "/downloads/chores-real-error-desktop.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("chores-real-error-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("alert")).toBeVisible();
-  await page.screenshot({ path: "/downloads/chores-real-error-phone.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("chores-real-error-phone.png"), fullPage: true });
 
   // Export after the refused edit: compare actual ciphertext, not just UI copy or
   // a parsed subset. Both original records must be exactly unchanged, no new one.
