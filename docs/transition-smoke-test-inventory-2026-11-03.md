@@ -18,7 +18,7 @@ node --test e2e/ci-preview.test.mjs
 | Every command receives the smaller per-call and remaining attempt budgets | Simulated hung status/probe calls receive bounded timeouts no greater than the configured per-call or remaining attempt budget; the overall deadline terminates the poll. |
 | A hung probe process is terminated at its per-command timeout | A child process that would otherwise remain alive is stopped within the configured timeout and kill grace. |
 
-The current run passed all five guard tests. These tests do not claim that a Netlify preview for this branch was published or exercised.
+The current run passed all five guard tests. The budget regression requires more than one poll attempt after a full attempt budget is consumed, so the test catches premature exit before the overall deadline. These tests do not claim that a Netlify preview for this branch was published or exercised.
 
 ## Existing Vitest files
 
@@ -80,17 +80,17 @@ The current run passed all five guard tests. These tests do not claim that a Net
 | Command | Result |
 |---|---|
 | `npm ci --no-audit --no-fund` | Passed; installed 236 packages in the isolated worktree. npm printed a deprecation warning for ESLint 9.39.5. |
-| `node --test e2e/ci-preview.test.mjs` | Passed; 5/5 transition-smoke guard tests. |
-| `HEAD_SHA=$(git rev-parse HEAD) node e2e/ci-preview.mjs assert-head` | Passed against the local worktree head `3153e87e8de099ccba4beec2859e2832db94743d`. The synthetic merge-ref mismatch is covered separately by the guard test. |
+| `node --test e2e/ci-preview.test.mjs` | Passed; 5/5 transition-smoke guard tests, including the multi-attempt deadline regression added after independent review. |
+| `HEAD_SHA=$(git rev-parse HEAD) node e2e/ci-preview.mjs assert-head` | Passed against the original local main head `3153e87e8de099ccba4beec2859e2832db94743d`; the synthetic merge-ref mismatch is covered separately by the guard test. |
 | `npm test` | Passed; 423 tests across 39 files. |
 | `npm run lint` | Passed. |
 | `npm run typecheck --workspace web` | Passed. |
 | `git diff --check` | Passed. |
 
-The focused regression suite was rerun after changing its negative control to create an actual synthetic merge commit. The full Vitest, lint, and typecheck runs passed on the same production-code changes; the subsequent edits only strengthened that Node test setup and adjusted the CI step ordering/comment.
+CodeRabbit identified that an exhausted per-attempt budget could also exhaust the sleep calculation even while the overall deadline remained. The poll now sleeps against the overall deadline, and the budget test asserts repeated attempts. After that fix, the focused guard tests (5/5), full Vitest (423/423), lint, and `git diff --check` passed. The branch's CI has rerun for the new head; see the PR checks for its live result.
 
 ## Not yet verified
 
-- Exact-head remote CI has not run for this branch yet.
-- A live Netlify deploy preview has not been waited on or smoke-tested for this branch.
+- Exact-head remote CI for the updated head `3baf6f9d46cc119c85e43be1e95ba98ca8def461` is pending.
+- A live Netlify deploy preview for the updated head has not completed its transition-smoke check yet.
 - The 15-minute overall readiness timeout and 30-second per-attempt budget are tested with deterministic fake commands; the child-process termination test exercises a real local hung subprocess.
