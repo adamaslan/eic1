@@ -47,6 +47,8 @@ async function inkPixels(page: Page): Promise<number> {
 
 async function drawStroke(page: Page) {
   const canvas = page.locator("canvas").first();
+  // Clicking a control below the fold can scroll the canvas partly out of view.
+  await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
   if (!box) throw new Error("canvas has no bounding box");
   await page.mouse.move(box.x + 20, box.y + 20);
