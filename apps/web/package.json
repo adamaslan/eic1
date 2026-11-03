@@ -6,7 +6,9 @@
     "build": "react-router build",
     "dev": "react-router dev",
     "start": "npm run dev",
-    "typecheck": "react-router typegen && tsc"
+    "typecheck": "react-router typegen && tsc",
+    "prebuild": "node scripts/copy-42b.mjs",
+    "predev": "node scripts/copy-42b.mjs"
   },
   "dependencies": {
     "@react-router/node": "^8.5.0",

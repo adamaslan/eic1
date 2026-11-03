@@ -19,6 +19,7 @@ export default function Journal() {
   const [entries, setEntries] = useState<JournalEntry[] | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const [range, setRange] = useState<JournalDateRange>("all");
@@ -68,10 +69,12 @@ export default function Journal() {
     if (!vault || saving) return;
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       await addJournalEntry(vault, text, { newId: newItemId, now: new Date() });
       setText("");
       await reload();
+      setNotice("Saved - encrypted in this vault.");
     } catch (caught) {
       setError(caught instanceof AppError ? caught.message : "The entry could not be saved. Please try again.");
     } finally {
@@ -93,6 +96,7 @@ export default function Journal() {
     if (!vault || saving) return;
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       const settings = await loadSettings(vault);
       if (!isFeatureEnabled(settings, "journal-editing")) {
@@ -103,6 +107,7 @@ export default function Journal() {
       await updateJournalEntry(vault, entry.id, editDraft);
       setEditingId(null);
       await reload();
+      setNotice("Changes saved - encrypted in this vault.");
     } catch (caught) {
       setError(caught instanceof AppError ? caught.message : "The entry could not be updated. Please try again.");
     } finally {
@@ -114,6 +119,7 @@ export default function Journal() {
     if (!vault || saving) return;
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       await deleteJournalEntry(vault, entry.id);
       setConfirmingId(null);
@@ -149,9 +155,10 @@ export default function Journal() {
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button95 type="submit" className="shrink-0 whitespace-nowrap" disabled={saving || !text.trim()}>{saving ? "Encrypting…" : "🔒 Save entry"}</Button95>
-            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay in this vault: share files never include them. An entry leaves only when you tap its Share link, one entry at a time.</span>
+            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay encrypted in this vault. Post share files never include journal entries; they leave only when you export a copy or share an entry's link yourself.</span>
           </div>
           {error && <p role="alert" className="text-[#800000]">{error}</p>}
+          {notice && <p role="status">{notice}</p>}
         </form>
       </Window>
 

@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { FONT_CHOICES, WALLPAPERS, WINDOW_ACCENTS, reviewLatestFeedProfile, selectedProfile, saveProfileDraft, updateFeedProfile, type ProfileDraft, type Profile } from "@veil/features";
 import type { UnlockedVault } from "@veil/vault";
 import { Button95 } from "~/ui95/Button95";
+import { ProfileAssets } from "./profile-assets";
 import { Window } from "~/ui95/Window";
 
 const input = "w-full border border-[#808080] bg-white p-1 text-[12px] text-black";
@@ -54,6 +55,7 @@ export function ProfileStudio({ initial, vault, handle, renderPreview, onSaved }
           <label>Name accent<select className={input} value={profile.theme.windowAccent} onChange={e => field({ theme: { ...profile.theme, windowAccent: e.target.value as Profile["theme"]["windowAccent"] } })}>{WINDOW_ACCENTS.map(v => <option key={v}>{v}</option>)}</select></label>
           <label>Profile font<select className={input} value={profile.theme.fontChoice} onChange={e => field({ theme: { ...profile.theme, fontChoice: e.target.value as Profile["theme"]["fontChoice"] } })}>{FONT_CHOICES.map(v => <option key={v}>{v}</option>)}</select></label>
         </div>
+        <ProfileAssets profile={profile} change={next => field(next)} />
         <fieldset className="flex flex-col gap-1 border border-[#808080] p-2"><legend>Include in feed profile</legend>
           {(Object.keys(labels) as Array<keyof typeof labels>).map(key => <label key={key} className="flex min-h-[36px] items-center gap-2"><input type="checkbox" checked={draft.selected[key]} onChange={e => setDraft({ ...draft, selected: { ...draft.selected, [key]: e.target.checked } })} />{labels[key]}</label>)}
         </fieldset>

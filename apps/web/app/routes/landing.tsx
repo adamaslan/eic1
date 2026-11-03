@@ -70,6 +70,8 @@ export default function Landing() {
           </div>
         </Window>
 
+        <MusicLibraryBox />
+
         <LandingPreview />
 
         <section aria-label="Features" className="grid gap-3 sm:grid-cols-3">
@@ -113,6 +115,7 @@ export default function Landing() {
 }
 
 const NAV = [
+  ["/music-library", "music-library"],
   ["/feed", "Feed"],
   ["/market", "Market"],
   ["/compose", "+ Post"],
@@ -121,6 +124,27 @@ const NAV = [
   ["/profile", "My profile"],
   ["/vault", "Vault"],
 ];
+
+function MusicLibraryBox() {
+  return (
+    <Window title="Music library">
+      <div className="flex flex-col items-start gap-2 text-[12px] sm:flex-row sm:items-center sm:gap-3">
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-[22px] w-[22px] shrink-0 text-[#0a0a0a]" fill="currentColor">
+          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+        </svg>
+        <div className="min-w-0 sm:flex-1">
+          <p className="font-bold">42b - 40 songs, free to play.</p>
+          <p>Original MP3 files, unchanged. Listen without signing in - no vault, no account, nothing to set up.</p>
+        </div>
+        <Link to="/music-library" className="inline-block min-h-[44px] sm:min-h-0">
+          <Bevel variant="out" className="bg-[#c0c0c0]">
+            <span className="block px-4 py-2 text-[13px] font-bold text-[#0a0a0a]">Open the music library</span>
+          </Bevel>
+        </Link>
+      </div>
+    </Window>
+  );
+}
 
 function UnlockedLanding() {
   const lock = useSessionStore((state) => state.lock);
@@ -137,6 +161,7 @@ function UnlockedLanding() {
             Lock
           </button>
         </nav>
+        <MusicLibraryBox />
         <LandingDashboard />
         <p className="text-center text-[11px] text-[#c0c0c0]" title={`Built ${BUILD_DATE}`}>
           build {BUILD_SHA}
