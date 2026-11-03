@@ -56,6 +56,16 @@ const ChatLinkSchema = z.object({
 });
 export type ChatLink = z.infer<typeof ChatLinkSchema>;
 
+// Optional display-only preview the owner chooses to attach when sharing their profile.
+// It is NOT signed: the signature below covers format/version/exportedAt/author only, so an
+// old reader (which strips unknown keys) still verifies an enriched card. The authoritative
+// profile arrives later as the signed feed profile chunk; treat the preview as a claim.
+export const ConnectProfilePreviewSchema = z.object({
+  displayName: z.string().trim().min(1).max(40),
+  bio: z.string().max(500),
+});
+export type ConnectProfilePreview = z.infer<typeof ConnectProfilePreviewSchema>;
+
 const ConnectCardSchema = z.object({
   format: z.literal(CONNECT_FORMAT),
   version: z.literal(CONNECT_VERSION),
@@ -66,6 +76,7 @@ const ConnectCardSchema = z.object({
     pubkey: z.string().min(1),
     feedUrl: z.string().min(1).optional(),
   }),
+  profile: ConnectProfilePreviewSchema.optional(),
   signature: z.string().min(1),
 });
 export type ConnectCard = z.infer<typeof ConnectCardSchema>;
@@ -198,7 +209,7 @@ export async function applyChatShareLink(
  * else. No posts, no likes, no secrets. The signature proves the card is self-consistent and
  * untouched; the trust anchor is the channel it arrives through, exactly like a share file.
  */
-export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, now: Date): Promise<string> {
+export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, now: Date, preview?: ConnectProfilePreview): Promise<string> {
   const settings = await loadSettings(vault);
   if (!settings.authorId || !settings.handle) {
     throw new AppError("Save a handle before sharing a connect link.");
@@ -216,8 +227,11 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
     },
   } as const;
   const signature = await signPayload(identity.secretKey, new TextEncoder().encode(JSON.stringify(unsigned)));
+  // The preview rides OUTSIDE the signed subset on purpose: display-only, re-proven by the
+  // signed feed profile chunk after connecting. Caps enforced here, never assumed.
+  const profile = preview ? ConnectProfilePreviewSchema.parse(preview) : undefined;
   const link = `${baseUrl}${CONNECT_LINK_PREFIX}${toBase64Url(
-    JSON.stringify({ ...unsigned, signature: encodeBase64(signature) }),
+    JSON.stringify({ ...unsigned, ...(profile ? { profile } : {}), signature: encodeBase64(signature) }),
   )}`;
   if (link.length > MAX_CHAT_LINK_CHARS) {
     throw new AppError("That connect link is too long.");
@@ -241,6 +255,16 @@ export function peekConnectCardAuthor(text: string): { id: string; handle: strin
   try {
     const parsed = ConnectCardSchema.safeParse(JSON.parse(text));
     return parsed.success ? { id: parsed.data.author.id, handle: parsed.data.author.handle } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort display-only profile preview for the confirm dialog; unsigned, never trusted. */
+export function peekConnectCardProfile(text: string): ConnectProfilePreview | null {
+  try {
+    const parsed = ConnectCardSchema.safeParse(JSON.parse(text));
+    return parsed.success ? (parsed.data.profile ?? null) : null;
   } catch {
     return null;
   }
@@ -272,11 +296,14 @@ export async function importConnectCard(
   }
   let verified = false;
   try {
-    const { signature, ...unsigned } = card;
+    // Explicit signed subset - never "everything except signature": an added display-only
+    // field (profile) must not change what verification covers, which is exactly what an
+    // old reader that strips unknown keys recomputes.
+    const unsigned = { format: card.format, version: card.version, exportedAt: card.exportedAt, author: card.author };
     verified = await verifySignature(
       decodeBase64(card.author.pubkey),
       new TextEncoder().encode(JSON.stringify(unsigned)),
-      decodeBase64(signature),
+      decodeBase64(card.signature),
     );
   } catch {
     verified = false;
@@ -284,7 +311,7 @@ export async function importConnectCard(
   if (!verified) {
     throw new AppError("That connect link's signature does not check out. Ask your friend for a fresh one.");
   }
-  if (!deps.settings.authorId) throw new AppError("Choose a handle before connecting.");
+  if (!deps.settings.authorId) throw new AppError("Choose a handle on your Connections page before connecting, then open their link again.");
   const { author } = card;
   if (author.id === deps.settings.authorId) throw new AppError("That is your own connect link.");
   const connectionId = `connection:${author.id}`;
