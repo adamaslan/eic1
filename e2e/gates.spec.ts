@@ -11,8 +11,7 @@ let vaultCounter = 0;
 async function createVault(page: Page) {
   vaultCounter += 1;
   const passphrase = `ci-gates-passphrase-${Date.now()}-${vaultCounter}`;
-  await page.goto("/");
-  await page.getByRole("link", { name: "Create or open your vault" }).first().click();
+  await page.goto("/unlock");
   await page.getByLabel("Passphrase", { exact: true }).fill(passphrase);
   await page.getByLabel("Confirm passphrase").fill(passphrase);
   await page.getByRole("button", { name: "Create vault" }).click();
