@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { Link, useSearchParams } from "react-router";
 import {
   buildSocialGraph,
+  MAX_GRAPH_ITEMS,
   createGraphLayout,
   emptyGraphFilter,
   filterSocialGraph,
@@ -108,6 +109,34 @@ function degreesOf(graph: SocialGraph): Map<string, number> {
   return degree;
 }
 
+// Fit view: the layout works in a fixed W x H box, but settled positions can fall outside
+// it (sparse graphs fan nodes past the edges). The viewBox is the fixed box EXPANDED to
+// cover every shown node plus its label, at the SAME W:H aspect so the canvas never
+// changes size and pushes the caption out of the fixed-height window. Small graphs keep
+// the exact baseline box; overflow stays reachable instead of clipping at the canvas edge.
+const FIT_PAD = 28; // covers the largest node radius (22) with margin
+const FIT_LABEL = 16; // node labels render up to ~12px below the node
+function fitViewBox(positions: Record<string, GraphPoint>, width: number, height: number): string {
+  let minX = 0;
+  let minY = 0;
+  let maxX = width;
+  let maxY = height;
+  for (const point of Object.values(positions)) {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
+    minX = Math.min(minX, point.x - FIT_PAD);
+    minY = Math.min(minY, point.y - FIT_PAD);
+    maxX = Math.max(maxX, point.x + FIT_PAD);
+    maxY = Math.max(maxY, point.y + FIT_PAD + FIT_LABEL);
+  }
+  const scale = Math.max((maxX - minX) / width, (maxY - minY) / height);
+  if (scale <= 1) return `0 0 ${width} ${height}`;
+  const boxW = width * scale;
+  const boxH = height * scale;
+  const x0 = minX - (boxW - (maxX - minX)) / 2;
+  const y0 = minY - (boxH - (maxY - minY)) / 2;
+  return `${x0} ${y0} ${boxW} ${boxH}`;
+}
+
 function diamondPath(r: number): string {
   return `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`;
 }
@@ -123,10 +152,17 @@ export default function Graph() {
   const vault = useSessionStore((state) => state.vault);
   const { items, settings, settingsReady, connections, refresh } = useSocial(vault);
 
+  // Windowed browsing of the item nodes: the default window is the newest 100 items; older
+  // windows page backward. Not persisted - which window you browsed is visit state, and the
+  // graph always opens on the newest items.
+  const [itemOffset, setItemOffset] = useState(0);
   const graph = useMemo(() => {
     const list = items.status === "ready" ? items.items : [];
-    return buildSocialGraph({ myHandle: settingsReady ? settings.handle : null, connections, items: list });
-  }, [items, settingsReady, settings.handle, connections]);
+    return buildSocialGraph(
+      { myHandle: settingsReady ? settings.handle : null, connections, items: list },
+      { itemOffset },
+    );
+  }, [items, settingsReady, settings.handle, connections, itemOffset]);
 
   // Kind toggles and a label search narrow the shown graph. Filters are deliberately not
   // persisted: a search can name something private, and what you filtered for should not
@@ -146,6 +182,9 @@ export default function Graph() {
   const focusParam = searchParams.get("focus");
   const [focusMissed, setFocusMissed] = useState(false);
   const [showList, setShowList] = useState(false);
+  useEffect(() => {
+    setSelectedId(null);
+  }, [itemOffset]);
   const [compact, setCompact] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : false,
   );
@@ -383,6 +422,27 @@ export default function Graph() {
             )}
           </div>
 
+          {graph.graphableItems > MAX_GRAPH_ITEMS && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold">Items:</span>
+              <Button95
+                onClick={() => setItemOffset((current) => Math.max(0, current - MAX_GRAPH_ITEMS))}
+                disabled={graph.itemWindowStart === 0}
+              >
+                Newer 100
+              </Button95>
+              <Button95
+                onClick={() => setItemOffset((current) => current + MAX_GRAPH_ITEMS)}
+                disabled={graph.truncatedItems === 0}
+              >
+                Older 100
+              </Button95>
+              {graph.itemWindowStart > 0 && (
+                <Button95 onClick={() => setItemOffset(0)}>Back to newest</Button95>
+              )}
+            </div>
+          )}
+
           {focusMissed && (
             <p role="status" className="bg-[#ffffe1] px-1 text-[#800000]">
               That connection is not on the map. Hidden connections stay off it.
@@ -441,7 +501,7 @@ export default function Graph() {
             <Bevel variant="in">
               <svg
                 ref={svgRef}
-                viewBox={`0 0 ${W} ${H}`}
+                viewBox={fitViewBox(positions, W, H)}
                 role="application"
                 aria-label="Social graph: you, your connections, posts and listings"
                 className="block h-auto w-full touch-none select-none bg-white"
@@ -522,8 +582,11 @@ export default function Graph() {
               : `${visibleConnections} ${visibleConnections === 1 ? "person" : "people"} · ${posts} ${posts === 1 ? "post" : "posts"} · ${listings} ${listings === 1 ? "listing" : "listings"} · ${likes} ${likes === 1 ? "like" : "likes"}.`}
             {" "}Drag a node to pin it. Square is you, circle is a person or post, diamond is a listing.
             {graph.hiddenConnections > 0 && ` ${graph.hiddenConnections} hidden ${graph.hiddenConnections === 1 ? "connection stays" : "connections stay"} out of the map.`}
-            {graph.truncatedItems > 0 && ` Showing the 100 newest items; ${graph.truncatedItems} older left off.`}
-            {filterActive && filter.query.trim() !== "" && graph.truncatedItems > 0 && " Filters search only the mapped items, not the older ones left off."}
+            {graph.truncatedItems > 0 && graph.itemWindowStart === 0 && ` Showing the 100 newest items; ${graph.truncatedItems} older left off.`}
+            {graph.itemWindowStart > 0 && ` Showing items ${graph.itemWindowStart + 1}–${graph.itemWindowStart + totalPosts + totalListings} of ${graph.graphableItems}, newest first.`}
+            {graph.newerItems > 0 && ` ${graph.newerItems} newer ${graph.newerItems === 1 ? "item is" : "items are"} on a newer window.`}
+            {graph.truncatedItems > 0 && graph.itemWindowStart > 0 && ` ${graph.truncatedItems} older left off.`}
+            {filterActive && filter.query.trim() !== "" && (graph.truncatedItems > 0 || graph.newerItems > 0) && " Filters search only the mapped items, not the ones on other windows."}
           </p>
         </div>
       </Window>
