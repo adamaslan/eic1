@@ -63,9 +63,13 @@ export function unexpectedConsoleErrors(entries: ConsoleErrorEntry[]): ConsoleEr
 }
 
 export async function watchRuntime(page: Page): Promise<WatchedRuntime> {
-  await page.route("**/.netlify/scripts/**", (route) => route.abort());
-  await page.route("https://cdn.segment.com/**", (route) => route.abort());
-  await page.route("https://app.netlify.com/cdp**", (route) => route.abort());
+  // Keep the network isolation limited to deploy-preview runs. Production must observe
+  // the page as served, including analytics.
+  if (process.env.DEPLOY_PREVIEW_URL && !process.env.EIC_TARGET_URL) {
+    await page.route("**/.netlify/scripts/**", (route) => route.abort());
+    await page.route("https://cdn.segment.com/**", (route) => route.abort());
+    await page.route("https://app.netlify.com/cdp**", (route) => route.abort());
+  }
   const consoleErrors: ConsoleErrorEntry[] = [];
   const pageErrors: string[] = [];
   page.on("console", (message) => {

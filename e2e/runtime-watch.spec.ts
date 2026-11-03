@@ -1,6 +1,21 @@
 import { expect, test } from "@playwright/test";
 import { isKnownPreviewNoise, unexpectedConsoleErrors, watchRuntime } from "./fixtures/runtime-watch";
 
+async function watchPreviewRuntime(page: Parameters<typeof watchRuntime>[0]) {
+  const originalPreviewUrl = process.env.DEPLOY_PREVIEW_URL;
+  if (!process.env.EIC_TARGET_URL && !originalPreviewUrl) {
+    // playwright.config.ts has already selected the local server. Set the watcher-only
+    // preview signal while it registers the same route blocks used by preview CI.
+    process.env.DEPLOY_PREVIEW_URL = "https://deploy-preview-test.invalid";
+  }
+  try {
+    return await watchRuntime(page);
+  } finally {
+    if (originalPreviewUrl === undefined) delete process.env.DEPLOY_PREVIEW_URL;
+    else process.env.DEPLOY_PREVIEW_URL = originalPreviewUrl;
+  }
+}
+
 /**
  * Negative control for the shared clean-runtime watcher: the preview-noise isolation
  * must never swallow genuine app errors. Proves both directions: an app-origin asset
@@ -54,7 +69,7 @@ test("a genuine app chunk 404 is collected with its URL and still fails the zero
 });
 
 test("the aborted Netlify injection chain is excluded by source URL", async ({ page }) => {
-  const watched = await watchRuntime(page);
+  const watched = await watchPreviewRuntime(page);
   await page.goto("/");
   for (const src of [
     "/.netlify/scripts/cdp",
