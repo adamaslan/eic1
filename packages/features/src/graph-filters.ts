@@ -86,7 +86,15 @@ export function filterSocialGraph(graph: SocialGraph, filter: GraphFilter): Filt
   const nodes = graph.nodes.filter((node) => keptIds.has(node.id));
   edges = edges.filter((edge) => keptIds.has(edge.source) && keptIds.has(edge.target));
   return {
-    graph: { nodes, edges, truncatedItems: graph.truncatedItems, hiddenConnections: graph.hiddenConnections },
+    graph: {
+      nodes,
+      edges,
+      truncatedItems: graph.truncatedItems,
+      newerItems: graph.newerItems,
+      itemWindowStart: graph.itemWindowStart,
+      graphableItems: graph.graphableItems,
+      hiddenConnections: graph.hiddenConnections,
+    },
     // Only matches that actually survive: a match left with no surviving edge drops out
     // like any unattributed item, so it does not count as shown.
     matchedNodes: [...queryMatches].filter((id) => keptIds.has(id)).length,

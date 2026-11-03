@@ -23,8 +23,7 @@ let vaultCounter = 0;
 async function createVault(page: Page) {
   vaultCounter += 1;
   const passphrase = `ci-graph-passphrase-${Date.now()}-${vaultCounter}`;
-  await page.goto("/");
-  await page.getByRole("link", { name: "Create or open your vault" }).first().click();
+  await page.goto("/unlock");
   await page.getByLabel("Passphrase", { exact: true }).fill(passphrase);
   await page.getByLabel("Confirm passphrase").fill(passphrase);
   await page.getByRole("button", { name: "Create vault" }).click();
@@ -368,6 +367,108 @@ test("connections Map link preselects the person on the graph, and hiding keeps 
   await expect(page.getByText("Details — Connection")).toHaveCount(0);
   await page.goto("/graph");
   await expect(page.getByText("That connection is not on the map. Hidden connections stay off it.")).toHaveCount(0);
+
+  expectCleanRuntime(watched);
+});
+
+function bundleWithPosts(authorId: string, handle: string, count: number, baseIso: string) {
+  const base = Date.parse(baseIso);
+  return JSON.stringify({
+    format: "eic-share",
+    version: 1,
+    exportedAt: baseIso,
+    author: { id: authorId, handle },
+    posts: Array.from({ length: count }, (_, i) => ({
+      id: `${authorId}-p${i}`,
+      type: "photo",
+      title: `${handle} post ${String(i).padStart(3, "0")}`,
+      category: "general",
+      priceCents: null,
+      description: "seeded window post",
+      createdAt: new Date(base - i * 60_000).toISOString(),
+      likes: 0,
+      likedBy: [],
+      media: [],
+      thumb: null,
+    })),
+    likes: [],
+    likesComplete: true,
+  });
+}
+
+async function importBundle(page: Page, bundle: string, handle: string) {
+  await page.goto("/connections");
+  await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(bundle);
+  await page.getByRole("button", { name: "Import pasted text" }).click();
+  await expect(page.getByText(new RegExp(`Unsigned file - trust the sender \\(@${handle}\\)`))).toBeVisible();
+}
+
+async function expectAllNodesInsideViewBox(page: Page) {
+  const svg = page.locator("svg[role='application']");
+  const [vx, vy, vw, vh] = (await svg.getAttribute("viewBox"))!.split(" ").map(Number);
+  const points = await svg.locator("g[role='button']").evaluateAll((els) =>
+    els
+      .map((el) => {
+        const m = /translate\(([-\d.e]+)[, ]+([-\d.e]+)\)/.exec(el.getAttribute("transform") ?? "");
+        return m ? { x: Number(m[1]), y: Number(m[2]) } : null;
+      })
+      .filter((pt): pt is { x: number; y: number } => pt !== null),
+  );
+  expect(points.length).toBeGreaterThan(0);
+  for (const pt of points) {
+    expect(pt.x, `node at ${pt.x},${pt.y} inside viewBox ${vx},${vy} ${vw}x${vh}`).toBeGreaterThanOrEqual(vx);
+    expect(pt.x).toBeLessThanOrEqual(vx + vw);
+    expect(pt.y).toBeGreaterThanOrEqual(vy);
+    expect(pt.y).toBeLessThanOrEqual(vy + vh);
+  }
+}
+
+test("graph pages past the 100-item window with honest counts and bounds", async ({ page }) => {
+  const watched = await watchRuntime(page);
+  await createVault(page);
+
+  // Handle first (imports need one), then two authors: 100 newer posts + 5 older posts.
+  await page.goto("/connections");
+  await page.getByLabel("Handle").fill("tester");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Handle saved.")).toBeVisible();
+  await importBundle(page, bundleWithPosts("sunny01", "sunny", 100, "2026-11-01T20:00:00Z"), "sunny");
+  await importBundle(page, bundleWithPosts("rain01", "rain", 5, "2026-10-01T20:00:00Z"), "rain");
+
+  await page.goto("/graph");
+  // Newest window: 100 of 105 items, honest truncation, bounds on the pager.
+  await expect(page.getByText("2 people · 100 posts · 0 listings · 0 likes.")).toBeVisible();
+  await expect(page.getByText(/Showing the 100 newest items; 5 older left off\./)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Newer 100" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Older 100" })).toBeEnabled();
+  await expectAllNodesInsideViewBox(page);
+
+  // A search that names an older-window item does not reach across windows, and says so.
+  await page.getByLabel("Filter by name or title").fill("rain post 000");
+  await expect(page.getByText(/Nothing shows with the current filters/)).toBeVisible();
+  await expect(page.getByText(/Filters search only the mapped items, not the ones on other windows\./)).toBeVisible();
+  await page.getByLabel("Filter by name or title").fill("");
+
+  // Page to the older window: range copy is exact, newer count honest, selection clean.
+  await page.getByRole("button", { name: "Older 100" }).click();
+  await expect(page.getByText("2 people · 5 posts · 0 listings · 0 likes.")).toBeVisible();
+  await expect(page.getByText(/Showing items 101–105 of 105, newest first\./)).toBeVisible();
+  await expect(page.getByText(/100 newer items are on a newer window\./)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Newer 100" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Older 100" })).toBeDisabled();
+  await expectAllNodesInsideViewBox(page);
+
+  // List view names only the older window's items; a newest-window title is absent.
+  await page.getByRole("button", { name: "List", exact: true }).click();
+  await expect(page.getByRole("link", { name: "rain post 000" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "rain post 004" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "sunny post 000" })).toHaveCount(0);
+
+  // Back to newest restores the first window.
+  await page.getByRole("button", { name: "Back to newest" }).click();
+  await expect(page.getByText("2 people · 100 posts · 0 listings · 0 likes.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "sunny post 000" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "rain post 000" })).toHaveCount(0);
 
   expectCleanRuntime(watched);
 });
