@@ -1,3 +1,7 @@
+import { readFile } from "node:fs/promises";
+import { SubtleCryptoPort } from "@veil/crypto";
+import { createVault as createFixtureVault, exportBackup } from "@veil/vault";
+import { MemoryStore } from "../packages/vault/src/memory-store";
 import { expect, test, type Page } from "@playwright/test";
 import { watchRuntime } from "./fixtures/runtime-watch";
 
@@ -88,37 +92,57 @@ test("chore rotation: people rotate per week, a date switch persists, nav caps a
 });
 
 test("unsupported encrypted chart preserves data and shows one honest error on desktop and phone", async ({ page }) => {
-  await createVault(page, `unsupported-chart-${Date.now()}`);
+  const watched = await watchRuntime(page);
+  const passphrase = `unsupported-chart-${Date.now()}`;
+  // Generate a real encrypted backup in the test process. Restore/export use only
+  // public UI, so this journey works on built deploys without dev-source imports.
+  const store = new MemoryStore();
+  const vault = await createFixtureVault({ store, crypto: new SubtleCryptoPort(), now: () => new Date() }, passphrase);
+  await vault.putJson("chore", "chore:fixture", {
+    id: "chore:fixture", name: "Water plants", days: [0, 1, 2, 3, 4, 5, 6],
+    done: [], createdAt: new Date().toISOString(), schemaVersion: 1,
+  });
+  await vault.putJson("chore", "chore-chart", {
+    id: "chore-chart", rotations: [{ effectiveWeek: "2026-11-01", people: ["Original"] }],
+    overrides: [], schemaVersion: 2, futureData: "preserve",
+  });
+  const backup = await exportBackup(store, new Date());
+  vault.lock();
+  await page.goto("/unlock");
+  await page.getByLabel("Restore from backup").setInputFiles({
+    name: "unsupported-chart.vault", mimeType: "application/json", buffer: Buffer.from(backup),
+  });
+  await expect(page.getByText(/Backup restored/)).toBeVisible();
+  await page.getByLabel("Passphrase", { exact: true }).fill(passphrase);
+  await page.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
   await page.goto("/tools/chores");
-  await page.getByLabel("Chore name").fill("Water plants");
-  await page.getByRole("button", { name: "🔒 Save chore" }).click();
-  await expect(page.getByRole("status")).toContainText("Chore saved");
-  // Seed a real encrypted unsupported record through the active vault, not a
-  // mocked parser or error injection. No application source changes for the test.
-  const seed = `async () => {
-    const { useSessionStore } = await import('/app/platform/session.ts');
-    const vault = useSessionStore.getState().vault;
-    const original = {id:'chore-chart', rotations:[{effectiveWeek:'2026-11-01',people:['Original']}],overrides:[],schemaVersion:2,futureData:'preserve'};
-    await vault.putJson('chore','chore-chart',original);
-    return original;
-  }`;
-  const original = await page.evaluate(`(${seed})()`);
-  await page.reload();
   await expect(page.getByText("Water plants", { exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(1);
   await expect(page.getByRole("alert")).toContainText("can't read");
   await page.getByLabel("Person's name").fill("New");
   await page.getByRole("button", { name: "🔒 Add person" }).click();
+  await expect(page.getByRole("button", { name: "🔒 Add person" })).toBeEnabled();
+  await expect(page.getByLabel("Person's name")).toHaveValue("New");
   await expect(page.getByRole("alert")).toHaveCount(1);
   await expect(page.getByRole("status")).toHaveCount(0);
-  const raw = await page.evaluate(`(async () => {
-    const {useSessionStore} = await import('/app/platform/session.ts');
-    return useSessionStore.getState().vault.getJson('chore-chart');
-  })()`);
-  expect(raw).toEqual(original);
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.screenshot({ path: "/downloads/chores-real-error-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("alert")).toBeVisible();
   await page.screenshot({ path: "/downloads/chores-real-error-phone.png", fullPage: true });
+
+  // Export after the refused edit: compare actual ciphertext, not just UI copy or
+  // a parsed subset. Both original records must be exactly unchanged, no new one.
+  await page.goto("/vault");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export encrypted backup" }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  const after = JSON.parse(await readFile(path!, "utf8")) as { records: { id: string }[] };
+  const before = JSON.parse(backup) as { records: { id: string }[] };
+  const byId = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
+  expect(after.records.sort(byId)).toEqual(before.records.sort(byId));
+  expectCleanRuntime(watched);
 });
