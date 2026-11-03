@@ -26,6 +26,7 @@ import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
 import { useSocial } from "~/platform/use-social";
 import { useSessionStore } from "~/platform/session";
+import { useFeatureEnabled } from "~/platform/use-gate";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Graph — Everybody is Cool" }];
@@ -150,6 +151,7 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
 
 export default function Graph() {
   const vault = useSessionStore((state) => state.vault);
+  const graphEnabled = useFeatureEnabled(vault, "graph");
   const { items, settings, settingsReady, connections, refresh } = useSocial(vault);
 
   // Windowed browsing of the item nodes: the default window is the newest 100 items; older
@@ -365,6 +367,14 @@ export default function Graph() {
     // Only react to a new focus target, not to every graph rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusParam, bodyState]);
+
+  if (!graphEnabled) {
+    return (
+      <p className="text-[12px]">
+        The map is turned off in Tools. Nothing is deleted - turn it back on any time and your people and posts show up again.
+      </p>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">

@@ -1,5 +1,6 @@
 import { Link, Navigate, Outlet, useLocation } from "react-router";
 import { useClock } from "@veil/features";
+import { useFeatureEnabled } from "~/platform/use-gate";
 import { Bevel } from "~/ui95/Bevel";
 import { Taskbar } from "~/ui95/Taskbar";
 import { useSessionStore } from "~/platform/session";
@@ -23,6 +24,8 @@ export default function DesktopLayout() {
   const resuming = useSessionStore((state) => state.resuming);
   const { pathname } = useLocation();
   const now = useClock();
+  const graphEnabled = useFeatureEnabled(vault, "graph");
+  const tabs = TABS.filter((tab) => (tab.id === "graph" ? graphEnabled : true));
 
   if (!vault && resuming) {
     return <p className="p-2 text-[12px] text-white">Opening your desktop…</p>;
@@ -54,7 +57,7 @@ export default function DesktopLayout() {
     <div className="flex h-screen h-dvh flex-col bg-[#008080]">
       <header className="p-2 pb-0">
         <nav aria-label="Main navigation" className="flex flex-wrap gap-1">
-          {TABS.map((tab) => (
+          {tabs.map((tab) => (
             <Bevel key={tab.id} variant={tab.id === active ? "in" : "out"}>
               <Link
                 to={tab.id === "home" ? "/" : `/${tab.id}`}

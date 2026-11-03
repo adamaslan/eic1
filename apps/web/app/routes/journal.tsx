@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { AppError, JOURNAL_ENTRY_MAX, timeAgo, type JournalEntry } from "@veil/core";
-import { addJournalEntry, applyJournalFilters, buildJournalShareBundle, buildJournalShareLink, deleteJournalEntry, emptyJournalFilter, isJournalFilterActive, JOURNAL_DATE_RANGES, listJournal, loadSettings, updateJournalEntry, type JournalDateRange } from "@veil/features";
+import { addJournalEntry, applyJournalFilters, buildJournalShareBundle, buildJournalShareLink, deleteJournalEntry, emptyJournalFilter, isFeatureEnabled, isJournalFilterActive, JOURNAL_DATE_RANGES, listJournal, loadSettings, updateJournalEntry, type JournalDateRange } from "@veil/features";
 import type { Route } from "./+types/journal";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
 import { useSessionStore } from "~/platform/session";
+import { useFeatureEnabled } from "~/platform/use-gate";
 import { newItemId } from "~/platform/vault-service";
 
 export function meta(_args: Route.MetaArgs) {
@@ -14,6 +15,7 @@ export function meta(_args: Route.MetaArgs) {
 
 export default function Journal() {
   const vault = useSessionStore((state) => state.vault);
+  const editingEnabled = useFeatureEnabled(vault, "journal-editing");
   const [entries, setEntries] = useState<JournalEntry[] | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +98,12 @@ export default function Journal() {
     setError(null);
     setNotice(null);
     try {
+      const settings = await loadSettings(vault);
+      if (!isFeatureEnabled(settings, "journal-editing")) {
+        setEditingId(null);
+        setError("Journal editing is turned off in Tools. Your entry is unchanged.");
+        return;
+      }
       await updateJournalEntry(vault, entry.id, editDraft);
       setEditingId(null);
       await reload();
@@ -225,9 +233,11 @@ export default function Journal() {
                     <p className="whitespace-pre-wrap">{entry.text}</p>
                     <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[#404040]">
                       <span>{timeAgo(entry.createdAt, now)} ago</span>
-                      <button type="button" onClick={() => startEdit(entry)} className="text-[#0000cc] underline">
-                        Edit
-                      </button>
+                      {editingEnabled && (
+                        <button type="button" onClick={() => startEdit(entry)} className="text-[#0000cc] underline">
+                          Edit
+                        </button>
+                      )}
                       <button type="button" onClick={() => void shareEntry(entry)} className="text-[#0000cc] underline">
                         Share
                       </button>

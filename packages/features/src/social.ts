@@ -28,13 +28,56 @@ export async function loadSettings(vault: UnlockedVault): Promise<Settings> {
   return parsed.success ? parsed.data : defaultSettings();
 }
 
+export function isFeatureEnabled(settings: Settings, feature: string): boolean {
+  return settings.features[feature] !== false;
+}
+
+const SETTINGS_CAS_RETRIES = 5;
+
+/**
+ * Flips one feature flag without clobbering concurrent settings writes: read, merge, and
+ * compare-and-swap, retrying on a conflict. An inaccessible vault fails closed via the vault's own error.
+ */
+export async function setFeatureEnabled(vault: UnlockedVault, feature: string, enabled: boolean): Promise<Settings> {
+  for (let attempt = 0; attempt < SETTINGS_CAS_RETRIES; attempt++) {
+    const raw = await vault.getJson(SETTINGS_RECORD_ID);
+    const parsed = raw === null ? null : SettingsSchema.safeParse(raw);
+    const current = parsed && parsed.success ? parsed.data : defaultSettings();
+    const next: Settings = { ...current, features: { ...current.features, [feature]: enabled } };
+    try {
+      await vault.putJsonIfUnchanged("settings", SETTINGS_RECORD_ID, next, raw);
+      return next;
+    } catch {
+      // Another writer saved settings first; retry against the fresh record.
+    }
+  }
+  throw new AppError("Settings changed while updating. Try again.");
+}
+
+/**
+ * Saves profile/settings edits without clobbering concurrent writes: the caller's fields are
+ * merged over a FRESH read under compare-and-swap with retry. Feature flags are never changed
+ * here (setFeatureEnabled only), so a stale form save cannot erase a flag change.
+ */
 export async function saveSettings(vault: UnlockedVault, settings: Settings): Promise<Settings> {
-  const clean = SettingsSchema.parse({
-    ...settings,
-    keywords: normalizeKeywords(settings.keywords),
-  });
-  await vault.putJson("settings", SETTINGS_RECORD_ID, clean);
-  return clean;
+  for (let attempt = 0; attempt < SETTINGS_CAS_RETRIES; attempt++) {
+    const raw = await vault.getJson(SETTINGS_RECORD_ID);
+    const parsed = raw === null ? null : SettingsSchema.safeParse(raw);
+    const current = parsed && parsed.success ? parsed.data : defaultSettings();
+    const clean = SettingsSchema.parse({
+      ...current,
+      ...settings,
+      features: current.features,
+      keywords: normalizeKeywords(settings.keywords),
+    });
+    try {
+      await vault.putJsonIfUnchanged("settings", SETTINGS_RECORD_ID, clean, raw);
+      return clean;
+    } catch {
+      // Another writer saved settings first; retry against the fresh record.
+    }
+  }
+  throw new AppError("Settings changed while saving. Try again.");
 }
 
 /** Lowercases, trims, drops blanks and duplicates, and keeps at most MAX_KEYWORDS. */

@@ -6,6 +6,8 @@ import { MemoryStore } from "../../vault/src/memory-store";
 import {
   addNote,
   defaultSettings,
+  isFeatureEnabled,
+  setFeatureEnabled,
   ensureAuthorId,
   listNotes,
   listConnections,
@@ -114,6 +116,78 @@ describe("connection deduplication", () => {
     expect((await listConnections(vault)).map(({ id, handle }) => ({ id, handle }))).toEqual([
       { id: "alice", handle: "alice" }, { id: "bob", handle: "bob" },
     ]);
+  });
+});
+
+
+describe("feature gates", () => {
+  it("unknown top-level settings fields and future feature keys survive a save round trip", async () => {
+    const vault = await open();
+    const base = defaultSettings();
+    await vault.putJson("settings", "settings", { ...base, futureField: { nested: 1 }, features: { "future-feature": false } });
+    const loaded = await loadSettings(vault);
+    expect((loaded as Record<string, unknown>).futureField).toEqual({ nested: 1 });
+    expect(loaded.features["future-feature"]).toBe(false);
+    await saveSettings(vault, { ...loaded, keywords: ["steel"] });
+    const again = await loadSettings(vault);
+    expect((again as Record<string, unknown>).futureField).toEqual({ nested: 1 });
+    expect(again.features["future-feature"]).toBe(false);
+  });
+
+  it("a feature defaults to enabled and stays off only when explicitly disabled", async () => {
+    const vault = await open();
+    const base = defaultSettings();
+    expect(isFeatureEnabled(base, "graph")).toBe(true);
+    const off = await setFeatureEnabled(vault, "graph", false);
+    expect(isFeatureEnabled(off, "graph")).toBe(false);
+    expect(isFeatureEnabled(off, "music")).toBe(true);
+  });
+
+  it("concurrent settings writers do not clobber each other's keys", async () => {
+    const vault = await open();
+    await setFeatureEnabled(vault, "graph", false);
+    // A writer holding a stale settings object saves through the CAS path too.
+    const stale = await loadSettings(vault);
+    await setFeatureEnabled(vault, "music", false);
+    const merged = await setFeatureEnabled(vault, "drawing", false);
+    expect(isFeatureEnabled(merged, "graph")).toBe(false);
+    expect(isFeatureEnabled(merged, "music")).toBe(false);
+    expect(isFeatureEnabled(merged, "drawing")).toBe(false);
+    expect(isFeatureEnabled(stale, "music")).toBe(true);
+  });
+
+  it("a settings write that lands mid-update is merged, not overwritten (CAS retry)", async () => {
+    const vault = await open();
+    await setFeatureEnabled(vault, "graph", false);
+    let intervened = false;
+    const wrapped = {
+      ...vault,
+      putJsonIfUnchanged: async (kind: string, id: string, value: unknown, expected: unknown | null) => {
+        if (!intervened) {
+          intervened = true;
+          // A concurrent writer saves between our read and our write.
+          const current = await loadSettings(vault);
+          await vault.putJson("settings", "settings", { ...current, handle: "concurrent" });
+        }
+        return vault.putJsonIfUnchanged(kind, id, value, expected);
+      },
+    };
+    const merged = await setFeatureEnabled(wrapped, "music", false);
+    expect(intervened).toBe(true);
+    expect(isFeatureEnabled(merged, "music")).toBe(false);
+    expect(isFeatureEnabled(merged, "graph")).toBe(false);
+    expect(merged.handle).toBe("concurrent");
+  });
+
+  it("a stale whole-form saveSettings cannot erase flag changes or unknown fields", async () => {
+    const vault = await open();
+    await vault.putJson("settings", "settings", { ...defaultSettings(), futureField: "keep-me" });
+    const staleForm = { ...(await loadSettings(vault)), keywords: ["bikes"] };
+    await setFeatureEnabled(vault, "graph", false);
+    const saved = await saveSettings(vault, staleForm);
+    expect(saved.keywords).toEqual(["bikes"]);
+    expect(isFeatureEnabled(saved, "graph")).toBe(false);
+    expect((saved as Record<string, unknown>).futureField).toBe("keep-me");
   });
 });
 
