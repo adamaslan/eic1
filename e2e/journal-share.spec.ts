@@ -48,6 +48,39 @@ async function createVault(page: Page, handle?: string) {
   }
 }
 
+// Clipboard blocked, share sheet + download captured: exercises the blocked-copy ladder
+// without anything leaving the page. __shared catches navigator.share text; __downloads
+// catches the exact text of every blob handed to a download.
+async function stubShareBlocked(page: Page) {
+  await page.addInitScript(() => {
+    const shared: string[] = [];
+    (window as unknown as { __shared: string[] }).__shared = shared;
+    Object.defineProperty(navigator.clipboard, "writeText", {
+      value: async () => { throw new DOMException("Write permission denied.", "NotAllowedError"); },
+      configurable: true,
+    });
+    Object.defineProperty(navigator, "share", {
+      value: async (data: { text?: string }) => { shared.push(data.text ?? ""); },
+      configurable: true,
+    });
+    const downloads: string[] = [];
+    (window as unknown as { __downloads: string[] }).__downloads = downloads;
+    const originalCreateObjectURL = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (blob: Blob) => {
+      void blob.text().then((text) => downloads.push(text));
+      return originalCreateObjectURL(blob);
+    };
+  });
+}
+
+function decodeSharedEntryText(link: string): Promise<string> {
+  const payload = link.split("#import=")[1];
+  const base64 = payload.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  const bundle = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(padded), (c) => c.charCodeAt(0)))) as { entry: { text: string } };
+  return Promise.resolve(bundle.entry.text);
+}
+
 async function lastSharedLink(page: Page): Promise<string> {
   const text = await page.evaluate(() => (window as unknown as { __shared: string[] }).__shared.at(-1));
   expect(text).toBeTruthy();
@@ -128,6 +161,76 @@ test("an entry too big for a link fails honestly and shares nothing", async ({ p
   await expect(page.getByText("That entry is too big for a link. Nothing was shared.")).toBeVisible();
   const sharedCount = await page.evaluate(() => (window as unknown as { __shared: string[] }).__shared.length);
   expect(sharedCount).toBe(0);
+  expectCleanRuntime(watched);
+});
+
+test("a blocked automatic copy offers explicit next steps, with the privacy warning before the choices", async ({ page }) => {
+  const watched = await watchRuntime(page);
+  await stubShareBlocked(page);
+  await createVault(page, "dana");
+  await page.goto("/tools/journal");
+  await page.getByLabel("What is on your mind?").fill("Fallback ladder entry text");
+  await page.getByRole("button", { name: "🔒 Save entry" }).click();
+  await expect(page.getByText("Entries (1)")).toBeVisible();
+
+  await page.getByRole("button", { name: "Share" }).click();
+  await expect(page.getByText("Your browser blocked the automatic copy - the link was not copied. Choose a next step, or do nothing.")).toBeVisible();
+  const warning = page.getByText("Either choice hands out this entry as readable text - anyone who gets the link can read it.");
+  await expect(warning).toBeVisible();
+  const sheetButton = page.getByRole("button", { name: "Open share sheet" });
+  const fileButton = page.getByRole("button", { name: "Download as file" });
+  await expect(sheetButton).toBeVisible();
+  await expect(fileButton).toBeVisible();
+
+  // The warning comes BEFORE the choices in the document, never after.
+  const warningBeforeChoices = await page.evaluate(() => {
+    const paragraphs = [...document.querySelectorAll("p")];
+    const warningNode = paragraphs.find((p) => p.textContent?.includes("Either choice hands out this entry as readable text"));
+    const buttons = [...document.querySelectorAll("button")];
+    const choiceNode = buttons.find((b) => b.textContent === "Open share sheet");
+    return warningNode && choiceNode ? Boolean(warningNode.compareDocumentPosition(choiceNode) & Node.DOCUMENT_POSITION_FOLLOWING) : false;
+  });
+  expect(warningBeforeChoices).toBe(true);
+
+  // Nothing was copied; the explicit download choice hands out exactly the built link.
+  expect(await page.evaluate(() => (window as unknown as { __shared: string[] }).__shared.length)).toBe(0);
+  await fileButton.click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __downloads: string[] }).__downloads.length)).toBe(1);
+  const downloaded = await page.evaluate(() => (window as unknown as { __downloads: string[] }).__downloads[0]);
+  expect(downloaded).toContain("#import=");
+  expect(await decodeSharedEntryText(downloaded)).toBe("Fallback ladder entry text");
+  expectCleanRuntime(watched);
+});
+
+test("an entry edited after a blocked copy marks the link stale and a choice rebuilds from the current text", async ({ page }) => {
+  const watched = await watchRuntime(page);
+  await stubShareBlocked(page);
+  await createVault(page, "erin");
+  await page.goto("/tools/journal");
+  await page.getByLabel("What is on your mind?").fill("original text before edit");
+  await page.getByRole("button", { name: "🔒 Save entry" }).click();
+  await expect(page.getByText("Entries (1)")).toBeVisible();
+
+  await page.getByRole("button", { name: "Share" }).click();
+  await expect(page.getByText("Your browser blocked the automatic copy - the link was not copied. Choose a next step, or do nothing.")).toBeVisible();
+
+  const row = page.locator("li", { hasText: "original text before edit" });
+  await row.getByRole("button", { name: "Edit" }).click();
+  // In edit mode the old text lives in the textarea value, so locate within the edit form.
+  await page.getByLabel("Edit entry").fill("edited replacement text");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Changes saved - encrypted in this vault.")).toBeVisible();
+
+  // The already-built link is now stale, and says so instead of handing out old text.
+  await expect(page.getByText("This link still holds the entry's older text - it does not include your latest edit. Your next share or download will rebuild it from the current text.")).toBeVisible();
+
+  // The explicit choice rebuilds from the current text first: the sheet receives the EDITED entry.
+  await page.getByRole("button", { name: "Open share sheet" }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __shared: string[] }).__shared.length)).toBe(1);
+  const sharedLink = await lastSharedLink(page);
+  expect(await decodeSharedEntryText(sharedLink)).toBe("edited replacement text");
+  // Fresh link is no longer stale once rebuilt and handed out.
+  await expect(page.getByText("This link still holds the entry's older text")).toHaveCount(0);
   expectCleanRuntime(watched);
 });
 
