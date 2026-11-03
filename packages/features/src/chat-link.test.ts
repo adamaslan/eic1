@@ -20,6 +20,10 @@ import {
 
 const NOW = new Date("2026-10-31T12:00:00Z");
 const BASE = "https://everybodyiscool.netlify.app/";
+function corruptFirstCiphertextChar(ciphertext: string): string {
+  const first = ciphertext[0] === "A" ? "B" : "A";
+  return `${first}${ciphertext.slice(1)}`;
+}
 const open = () => createVault({ store: new MemoryStore(), crypto: new SubtleCryptoPort(), now: () => NOW }, "pass phrase 1");
 const settingsFor = (authorId: string, handle: string): Settings => ({ ...defaultSettings(), authorId, handle });
 let counter = 0;
@@ -40,6 +44,15 @@ const connectionFor = async (vault: UnlockedVault, authorId: string) =>
   (await listConnections(vault)).find((c) => c.id === authorId)!;
 
 describe("chat links", () => {
+  it("always changes ciphertext in the corruption fixture, including an A prefix", () => {
+    const ciphertext = "Aauthenticated-ciphertext";
+    const corrupted = corruptFirstCiphertextChar(ciphertext);
+
+    // The old `A${ciphertext.slice(1)}` fixture was a no-op for this input.
+    expect(`A${ciphertext.slice(1)}`).toBe(ciphertext);
+    expect(corrupted).not.toBe(ciphertext);
+  });
+
   it("round-trips sealed messages through a fragment link without exposing plaintext", async () => {
     const { alice, bob } = await pairedVaults();
     const bobConn = await connectionFor(bob, "alice-id");
@@ -162,7 +175,8 @@ describe("chat links", () => {
     const { link } = await buildChatShareLink(bob, conn, BASE);
     const parsed = readChatShareLink(new URL(link).hash)!;
     // Corrupt the second envelope's ciphertext: a crypto failure, not a structural one.
-    const envelopes = parsed.envelopes.map((e, i) => (i === 1 ? { ...e, ciphertext: `A${e.ciphertext.slice(1)}` } : e));
+    const envelopes = parsed.envelopes.map((e, i) => (i === 1 ? { ...e, ciphertext: corruptFirstCiphertextChar(e.ciphertext) } : e));
+    expect(envelopes[1].ciphertext).not.toBe(parsed.envelopes[1].ciphertext);
     const result = await applyChatShareLink(alice, { ...parsed, envelopes }, deps);
     expect(result).toMatchObject({ applied: 1, failed: 1, total: 2 });
     expect((await listChatThread(alice, "bob-id")).map((m) => m.body)).toEqual(["one"]);
