@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { AppError, formatPrice, timeAgo, type Item } from "@veil/core";
 import { buildPostShareLink, buildShareBundle, toggleLike, useVaultItems } from "@veil/features";
@@ -8,6 +8,15 @@ import { Window } from "~/ui95/Window";
 import { useMediaUri } from "~/platform/use-media-uri";
 import { useSessionStore } from "~/platform/session";
 import { sharePostFile } from "~/platform/share";
+import {
+  RELAY_ENABLED,
+  dropSharedLink,
+  loadSharedLink,
+  loadSharedLinks,
+  publishSharedPostFlow,
+  revokeSharedPost,
+  type SharedLinkRef,
+} from "~/platform/share-relay";
 import { useSocial } from "~/platform/use-social";
 
 export function meta(_args: Route.MetaArgs) {
@@ -19,6 +28,7 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
   const { state, reload } = useVaultItems(vault);
   const social = useSocial(vault);
   const [shareNote, setShareNote] = useState<string | null>(null);
+  const [sharedLink, setSharedLink] = useState<SharedLinkRef | null>(null);
 
   async function shareLink(item: Item, allItems: Item[]) {
     if (!vault) return;
@@ -36,16 +46,132 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
   async function share(item: Item, allItems: Item[]) {
     if (!vault) return;
     setShareNote(null);
+    let text: string;
     try {
-      const { text } = await buildShareBundle(vault, social.settings, allItems, new Date(), { onlyPostId: item.id });
-      const outcome = await sharePostFile(`eic-post-${item.id}.json`, item.title, text);
-      if (outcome === "shared") setShareNote("Shared.");
-      else if (outcome === "copied") setShareNote("Copied. Paste it into a message; your friend can paste it into Connections to import it.");
-      else if (outcome === "downloaded") setShareNote("Downloaded as a file. Send it to your friend to import in Connections.");
+      text = (await buildShareBundle(vault, social.settings, allItems, new Date(), { onlyPostId: item.id })).text;
     } catch (caught) {
       setShareNote(caught instanceof AppError ? caught.message : "That could not be shared. Please try again.");
+      return;
+    }
+    // Primary path (gated): publish the single-post bundle to the share service, then
+    // hand the short link to the share sheet. The link's preview shows this post's photo
+    // and text to anyone who has it; the delete key stays in this vault for Revoke.
+    if (RELAY_ENABLED) try {
+      // Re-sharing this post: retire every earlier CONFIRMED link first (best
+      // effort), so the normal path keeps exactly one live link per post. A pending
+      // ref is NOT retired: it is this retry's intent, and publishSharedPostFlow
+      // reuses its id and key. A failed revoke keeps its ref - and its delete key -
+      // so the link stays revocable instead of orphaned.
+      for (const previous of (await loadSharedLinks(vault, item.id)).filter((ref) => !ref.pending)) {
+        try {
+          await revokeSharedPost(previous.id, previous.deleteKey);
+          await dropSharedLink(vault, item.id, previous.id);
+        } catch {
+          // keep the ref: its key is the only way to revoke that link later
+        }
+      }
+      // The intent (id + delete key) is persisted in the vault BEFORE the publish, so
+      // a lost response can never orphan a live link: retrying reuses the same link.
+      const { ref } = await publishSharedPostFlow(vault, text, item.id);
+      setSharedLink(ref);
+      let handed = false;
+      let cancelled = false;
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: item.title, url: ref.url });
+          handed = true;
+        } catch (caught) {
+          if (caught instanceof DOMException && caught.name === "AbortError") cancelled = true;
+          else throw caught;
+        }
+      }
+      if (handed) {
+        setShareNote("Shared. The link shows this post's photo and text to anyone who has it - revoke it here anytime.");
+      } else if (cancelled) {
+        // The sheet was dismissed AFTER publishing: the link is live. Say so plainly -
+        // no silent copy, and Revoke stays available for a link that went nowhere.
+        setShareNote("Share cancelled - but the link was already published and still shows this post. Copy it or revoke it here.");
+      } else {
+        try {
+          await navigator.clipboard.writeText(ref.url);
+          const leftover = (await loadSharedLinks(vault, item.id)).length - 1;
+          setShareNote(
+            leftover > 0
+              ? `Link copied. An earlier link could not be revoked and may still show this post - revoke it below.`
+              : "Link copied. It shows this post's photo and text to anyone who has it - revoke it here anytime."
+          );
+        } catch {
+          // The publish DID commit: never report a generic failure for a live link.
+          setShareNote("The link is live but copying it failed - use Copy shared link below, or revoke it here.");
+        }
+      }
+      return;
+    } catch (caught) {
+      // Whatever happened, show the current refs: a failed publish may have left a
+      // pending (revocable) link behind, and the Revoke affordance must reflect it.
+      setSharedLink(await loadSharedLink(vault, item.id));
+      // The share service is down or refused: fall back to the share file, which never
+      // touches a server. The note stays honest about which thing happened.
+      if (caught instanceof AppError && caught.message.startsWith("The share service")) {
+        try {
+          const outcome = await sharePostFile(`eic-post-${item.id}.json`, item.title, text);
+          if (outcome === "shared") setShareNote("The link service was unreachable, so this went out as the share file instead. Shared.");
+          else if (outcome === "copied") setShareNote("The link service was unreachable, so the share file was copied instead. Paste it into a message; your friend can paste it into Connections to import it.");
+          else if (outcome === "downloaded") setShareNote("The link service was unreachable, so this was downloaded as a file instead. Send it to your friend to import in Connections.");
+        } catch (fallback) {
+          setShareNote(fallback instanceof AppError ? fallback.message : "That could not be shared. Please try again.");
+        }
+        return;
+      }
+      setShareNote(caught instanceof AppError ? caught.message : "That could not be shared. Please try again.");
+    }
+    if (!RELAY_ENABLED) {
+      try {
+        const outcome = await sharePostFile(`eic-post-${item.id}.json`, item.title, text);
+        if (outcome === "shared") setShareNote("Shared.");
+        else if (outcome === "copied") setShareNote("Copied. Paste it into a message; your friend can paste it into Connections to import it.");
+        else if (outcome === "downloaded") setShareNote("Downloaded as a file. Send it to your friend to import in Connections.");
+      } catch (caught) {
+        setShareNote(caught instanceof AppError ? caught.message : "That could not be shared. Please try again.");
+      }
     }
   }
+
+  async function revokeShare(item: Item) {
+    if (!vault) return;
+    const refs = await loadSharedLinks(vault, item.id);
+    if (refs.length === 0) return;
+    setShareNote(null);
+    let failed = 0;
+    for (const ref of refs) {
+      try {
+        await revokeSharedPost(ref.id, ref.deleteKey);
+        await dropSharedLink(vault, item.id, ref.id);
+      } catch {
+        failed += 1;
+      }
+    }
+    setSharedLink(await loadSharedLink(vault, item.id));
+    setShareNote(
+      failed === 0
+        ? "Shared link revoked - it no longer shows the post."
+        : failed === refs.length
+          ? "The link could not be revoked. Please try again."
+          : `Revoked ${refs.length - failed} of ${refs.length} links; ${failed} could not be revoked - please try again.`
+    );
+  }
+
+  const itemId = state.status === "ready" ? (state.items.find((candidate) => candidate.id === params.id)?.id ?? null) : null;
+  useEffect(() => {
+    if (!vault || !itemId || !RELAY_ENABLED) return;
+    let cancelled = false;
+    void loadSharedLink(vault, itemId).then((ref) => {
+      if (!cancelled) setSharedLink(ref);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [vault, itemId]);
 
   if (state.status === "loading") return <p className="text-[12px]">Opening…</p>;
   if (state.status === "error") return <p role="alert" className="text-[12px] text-[#800000]">{state.message}</p>;
@@ -89,7 +215,7 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
             <Button95
               onClick={() => share(item, state.items)}
               disabled={!social.settingsReady}
-              title="Sends this one post to a friend, even while it is Private. Pressing it is the consent."
+              title="Publishes this one post behind a short link whose preview shows its photo and text, even while it is Private here. Pressing it is the consent; revoke anytime."
             >
               ↗ Share
             </Button95>
@@ -114,6 +240,25 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
             >
               {item.visibility === "shareable" ? "Sharing allowed" : "Private"}
             </Button95>
+          )}
+          {item.authorId === null && RELAY_ENABLED && sharedLink && (
+            <>
+              <Button95
+                onClick={async () => {
+                  await navigator.clipboard.writeText(sharedLink.url);
+                  setShareNote("Link copied. It shows this post's photo and text to anyone who has it - revoke it here anytime.");
+                }}
+                title="Copies this post's live shared link again."
+              >
+                Copy shared link
+              </Button95>
+              <Button95
+                onClick={() => revokeShare(item)}
+                title="Deletes this post's shared link. Already-sent links stop working; the post stays in your vault."
+              >
+                Revoke link
+              </Button95>
+            </>
           )}
         </div>
         {shareNote && <p role="status" className="text-[11px]">{shareNote}</p>}
