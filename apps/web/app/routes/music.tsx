@@ -419,7 +419,10 @@ export default function Music() {
       const pool = [...audioFiles];
       manifest.tracks.forEach((entry, i) => {
         const at = pool.findIndex((f) => f.name === entry.file);
-        const looseAt = at < 0 ? pool.findIndex((f) => f.name.endsWith(entry.file.replace(/^\d+-/, ""))) : -1;
+        // Loose fallback must compare the whole prefix-stripped name: a suffix test can
+        // mis-attach e.g. banana.mp3 to a missing 03-a.mp3 entry.
+        const stripped = entry.file.replace(/^\d+-/, "");
+        const looseAt = at < 0 ? pool.findIndex((f) => f.name.replace(/^\d+-/, "") === stripped) : -1;
         const file = at >= 0 ? pool[at] : looseAt >= 0 ? pool[looseAt] : undefined;
         if (at >= 0) pool.splice(at, 1);
         if (looseAt >= 0) pool.splice(looseAt, 1);
@@ -885,4 +888,4 @@ export default function Music() {
       </div>
     </Window>
   );
-}
+  }
