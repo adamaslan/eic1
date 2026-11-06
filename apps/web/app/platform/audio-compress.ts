@@ -47,6 +47,14 @@ export async function compressAudio(
   file: File,
   opts: { bitsPerSecond: number; onProgress?: (fraction: number) => void },
 ): Promise<CompressOutcome> {
+  // decodeAudioData expands the file to raw PCM several times its size, and a huge input
+  // can exhaust a phone's memory. Reject by bytes up front; fresh loads may have no
+  // reliable duration estimate, so a byte bound is the honest guard.
+  const MAX_INPUT_BYTES = 256 * 1024 * 1024;
+  if (file.size > MAX_INPUT_BYTES) {
+    throw new Error(`"${file.name}" is too large to convert in the browser (256 MB max).`);
+  }
+
   const target = pickCompressTarget();
   if (!target) throw new Error("This browser cannot re-encode audio. Try Chrome, Edge or Safari 14.1+.");
 
@@ -55,6 +63,7 @@ export async function compressAudio(
   let recorder: MediaRecorder | null = null;
   let source: AudioBufferSourceNode | null = null;
   let tick: number | null = null;
+  let stallTick: number | null = null;
   try {
     await ctx.resume();
     let decoded: AudioBuffer;
@@ -89,7 +98,26 @@ export async function compressAudio(
     tick = window.setInterval(() => {
       opts.onProgress?.(Math.min(1, ctx.currentTime / decoded.duration));
     }, 250);
-    await Promise.race([ended, stopped.then(() => { throw new Error("The audio recorder stopped before conversion finished."); })]);
+    // Watchdog: if the context is interrupted and stops progressing, reject instead of
+    // leaving the conversion (and the other Convert buttons) pending forever. The grace
+    // window tolerates brief suspensions instead of rejecting on a momentary pause.
+    let lastPosition = -1;
+    let lastAdvanceAt = Date.now();
+    const STALL_GRACE_MS = 8000;
+    const stalled = new Promise<void>((_resolve, reject) => {
+      stallTick = window.setInterval(() => {
+        const position = ctx.currentTime;
+        if (position !== lastPosition) {
+          lastPosition = position;
+          lastAdvanceAt = Date.now();
+          return;
+        }
+        if (Date.now() - lastAdvanceAt > STALL_GRACE_MS) {
+          reject(new Error("The conversion stalled because the audio context stopped progressing. Please try again."));
+        }
+      }, 500);
+    });
+    await Promise.race([ended, stalled, stopped.then(() => { throw new Error("The audio recorder stopped before conversion finished."); })]);
     // Let the recorder drain the tail of the stream before stopping.
     await new Promise((r) => setTimeout(r, 300));
     if (activeRecorder.state === "inactive") throw new Error("The browser's audio encoder stopped unexpectedly.");
@@ -101,6 +129,7 @@ export async function compressAudio(
     return { file: new File([blob], `${base}.${target.extension}`, { type: target.mimeType }), originalBytes: file.size };
   } finally {
     if (tick !== null) window.clearInterval(tick);
+    if (stallTick !== null) window.clearInterval(stallTick);
     if (source) {
       try { source.stop(); } catch { /* already ended */ }
     }
