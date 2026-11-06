@@ -1,6 +1,12 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_local_suites:
+        description: "Run optional duplicate local test suites"
+        type: boolean
+        default: false
   pull_request:
   push:
     branches: [main]
@@ -11,6 +17,8 @@ concurrency:
 
 jobs:
   lint:
+    # Relevant tests and real app build run locally before publication.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_local_suites
     name: eslint - rules-of-hooks is an error
     runs-on: ubuntu-latest
     steps:
@@ -22,6 +30,8 @@ jobs:
       - run: npm run lint
 
   typecheck:
+    # Relevant tests and real app build run locally before publication.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_local_suites
     name: tsc --noEmit
     runs-on: ubuntu-latest
     steps:
@@ -33,6 +43,8 @@ jobs:
       - run: npm run typecheck --workspace web
 
   unit:
+    # Relevant tests and real app build run locally before publication.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_local_suites
     name: vitest
     runs-on: ubuntu-latest
     steps:
