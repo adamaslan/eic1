@@ -1,10 +1,19 @@
 import { useEffect, useRef } from "react";
 import { shouldLoopAB } from "@veil/features";
-import { usePlayerStore } from "~/platform/player-store";
+import { usePlayerStore, type PlayerTrack } from "~/platform/player-store";
 
 // The single <audio> element for the whole desktop. Lives in the layout so music keeps
 // playing while the user moves between screens (feed, market, tools). The store holds the
 // desired state; this component makes the element match it and reports events back.
+// A skipped track's pending play() can reject after onError already advanced the
+// queue: the rejection is stale when the current track is no longer the attempt.
+export function isStalePlayRejection(
+  state: { tracks: PlayerTrack[]; index: number },
+  attemptedFile: File,
+): boolean {
+  return state.tracks[state.index]?.file !== attemptedFile;
+}
+
 export function PlayerAudio() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const urlRef = useRef<string | null>(null);
@@ -47,11 +56,9 @@ export function PlayerAudio() {
     if (usePlayerStore.getState().playing) {
       const attemptedFile = current.file;
       void audio.play().catch(() => {
-        const store = usePlayerStore.getState();
-        // A skipped track's pending play() can reject after onError already advanced:
-        // only touch state when this rejection still belongs to the current track.
-        if (store.tracks[store.index]?.file !== attemptedFile) return;
-        store.setPlaying(false);
+        // Only touch state when this rejection still belongs to the current track.
+        if (isStalePlayRejection(usePlayerStore.getState(), attemptedFile)) return;
+        usePlayerStore.getState().setPlaying(false);
       });
     }
   }, [currentFile, generation]);
@@ -69,9 +76,8 @@ export function PlayerAudio() {
     if (playing && current) {
       const attemptedFile = current.file;
       void audio.play().catch(() => {
-        const store = usePlayerStore.getState();
-        if (store.tracks[store.index]?.file !== attemptedFile) return;
-        store.setNote("This browser blocked playback. Tap Play again.");
+        if (isStalePlayRejection(usePlayerStore.getState(), attemptedFile)) return;
+        usePlayerStore.getState().setNote("This browser blocked playback. Tap Play again.");
       });
     } else {
       audio.pause();
