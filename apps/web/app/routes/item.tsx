@@ -1,3 +1,4 @@
+import { AuthorTag } from "~/components/cards";
 import { useState } from "react";
 import { Link } from "react-router";
 import { AppError, formatPrice, timeAgo, type Item } from "@veil/core";
@@ -70,7 +71,7 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
         ))}
         <p className="text-[#404040]">
           {item.category} · {formatPrice(item.priceCents)} · {timeAgo(item.createdAt, new Date())} · ♥ {item.likes}
-          {item.authorHandle ? ` · from @${item.authorHandle}` : ""}
+          <AuthorTag item={item} />
         </p>
         {item.likedBy.length > 0 && <p className="text-[#404040]">Liked by {item.likedBy.length} of your connections.</p>}
         <p className="whitespace-pre-wrap">{item.description || "No description."}</p>

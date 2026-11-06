@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { useState, useRef, useEffect } from "react";
 import { addProfileSticker, changeProfileSticker, PROFILE_STICKERS, PROFILE_AVATARS, PROFILE_AVATAR_MAX_BYTES, profileBase64ByteLength, ProfileSchema, type Profile } from "@veil/features";
 import { Button95 } from "~/ui95/Button95";
@@ -44,6 +45,8 @@ export function ProfileAssets({ profile, change }: { profile: Profile; change: (
     <label>Choose avatar image<input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" className="block max-w-full" onChange={e => void choose(e.target.files?.[0])} /></label>
     <p>Or choose an avatar drawn in Paint. Nothing is selected or shared automatically.</p>
     <div role="group" aria-label="Paint avatars" className="grid grid-cols-3 gap-2 sm:grid-cols-4">{PROFILE_AVATARS.map(avatar => <Button95 key={avatar.id} onClick={() => change(ProfileSchema.parse({ ...profile, avatar: { kind: "data-uri", mime: "image/png", data: avatar.data } }))}><span className="flex flex-col items-center"><img width={64} height={64} src={`data:image/png;base64,${avatar.data}`} alt="" /><span>{avatar.label}</span></span></Button95>)}</div>
+    <Link to="/stickers" className="underline">Download built-in avatar stickers</Link>
+    {profile.avatar && <a className="underline" href={`data:${profile.avatar.mime};base64,${profile.avatar.data}`} download={`eic-my-avatar.${profile.avatar.mime === "image/png" ? "png" : profile.avatar.mime === "image/jpeg" ? "jpg" : profile.avatar.mime === "image/webp" ? "webp" : "image"}`}>Download this private avatar image (explicit export)</a>}
     <Button95 disabled={!profile.avatar} onClick={() => change({ ...profile, avatar: null })}>Remove avatar</Button95>
     {profile.avatar && <p>{profileBase64ByteLength(profile.avatar.data).toLocaleString()} avatar image bytes</p>}
     <p>{profile.decorations.length}/32 decorations. Small built-in SVGs, no downloads. Decorations are behind the profile window and may be covered by it.</p>
