@@ -101,9 +101,12 @@ export default function Journal() {
       anchor.download = "shared-journal-entry.txt";
       document.body.append(anchor);
       anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      setShareState({ id: entry.id, kind: "fallback", link, builtFrom: entry.text, note: "Downloaded. The file holds the link as readable text." });
+      // Let the browser consume the blob before cleanup, including on mobile Safari.
+      window.setTimeout(() => {
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      }, 1000);
+      setShareState({ id: entry.id, kind: "fallback", link, builtFrom: entry.text, note: "Download requested. The file holds the link as readable text." });
     }
   }
 
