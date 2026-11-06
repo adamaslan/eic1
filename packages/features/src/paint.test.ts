@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ERASE_COLOR, PaintHistory, TEXT_SIZES, strokeColor, textFont, textSizePx, wrapTextLines, type TextSizeId } from "./paint";
+import { ERASE_COLOR, PaintHistory, TEXT_SIZES, dragBox, floodFill, hexToRgb, nearestPaletteHex, pixelColor, seededRandom, sprayDots, strokeColor, textFont, textSizePx, wrapTextLines, type PixelImage, type TextSizeId } from "./paint";
 
 describe("PaintHistory", () => {
   it("starts with nothing to undo or redo", () => {
@@ -139,5 +139,97 @@ describe("wrapTextLines", () => {
 
   it("wraps a long paragraph with mixed newlines", () => {
     expect(wrapTextLines(measure, "one two\nthree four five", 9)).toEqual(["one two", "three", "four five"]);
+  });
+});
+
+const solid = (width: number, height: number, hex: string): PixelImage => {
+  const { r, g, b } = hexToRgb(hex);
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i += 1) data.set([r, g, b, 255], i * 4);
+  return { data, width, height };
+};
+const paintPx = (image: PixelImage, x: number, y: number, hex: string) => {
+  const { r, g, b } = hexToRgb(hex);
+  image.data.set([r, g, b, 255], (y * image.width + x) * 4);
+};
+const countHex = (image: PixelImage, hex: string) => {
+  const want = hexToRgb(hex);
+  let n = 0;
+  for (let y = 0; y < image.height; y += 1)
+    for (let x = 0; x < image.width; x += 1) {
+      const c = pixelColor(image, x, y)!;
+      if (c.r === want.r && c.g === want.g && c.b === want.b) n += 1;
+    }
+  return n;
+};
+
+describe("floodFill", () => {
+  // 7x7 white field with a closed 5x5 black ring at the border of the inner area.
+  const ring = (gap: boolean) => {
+    const image = solid(7, 7, "#ffffff");
+    for (let i = 1; i <= 5; i += 1) {
+      paintPx(image, i, 1, "#000000");
+      paintPx(image, i, 5, "#000000");
+      paintPx(image, 1, i, "#000000");
+      paintPx(image, 5, i, "#000000");
+    }
+    if (gap) paintPx(image, 3, 1, "#ffffff");
+    return image;
+  };
+
+  it("fills only the enclosed region", () => {
+    const image = ring(false);
+    expect(floodFill(image, 3, 3, hexToRgb("#ff0000"))).toBe(9);
+    expect(countHex(image, "#ff0000")).toBe(9);
+    expect(countHex(image, "#000000")).toBe(16);
+    expect(countHex(image, "#ffffff")).toBe(49 - 16 - 9);
+  });
+
+  it("negative control: a gap in the wall leaks the fill outside", () => {
+    const image = ring(true);
+    expect(floodFill(image, 3, 3, hexToRgb("#ff0000"))).toBe(49 - 15);
+    expect(countHex(image, "#ffffff")).toBe(0);
+  });
+
+  it("does nothing when the region already has the fill color or the click is outside", () => {
+    const image = solid(4, 4, "#ff0000");
+    expect(floodFill(image, 1, 1, hexToRgb("#ff0000"))).toBe(0);
+    expect(floodFill(image, -1, 0, hexToRgb("#00ff00"))).toBe(0);
+    expect(floodFill(image, 4, 0, hexToRgb("#00ff00"))).toBe(0);
+  });
+
+  it("tolerance swallows an anti-aliased fringe but a mid-gray wall still holds", () => {
+    const fringe = solid(5, 1, "#ffffff");
+    paintPx(fringe, 2, 0, "#e0e0e0");
+    expect(floodFill(fringe, 0, 0, hexToRgb("#00ff00"))).toBe(5);
+    const wall = solid(5, 1, "#ffffff");
+    paintPx(wall, 2, 0, "#808080");
+    expect(floodFill(wall, 0, 0, hexToRgb("#00ff00"))).toBe(2);
+    const strict = solid(5, 1, "#ffffff");
+    paintPx(strict, 2, 0, "#e0e0e0");
+    expect(floodFill(strict, 0, 0, hexToRgb("#00ff00"), 0)).toBe(2);
+  });
+});
+
+describe("pick and palette helpers", () => {
+  it("reads pixel color and snaps to the nearest palette swatch", () => {
+    const image = solid(2, 2, "#fe0101");
+    expect(pixelColor(image, 9, 9)).toBeNull();
+    expect(nearestPaletteHex(pixelColor(image, 1, 1)!, ["#000000", "#ff0000", "#ffffff"])).toBe("#ff0000");
+  });
+});
+
+describe("spray and drag box", () => {
+  it("spray is reproducible and stays inside the disc", () => {
+    const a = sprayDots(50, 50, 10, 40, seededRandom(7));
+    const b = sprayDots(50, 50, 10, 40, seededRandom(7));
+    const c = sprayDots(50, 50, 10, 40, seededRandom(8));
+    expect(a).toEqual(b);
+    expect(a).not.toEqual(c);
+    expect(a.every((dot) => Math.hypot(dot.x - 50, dot.y - 50) <= 10.8)).toBe(true);
+  });
+
+  it("dragBox normalizes any drag direction", () => {
+    expect(dragBox({ x: 10, y: 20 }, { x: 4, y: 30 })).toEqual({ x: 4, y: 20, w: 6, h: 10 });
   });
 });

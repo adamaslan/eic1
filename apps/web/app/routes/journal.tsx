@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { AppError, JOURNAL_ENTRY_MAX, timeAgo, type JournalEntry } from "@veil/core";
-import { addJournalEntry, applyJournalFilters, buildJournalShareBundle, buildJournalShareLink, deleteJournalEntry, emptyJournalFilter, isJournalFilterActive, JOURNAL_DATE_RANGES, listJournal, loadSettings, updateJournalEntry, type JournalDateRange } from "@veil/features";
+import { addJournalEntry, applyJournalFilters, buildJournalShareBundle, buildJournalShareLink, deleteJournalEntry, emptyJournalFilter, isFeatureEnabled, isJournalFilterActive, JOURNAL_DATE_RANGES, listJournal, loadSettings, updateJournalEntry, type JournalDateRange } from "@veil/features";
 import type { Route } from "./+types/journal";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
 import { useSessionStore } from "~/platform/session";
+import { useFeatureEnabled } from "~/platform/use-gate";
 import { newItemId } from "~/platform/vault-service";
 
 export function meta(_args: Route.MetaArgs) {
@@ -14,9 +15,11 @@ export function meta(_args: Route.MetaArgs) {
 
 export default function Journal() {
   const vault = useSessionStore((state) => state.vault);
+  const editingEnabled = useFeatureEnabled(vault, "journal-editing");
   const [entries, setEntries] = useState<JournalEntry[] | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const [range, setRange] = useState<JournalDateRange>("all");
@@ -66,10 +69,12 @@ export default function Journal() {
     if (!vault || saving) return;
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       await addJournalEntry(vault, text, { newId: newItemId, now: new Date() });
       setText("");
       await reload();
+      setNotice("Saved - encrypted in this vault.");
     } catch (caught) {
       setError(caught instanceof AppError ? caught.message : "The entry could not be saved. Please try again.");
     } finally {
@@ -91,10 +96,18 @@ export default function Journal() {
     if (!vault || saving) return;
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
+      const settings = await loadSettings(vault);
+      if (!isFeatureEnabled(settings, "journal-editing")) {
+        setEditingId(null);
+        setError("Journal editing is turned off in Tools. Your entry is unchanged.");
+        return;
+      }
       await updateJournalEntry(vault, entry.id, editDraft);
       setEditingId(null);
       await reload();
+      setNotice("Changes saved - encrypted in this vault.");
     } catch (caught) {
       setError(caught instanceof AppError ? caught.message : "The entry could not be updated. Please try again.");
     } finally {
@@ -106,6 +119,7 @@ export default function Journal() {
     if (!vault || saving) return;
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       await deleteJournalEntry(vault, entry.id);
       setConfirmingId(null);
@@ -141,9 +155,10 @@ export default function Journal() {
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button95 type="submit" className="shrink-0 whitespace-nowrap" disabled={saving || !text.trim()}>{saving ? "Encrypting…" : "🔒 Save entry"}</Button95>
-            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay in this vault: share files never include them. An entry leaves only when you tap its Share link, one entry at a time.</span>
+            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay encrypted in this vault. Post share files never include journal entries; they leave only when you export a copy or share an entry's link yourself.</span>
           </div>
           {error && <p role="alert" className="text-[#800000]">{error}</p>}
+          {notice && <p role="status">{notice}</p>}
         </form>
       </Window>
 
@@ -218,9 +233,11 @@ export default function Journal() {
                     <p className="whitespace-pre-wrap">{entry.text}</p>
                     <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[#404040]">
                       <span>{timeAgo(entry.createdAt, now)} ago</span>
-                      <button type="button" onClick={() => startEdit(entry)} className="text-[#0000cc] underline">
-                        Edit
-                      </button>
+                      {editingEnabled && (
+                        <button type="button" onClick={() => startEdit(entry)} className="text-[#0000cc] underline">
+                          Edit
+                        </button>
+                      )}
                       <button type="button" onClick={() => void shareEntry(entry)} className="text-[#0000cc] underline">
                         Share
                       </button>
