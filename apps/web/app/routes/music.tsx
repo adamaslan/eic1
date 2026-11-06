@@ -33,6 +33,15 @@ import { usePlayerStore, type PlayerTrack, type SleepMode } from "~/platform/pla
 import { useSessionStore } from "~/platform/session";
 import { COMPRESS_BITRATES, compressAudio, estimateCompressedBytes, pickCompressTarget } from "~/platform/audio-compress";
 
+// Exact name first; the loose fallback compares the whole prefix-stripped name, because
+// a suffix test can mis-attach e.g. banana.mp3 to a missing 03-a.mp3 entry.
+export function findManifestFileIndex(pool: { name: string }[], entryFile: string): number {
+  const at = pool.findIndex((f) => f.name === entryFile);
+  if (at >= 0) return at;
+  const stripped = entryFile.replace(/^\d+-/, "");
+  return pool.findIndex((f) => f.name.replace(/^\d+-/, "") === stripped);
+}
+
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Music — Everybody is Cool" }];
 }
@@ -418,14 +427,9 @@ export default function Music() {
       const missing: string[] = [];
       const pool = [...audioFiles];
       manifest.tracks.forEach((entry, i) => {
-        const at = pool.findIndex((f) => f.name === entry.file);
-        // Loose fallback must compare the whole prefix-stripped name: a suffix test can
-        // mis-attach e.g. banana.mp3 to a missing 03-a.mp3 entry.
-        const stripped = entry.file.replace(/^\d+-/, "");
-        const looseAt = at < 0 ? pool.findIndex((f) => f.name.replace(/^\d+-/, "") === stripped) : -1;
-        const file = at >= 0 ? pool[at] : looseAt >= 0 ? pool[looseAt] : undefined;
-        if (at >= 0) pool.splice(at, 1);
-        if (looseAt >= 0) pool.splice(looseAt, 1);
+        const foundAt = findManifestFileIndex(pool, entry.file);
+        const file = foundAt >= 0 ? pool[foundAt] : undefined;
+        if (foundAt >= 0) pool.splice(foundAt, 1);
         if (!file) {
           missing.push(entry.title);
           return;
@@ -888,4 +892,4 @@ export default function Music() {
       </div>
     </Window>
   );
-  }
+}
