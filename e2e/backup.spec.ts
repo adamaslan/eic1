@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
-import { watchRuntime } from "./fixtures/runtime-watch";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Vault backup/restore - the data-loss net. The exported backup is the user's ONLY
@@ -13,11 +13,11 @@ import { watchRuntime } from "./fixtures/runtime-watch";
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
 
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+function expectCleanRuntime(watched: WatchedRuntime) {
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
-  expect([...watched.pageErrors, ...unexpected].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
+  expect([...watched.pageErrors, ...unexpected.map((entry) => entry.text)].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
 }
 
 let vaultCounter = 0;
@@ -43,6 +43,9 @@ test("backup export, wipe, restore: seeded data survives the round trip", async 
   await page.goto("/tools/journal");
   await page.getByLabel("What is on your mind?").fill(journalText);
   await page.getByRole("button", { name: /Save entry/ }).click();
+  // The textarea already contains journalText before encryption finishes. Wait for
+  // the committed-save notice, not a text locator that also matches its input.
+  await expect(page.getByRole("status")).toHaveText("Saved - encrypted in this vault.");
   await expect(page.getByText(journalText)).toBeVisible();
 
   await page.goto("/compose");

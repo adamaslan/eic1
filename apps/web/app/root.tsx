@@ -19,6 +19,7 @@ import {
   parseShareBundle,
   peekConnectCardAuthor,
   peekConnectCardHandle,
+  peekConnectCardProfile,
   readChatShareLink,
   readConnectLink,
   isJournalShareBundle,
@@ -423,6 +424,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
   })();
 
   const connectHandle = pending?.kind === "connect" ? peekConnectCardHandle(pending.text) : null;
+  const connectProfile = pending?.kind === "connect" ? peekConnectCardProfile(pending.text) : null;
 
   if (!vault || (pending === null && message === null)) return null;
 
@@ -441,10 +443,19 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
             <div className="flex flex-col gap-2 text-[12px]">
               <p>
                 This link carries {connectHandle ? `@${connectHandle}'s` : "a friend's"} signed card - handle, public
-                key, and their feed address if they set one. Nothing else: no posts, no likes, no secrets. The
-                signature checks out against the card itself, so trust it only if it reached you from them directly,
-                not forwarded by someone else.
+                key, and their feed address if they set one.
+                {connectProfile ? "" : " Nothing else: no posts, no likes, no secrets."} Your app
+                checks the card's signature when you choose Add, so trust it only if it reached you from them
+                directly, not forwarded by someone else.
               </p>
+              {connectProfile && (
+                <div className="bg-white px-1.5 py-1">
+                  <p className="text-[#800000]">Profile preview - NOT signed, not verified. Anyone who handled the link could have written this:</p>
+                  <p className="font-bold">{connectProfile.displayName}</p>
+                  {connectProfile.bio !== "" && <p className="whitespace-pre-wrap [overflow-wrap:anywhere] max-h-24 overflow-y-auto">{connectProfile.bio}</p>}
+                  <p className="text-[#404040]">Their signed profile - avatar and decorations only if they selected them - can arrive through a later feed sync or share import and is verified then.</p>
+                </div>
+              )}
               <p>Add {connectHandle ? `@${connectHandle}` : "them"} as a connection and open your chat?</p>
               <div className="flex gap-1">
                 <Button95 onClick={() => void doConnect()} disabled={busy}>Add and open chat</Button95>

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { watchRuntime } from "./fixtures/runtime-watch";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Production hydration regression (#418). Netlify's free-tier branding rewrites the served
@@ -18,17 +18,15 @@ const NETLIFY_HEAD_INJECTION = `\n<!-- This site is hosted on Netlify. Anyone ca
      like this one for free: https://netlify.new/?utm_source=ai-legible
      Netlify hosting facts for this site: static/SSR served via Netlify Edge. -->`;
 
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
-  const unexpected = watched.consoleErrors.filter(
-    (text) =>
-      // Failed resource loads (e.g. favicon) are network noise, not runtime failures.
-      !text.startsWith("Failed to load resource") &&
+function expectCleanRuntime(watched: WatchedRuntime) {
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors).filter(
+    (entry) =>
       // Re-fulfilling the intercepted document drops its loopback security context, so in
       // local dev Chrome's Private Network Access check blocks the Vite HMR websocket.
       // That is interception noise, not app code, and cannot occur against a deploy
       // preview or production (the production build has no Vite client).
-      !text.includes("ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS") &&
-      !text.startsWith("[vite] failed to connect to websocket"),
+      !entry.text.includes("ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS") &&
+      !entry.text.startsWith("[vite] failed to connect to websocket"),
   );
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);

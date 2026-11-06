@@ -223,3 +223,32 @@ describe("wipe", () => {
     expect(source.records.size).toBe(0);
   });
 });
+
+describe("playlist record kind compatibility", () => {
+  it("playlist records survive the export/restore round trip", async () => {
+    const store = new MemoryStore();
+    const vault = await createVault({ store, crypto: new SubtleCryptoPort(), now: () => NOW }, PASSPHRASE);
+    await vault.putJson("playlist", "playlist:Gym", { format: "eic-playlist", version: 1, name: "Gym", savedAt: NOW.toISOString(), tracks: [] });
+    const backup = await exportBackup(store, NOW);
+    const store2 = new MemoryStore();
+    const result = await importBackup({ store: store2, crypto: new SubtleCryptoPort() }, backup);
+    expect(result.records).toBe(1);
+    const reopened = await unlockVault({ store: store2, crypto: new SubtleCryptoPort(), now: () => NOW }, PASSPHRASE);
+    expect((await reopened.listJson("playlist")).length).toBe(1);
+  });
+
+  it("a backup holding a kind the restoring build does not know fails honestly, not partially", async () => {
+    const store = new MemoryStore();
+    const vault = await createVault({ store, crypto: new SubtleCryptoPort(), now: () => NOW }, PASSPHRASE);
+    await vault.putJson("playlist", "playlist:Gym", { format: "eic-playlist", version: 1, name: "Gym", savedAt: NOW.toISOString(), tracks: [] });
+    const backup = JSON.parse(await exportBackup(store, NOW));
+    // Simulate an older build reading this backup: rewrite the kind to something unknown.
+    backup.records[0].kind = "kind-from-the-future";
+    const store2 = new MemoryStore();
+    await expect(importBackup({ store: store2, crypto: new SubtleCryptoPort() }, JSON.stringify(backup))).rejects.toThrow(
+      /not a Veil backup, or it is from a newer version/,
+    );
+    // Nothing partial was written: the store still has no vault.
+    expect((await store2.getBackupSnapshot()).meta).toBeNull();
+  });
+});

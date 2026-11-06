@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
-import { watchRuntime } from "./fixtures/runtime-watch";
+import { unexpectedConsoleErrors, watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Rollback data compatibility: this fixture is a real encrypted vault backup produced
@@ -58,5 +58,5 @@ test("a drawing saved by the pre-expansion Paint still restores and renders", as
   await page.getByText("old-drawing").first().click();
   await expect(page).toHaveURL(/\/feed\/|\/item/);
   expect(pageErrors).toEqual([]);
-  expect(consoleErrors.filter((text) => !text.startsWith("Failed to load resource"))).toEqual([]);
+  expect(unexpectedConsoleErrors(consoleErrors)).toEqual([]);
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const RecordKindSchema = z.enum(["item", "media", "thumb", "settings", "connection", "note", "journal", "identity", "chat", "profile", "calendar", "chore"]);
+export const RecordKindSchema = z.enum(["item", "media", "thumb", "settings", "connection", "note", "journal", "identity", "chat", "profile", "calendar", "chore", "playlist"]);
 export type RecordKind = z.infer<typeof RecordKindSchema>;
 
 export type Bytes = Uint8Array<ArrayBuffer>;

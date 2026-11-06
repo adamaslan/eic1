@@ -32,6 +32,34 @@ export const ChoreSchema = z.object({
 });
 export type Chore = z.infer<typeof ChoreSchema>;
 
+export const CHORE_PERSON_NAME_MAX = 40;
+/** The chart plans a rotating roster at most this many weeks past the current one. */
+export const CHORE_ROTATION_WEEKS = 8;
+
+/** A people list and the Sunday date key it takes effect. Past weeks keep earlier lists. */
+export const ChoreRotationSchema = z.object({
+  effectiveWeek: dateKeySchema,
+  people: z.array(z.string().min(1).max(CHORE_PERSON_NAME_MAX)).min(1).max(12),
+}).strict();
+/** A manual switch: one chore, one date, one name. Wins over the rotation for that date only. */
+export const ChoreOverrideSchema = z.object({
+  choreId: z.string().min(1),
+  date: dateKeySchema,
+  person: z.string().min(1).max(CHORE_PERSON_NAME_MAX),
+}).strict();
+export const ChoreChartSchema = z.object({
+  id: z.literal("chore-chart"),
+  rotations: z.array(ChoreRotationSchema),
+  overrides: z.array(ChoreOverrideSchema).default([]),
+  // Stable rotation slots in vault creation order. Deleted chores stay as tombstones so
+  // the remaining chores never renumber - a delete must not rewrite anyone's week.
+  slots: z.array(z.string().min(1)).default([]),
+  schemaVersion: z.literal(1),
+});
+export type ChoreRotation = z.infer<typeof ChoreRotationSchema>;
+export type ChoreOverride = z.infer<typeof ChoreOverrideSchema>;
+export type ChoreChart = z.infer<typeof ChoreChartSchema>;
+
 /** Local YYYY-MM-DD for a Date in the device's own timezone (never UTC-shifted). */
 export function localDateKey(date: Date): string {
   const year = String(date.getFullYear()).padStart(4, "0");
@@ -90,6 +118,61 @@ export function addDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+/** Sunday key of the week containing the given date key. */
+export function weekStartKey(key: string): string {
+  return localDateKey(weekOf(dateFromKey(key))[0]!);
+}
+
+/** Whole weeks between two Sunday week keys; negative when the anchor is later. */
+export function weeksBetween(anchorWeekKey: string, weekKey: string): number {
+  const ms = dateFromKey(weekKey).getTime() - dateFromKey(anchorWeekKey).getTime();
+  return Math.round(ms / (7 * 24 * 60 * 60 * 1000));
+}
+
+/**
+ * The people list in effect for a week: the latest rotation at or before it.
+ * Null for any week before the first registered week - the chart never assigns
+ * people into a past that predates the list that would produce them.
+ */
+export function rotationForWeek(chart: ChoreChart, weekKey: string): ChoreRotation | null {
+  const sorted = [...chart.rotations].sort((a, b) => a.effectiveWeek.localeCompare(b.effectiveWeek));
+  if (sorted.length === 0 || weekKey < sorted[0]!.effectiveWeek) return null;
+  let active: ChoreRotation | null = null;
+  for (const rotation of sorted) {
+    if (rotation.effectiveWeek <= weekKey) active = rotation;
+  }
+  return active;
+}
+
+/**
+ * A chore's stable rotation slot. Persisted slots never renumber (deleted chores stay as
+ * tombstones); a chore not yet recorded takes the next slot after the persisted ones, in
+ * the order listChores returns. -1 when the chore is not in the given list.
+ */
+export function choreSlot(chart: ChoreChart, chores: Chore[], choreId: string): number {
+  const recorded = chart.slots.indexOf(choreId);
+  if (recorded !== -1) return recorded;
+  let extra = 0;
+  for (const chore of chores) {
+    if (chart.slots.includes(chore.id)) continue;
+    if (chore.id === choreId) return chart.slots.length + extra;
+    extra += 1;
+  }
+  return -1;
+}
+
+/**
+ * The rotated name for a chore in a week: slot advances one person per week, in order.
+ * Slots are the chart's creation order, so each person's chores change sequentially.
+ * Null when the chart has no people yet.
+ */
+export function rotatedPerson(chart: ChoreChart, weekKey: string, slot: number): string | null {
+  const rotation = rotationForWeek(chart, weekKey);
+  if (!rotation || rotation.people.length === 0) return null;
+  const weeks = Math.max(0, weeksBetween(rotation.effectiveWeek, weekKey));
+  return rotation.people[(slot + weeks) % rotation.people.length] ?? null;
 }
 
 export interface MonthCell {

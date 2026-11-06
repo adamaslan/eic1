@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { watchRuntime } from "./fixtures/runtime-watch";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Same-instance transition smoke. Each test mounts a route and watches THE SAME component
@@ -14,12 +14,12 @@ import { watchRuntime } from "./fixtures/runtime-watch";
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
 
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
+function expectCleanRuntime(watched: WatchedRuntime) {
   // Failed resource loads (e.g. favicon) are network noise, not runtime failures.
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
-  expect([...watched.pageErrors, ...unexpected].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
+  expect([...watched.pageErrors, ...unexpected.map((entry) => entry.text)].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
 }
 
 let vaultCounter = 0;
