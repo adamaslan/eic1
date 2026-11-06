@@ -76,7 +76,9 @@ const ConnectCardSchema = z.object({
     pubkey: z.string().min(1),
     feedUrl: z.string().min(1).optional(),
   }),
-  profile: ConnectProfilePreviewSchema.optional(),
+  // Advisory and unsigned: invalid previews are discarded, never allowed to veto
+  // the signed base card. Build-time validation remains strict.
+  profile: ConnectProfilePreviewSchema.optional().catch(undefined),
   signature: z.string().min(1),
 });
 export type ConnectCard = z.infer<typeof ConnectCardSchema>;
