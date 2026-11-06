@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { watchRuntime } from "./fixtures/runtime-watch";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Journal share-as-link, end to end: the owner shares ONE entry explicitly; the link carries
@@ -10,11 +10,11 @@ import { watchRuntime } from "./fixtures/runtime-watch";
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
 
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+function expectCleanRuntime(watched: WatchedRuntime) {
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
-  expect([...watched.pageErrors, ...unexpected].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
+  expect([...watched.pageErrors, ...unexpected.map((entry) => entry.text)].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
 }
 
 test.setTimeout(240_000);
@@ -194,7 +194,25 @@ test("a blocked automatic copy offers explicit next steps, with the privacy warn
 
   // Nothing was copied; the explicit download choice hands out exactly the built link.
   expect(await page.evaluate(() => (window as unknown as { __shared: string[] }).__shared.length)).toBe(0);
+  await page.evaluate(() => {
+    const revoked: string[] = [];
+    (window as unknown as { __revoked: string[] }).__revoked = revoked;
+    const revoke = URL.revokeObjectURL.bind(URL);
+    URL.revokeObjectURL = (url: string) => { revoked.push(url); revoke(url); };
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      click.call(this);
+      (window as unknown as { __downloadAnchor: HTMLAnchorElement }).__downloadAnchor = this;
+      window.setTimeout(() => {
+        (window as unknown as { __retainedForBrowser: boolean }).__retainedForBrowser = this.isConnected && revoked.length === 0;
+      }, 0);
+    };
+  });
   await fileButton.click();
+  await expect(page.getByText("Download requested. The file holds the link as readable text.")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __retainedForBrowser: boolean }).__retainedForBrowser)).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __revoked: string[] }).__revoked.length)).toBe(1);
+  expect(await page.evaluate(() => (window as unknown as { __downloadAnchor: HTMLAnchorElement }).__downloadAnchor.isConnected)).toBe(false);
   await expect.poll(() => page.evaluate(() => (window as unknown as { __downloads: string[] }).__downloads.length)).toBe(1);
   const downloaded = await page.evaluate(() => (window as unknown as { __downloads: string[] }).__downloads[0]);
   expect(downloaded).toContain("#import=");
