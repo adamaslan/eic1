@@ -1,3 +1,4 @@
+import { Avatar } from "~/components/avatar";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
@@ -488,7 +489,7 @@ export default function Graph() {
                 return (
                   <li key={node.id} className={isSelected ? "bg-[#c0c0c0] px-1.5 py-1" : "bg-white px-1.5 py-1"}>
                     <Link to={node.href} className="font-bold text-[#0000cc] underline">
-                      {node.label}
+                      {(node.kind === "me" || node.kind === "connection") && <Avatar authorId={node.kind === "me" ? undefined : node.id.slice("connection:".length)} label={`${node.label}'s avatar`} />} {node.label}
                     </Link>
                     <span className="text-[#404040]">
                       {" "}— {KIND_LABEL[node.kind]}, {degree.get(node.id) ?? 0} {(degree.get(node.id) ?? 0) === 1 ? "link" : "links"}
@@ -574,6 +575,7 @@ export default function Graph() {
                       ) : (
                         <circle r={GRAPH_RADIUS[node.kind]} fill={FILL[node.kind]} stroke={isSelected ? "#000080" : "#0a0a0a"} strokeWidth={isSelected ? 2 : 1} />
                       )}
+                      {(node.kind === "me" || node.kind === "connection") && <Avatar svg size={24} authorId={node.kind === "me" ? undefined : node.id.slice("connection:".length)} label={`${node.label}'s avatar`} />}
                       {labelled && (
                         <text x={0} y={GRAPH_RADIUS[node.kind] + 12} textAnchor="middle" fontSize={compact ? 12 : 10} fill="#0a0a0a" style={{ pointerEvents: "none", fontFamily: "Courier New, monospace" }}>
                           {node.label}
