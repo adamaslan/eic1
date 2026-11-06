@@ -14,9 +14,12 @@ import {
   buildConnectLink,
   importConnectCard,
   peekConnectCardHandle,
+  peekConnectCardProfile,
   readChatShareLink,
   readConnectLink,
 } from "./chat-link";
+import { verifySignature } from "@veil/crypto";
+import { decodeBase64 } from "@veil/core";
 
 const NOW = new Date("2026-10-31T12:00:00Z");
 const BASE = "https://everybodyiscool.netlify.app/";
@@ -213,6 +216,83 @@ describe("connect links", () => {
     await saveSettings(carol, settingsFor("carol-id", "carol"));
     await expect(importConnectCard(carol, JSON.stringify(card), importDeps(settingsFor("carol-id", "carol")))).rejects.toThrow(/signature does not check out/);
     expect(await listConnections(carol)).toHaveLength(0);
+  });
+
+  it("rejects a handle-less recipient with guidance to Connections and connects nothing", async () => {
+    const { bob } = await pairedVaults();
+    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const carol = await open();
+    await expect(importConnectCard(carol, text, importDeps(defaultSettings()))).rejects.toThrow(
+      "Choose a handle on your Connections page before connecting, then open their link again."
+    );
+    expect(await listConnections(carol)).toHaveLength(0);
+  });
+
+  it("carries an optional display-only profile preview that never enters the signed subset", async () => {
+    const { bob } = await pairedVaults();
+    const carol = await open();
+    await saveSettings(carol, settingsFor("carol-id", "carol"));
+    const link = await buildConnectLink(bob, BASE, NOW, { displayName: "Bob Loblaw", bio: "Law blog." });
+    const text = readConnectLink(new URL(link).hash)!;
+    expect(peekConnectCardProfile(text)).toEqual({ displayName: "Bob Loblaw", bio: "Law blog." });
+    const result = await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
+    expect(result.handle).toBe("bob");
+  });
+
+  it("OLD-READER PROOF: an enriched card still verifies when unknown keys are stripped", async () => {
+    const { bob } = await pairedVaults();
+    const link = await buildConnectLink(bob, BASE, NOW, { displayName: "Bob Loblaw", bio: "Law blog." });
+    const text = readConnectLink(new URL(link).hash)!;
+    const card = JSON.parse(text) as Record<string, unknown> & { author: { pubkey: string }; signature: string };
+    // Simulate an old reader exactly: zod strips unknown keys, then it stringifies the
+    // remaining card minus signature and verifies. The preview must not break that.
+    const { format, version, exportedAt, author } = card as { format: unknown; version: unknown; exportedAt: unknown; author: unknown };
+    const ok = await verifySignature(
+      decodeBase64(card.author.pubkey),
+      new TextEncoder().encode(JSON.stringify({ format, version, exportedAt, author })),
+      decodeBase64(card.signature),
+    );
+    expect(ok).toBe(true);
+  });
+
+  it("a tampered preview still verifies (display-only, advisory) but a tampered author is rejected", async () => {
+    const { bob } = await pairedVaults();
+    const carol = await open();
+    await saveSettings(carol, settingsFor("carol-id", "carol"));
+    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW, { displayName: "Bob Loblaw", bio: "Law blog." })).hash)!;
+    const card = JSON.parse(text) as Record<string, unknown>;
+    // Preview is unsigned: altering it changes nothing about the connection decision.
+    card.profile = { displayName: "Totally Bob", bio: "edited in transit" };
+    const result = await importConnectCard(carol, JSON.stringify(card), importDeps(settingsFor("carol-id", "carol")));
+    expect(result.handle).toBe("bob");
+    // Author material remains fully signed.
+    const tampered = { ...card, author: { ...(card.author as Record<string, unknown>), handle: "b0b" } };
+    await expect(importConnectCard(carol, JSON.stringify(tampered), importDeps(settingsFor("carol-id", "carol")))).rejects.toThrow(/signature does not check out/);
+  });
+
+  it.each([
+    { displayName: "Bob", bio: "x".repeat(600) },
+    { displayName: "x".repeat(50), bio: "hello" },
+    null,
+    "not a profile",
+  ])("ignores malformed unsigned preview without bypassing signed verification: %j", async (profile) => {
+    const { bob } = await pairedVaults();
+    const carol = await open();
+    await saveSettings(carol, settingsFor("carol-id", "carol"));
+    const raw = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const card = { ...JSON.parse(raw), profile };
+    const text = JSON.stringify(card);
+    expect(peekConnectCardHandle(text)).toBe("bob");
+    expect(peekConnectCardProfile(text)).toBeNull();
+    expect(await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")))).toMatchObject({ handle: "bob", isNew: true });
+    card.author.handle = "mallory";
+    await expect(importConnectCard(carol, JSON.stringify(card), importDeps(settingsFor("carol-id", "carol")))).rejects.toThrow(/signature does not check out/);
+    expect((await connectionFor(carol, "bob-id")).handle).toBe("bob");
+  });
+
+  it("rejects an oversized preview at build time instead of producing a fat link", async () => {
+    const { bob } = await pairedVaults();
+    await expect(buildConnectLink(bob, BASE, NOW, { displayName: "Bob", bio: "x".repeat(501) })).rejects.toThrow();
   });
 
   it("rejects your own card and keeps nickname and sync state on re-import", async () => {
