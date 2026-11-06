@@ -1,3 +1,4 @@
+import { Avatar } from "~/components/avatar";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { AppError, timeAgo } from "@veil/core";
@@ -26,6 +27,7 @@ const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outli
 // Pure presentational half, exported for render tests. The route component below owns vault access.
 export function ChatThreadView({
   handle,
+  authorId,
   verified,
   messages,
   draft,
@@ -39,6 +41,7 @@ export function ChatThreadView({
   onOlderLink,
 }: {
   handle: string;
+  authorId?: string;
   verified: boolean;
   messages: ChatMessage[] | null;
   draft: string;
@@ -54,6 +57,7 @@ export function ChatThreadView({
   return (
     <div className="flex flex-col gap-3">
       <Window title={`Chat with @${handle}`}>
+        {authorId && <div className="flex items-center gap-2"><Avatar authorId={authorId} label={`${handle}'s avatar`} />@{handle}</div>}
         <div className="flex flex-col gap-2 text-[12px]">
           <p className="bg-[#ffffe1] px-1.5 py-1">
             Messages are sealed for @{handle} and live in your vault - chat is offline-first, and everything you see
@@ -87,7 +91,7 @@ export function ChatThreadView({
                   key={message.id}
                   className={`flex flex-col bg-white px-1.5 py-1 ${message.direction === "out" ? "items-end" : "items-start"}`}
                 >
-                  <span className="font-bold">{message.direction === "out" ? "You" : `@${handle}`}</span>
+                  <span className="inline-flex items-center gap-1 font-bold">{(message.direction === "out" || authorId) && <Avatar authorId={message.direction === "out" ? undefined : authorId} label={message.direction === "out" ? "Your avatar" : `${handle}'s avatar`} />}{message.direction === "out" ? "You" : `@${handle}`}</span>
                   <span className="whitespace-pre-wrap break-words">{message.body}</span>
                   <span className="text-[#404040]">{timeAgo(message.sentAt, new Date())} ago</span>
                 </li>
@@ -238,6 +242,7 @@ export default function Chat({ params }: Route.ComponentProps) {
   return (
     <ChatThreadView
       handle={connection.handle}
+      authorId={connection.id}
       verified={connection.pubkey !== null}
       messages={messages}
       draft={draft}

@@ -42,6 +42,18 @@ export function findManifestFileIndex(pool: { name: string }[], entryFile: strin
   return pool.findIndex((f) => f.name.replace(/^\d+-/, "") === stripped);
 }
 
+// The resume record is only worth writing when there is a real position to remember:
+// a fresh pick pauses at 0:00, and saving then would clobber the earlier resume point
+// before anything played.
+export function shouldSaveMusicSession(
+  state: { playing: boolean; positionSeconds: number },
+  preserveResumed: boolean,
+): boolean {
+  if (state.playing) return false;
+  if (preserveResumed) return false;
+  return state.positionSeconds > 0;
+}
+
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Music — Everybody is Cool" }];
 }
@@ -140,11 +152,8 @@ export default function Music() {
   // Remember where playback stopped, so a reopen can offer resume. Metadata only.
   useEffect(() => {
     if (!vault || !current) return;
-    if (preserveResumedSession.current) {
-      if (store.playing) preserveResumedSession.current = false;
-      return;
-    }
-    if (store.playing) return;
+    if (preserveResumedSession.current && store.playing) preserveResumedSession.current = false;
+    if (!shouldSaveMusicSession({ playing: store.playing, positionSeconds: store.currentTime }, preserveResumedSession.current)) return;
     void saveMusicSession(vault, {
       format: "eic-music-session",
       version: 1,

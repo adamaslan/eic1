@@ -1,3 +1,4 @@
+import { Avatar } from "~/components/avatar";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { formatPrice, hueFor, timeAgo, type Item } from "@veil/core";
@@ -23,7 +24,7 @@ function Open({ item, onOpen, children }: { item: Item; onOpen?: (item: Item) =>
 
 export function AuthorTag({ item }: { item: Item }) {
   if (!item.authorHandle) return null;
-  return <span className="text-[#404040]">@{item.authorHandle}</span>;
+  return <span className="inline-flex items-center gap-1 text-[#404040]"><Avatar authorId={item.authorId ?? undefined} label={`${item.authorHandle}'s avatar`} />@{item.authorHandle}</span>;
 }
 
 export function PhotoCard({

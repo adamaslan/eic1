@@ -25,3 +25,5 @@ export * from "./zip-store";
 export * from "./playlists";
 export * from "./profile-assets";
 export * from "./profile-avatars";
+
+export { loadDisplayAvatar } from "./display-avatar";

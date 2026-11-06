@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { watchRuntime } from "./fixtures/runtime-watch";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Share profile = the connect link plus a display-only preview of the SELECTED feed fields.
@@ -7,8 +7,8 @@ import { watchRuntime } from "./fixtures/runtime-watch";
  * the explicit connect tap. The private (unselected) draft bio never leaves the vault.
  */
 
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+function expectCleanRuntime(watched: WatchedRuntime) {
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
 }

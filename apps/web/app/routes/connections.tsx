@@ -1,3 +1,4 @@
+import { Avatar } from "~/components/avatar";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { AppError, HANDLE_MAX, timeAgo, type Connection } from "@veil/core";
@@ -58,7 +59,7 @@ export function ConnectionsList({
         const count = unread[connection.id] ?? 0;
         return (
           <li key={connection.id} className="flex items-center justify-between bg-white px-1.5 py-1">
-            <span className="font-bold">@{connection.handle}</span>
+            <span className="inline-flex items-center gap-1 font-bold"><Avatar authorId={connection.id} label={`${connection.handle}'s avatar`} />@{connection.handle}</span>
             <span className="flex items-center gap-2">
               {count > 0 && (
                 <span className="bg-[#000080] px-1 font-bold text-white" aria-label={`${count} unread message${count === 1 ? "" : "s"}`}>
@@ -311,7 +312,8 @@ export default function Connections() {
     return (
       <li key={connection.id} className="flex flex-col gap-1 bg-white px-1.5 py-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-          <span className="font-bold">
+          <span className="inline-flex items-center gap-1 font-bold">
+            <Avatar authorId={connection.id} label={`${connection.handle}'s avatar`} />
             {connection.nickname ? `${connection.nickname} (@${connection.handle})` : `@${connection.handle}`}
           </span>
           <span className="text-[#404040]">
