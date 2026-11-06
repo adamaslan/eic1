@@ -20,6 +20,7 @@ export default [
     route("vault", "routes/vault.tsx"),
     route("item/:id", "routes/item.tsx"),
   ]),
+  route("stickers", "routes/stickers.tsx"),
   route("music-library", "routes/music-library.tsx"),
   route("unlock", "routes/unlock.tsx"),
   route("*", "routes/not-found.tsx"),
