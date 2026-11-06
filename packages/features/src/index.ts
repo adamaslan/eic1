@@ -23,3 +23,5 @@ export * from "./profile-studio";
 export * from "./music";
 export * from "./profile-assets";
 export * from "./profile-avatars";
+
+export { loadDisplayAvatar } from "./display-avatar";
