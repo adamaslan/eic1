@@ -3,10 +3,10 @@ import { SubtleCryptoPort } from "@veil/crypto";
 import { createVault as createFixtureVault, exportBackup } from "@veil/vault";
 import { MemoryStore } from "../packages/vault/src/memory-store";
 import { expect, test, type Page } from "@playwright/test";
-import { watchRuntime } from "./fixtures/runtime-watch";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+function expectCleanRuntime(watched: WatchedRuntime) {
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
 }
