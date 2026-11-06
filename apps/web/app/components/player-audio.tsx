@@ -45,7 +45,14 @@ export function PlayerAudio() {
     urlRef.current = url;
     audio.src = url;
     if (usePlayerStore.getState().playing) {
-      void audio.play().catch(() => usePlayerStore.getState().setPlaying(false));
+      const attemptedFile = current.file;
+      void audio.play().catch(() => {
+        const store = usePlayerStore.getState();
+        // A skipped track's pending play() can reject after onError already advanced:
+        // only touch state when this rejection still belongs to the current track.
+        if (store.tracks[store.index]?.file !== attemptedFile) return;
+        store.setPlaying(false);
+      });
     }
   }, [currentFile, generation]);
 
@@ -60,9 +67,12 @@ export function PlayerAudio() {
     const audio = audioRef.current;
     if (!audio) return;
     if (playing && current) {
-      void audio.play().catch(() =>
-        usePlayerStore.getState().setNote("This browser blocked playback. Tap Play again."),
-      );
+      const attemptedFile = current.file;
+      void audio.play().catch(() => {
+        const store = usePlayerStore.getState();
+        if (store.tracks[store.index]?.file !== attemptedFile) return;
+        store.setNote("This browser blocked playback. Tap Play again.");
+      });
     } else {
       audio.pause();
     }
