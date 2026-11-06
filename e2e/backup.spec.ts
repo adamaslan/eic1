@@ -43,6 +43,9 @@ test("backup export, wipe, restore: seeded data survives the round trip", async 
   await page.goto("/tools/journal");
   await page.getByLabel("What is on your mind?").fill(journalText);
   await page.getByRole("button", { name: /Save entry/ }).click();
+  // The textarea already contains journalText before encryption finishes. Wait for
+  // the committed-save notice, not a text locator that also matches its input.
+  await expect(page.getByRole("status")).toHaveText("Saved - encrypted in this vault.");
   await expect(page.getByText(journalText)).toBeVisible();
 
   await page.goto("/compose");
