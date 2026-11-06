@@ -1,3 +1,4 @@
+import { Avatar } from "~/components/avatar";
 import { Link, Navigate, Outlet, useLocation } from "react-router";
 import { useClock } from "@veil/features";
 import { useFeatureEnabled } from "~/platform/use-gate";
@@ -56,6 +57,7 @@ export default function DesktopLayout() {
 // of slightly-taller-than-viewport pages with no way to scroll clear).
     <div className="flex h-screen h-dvh flex-col bg-[#008080]">
       <header className="p-2 pb-0">
+        <div className="mb-1 flex items-center gap-2"><Avatar /><Link to="/profile" className="text-[12px] text-white underline">My profile</Link><Link to="/stickers" className="text-[12px] text-white underline">Avatar stickers</Link></div>
         <nav aria-label="Main navigation" className="flex flex-wrap gap-1">
           {tabs.map((tab) => (
             <Bevel key={tab.id} variant={tab.id === active ? "in" : "out"}>
