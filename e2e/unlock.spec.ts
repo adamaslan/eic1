@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { watchRuntime } from "./fixtures/runtime-watch";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Returning-user unlock coverage. /unlock gates every returning user's encrypted data, and
@@ -13,9 +13,9 @@ import { watchRuntime } from "./fixtures/runtime-watch";
  * uncaught page errors, filtering only favicon-style failed resource loads.
  */
 
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
+function expectCleanRuntime(watched: WatchedRuntime) {
   // Failed resource loads (e.g. favicon) are network noise, not runtime failures.
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
 }
