@@ -1,5 +1,6 @@
 import type { Category, Item, ItemType } from "@veil/core";
 import type { UnlockedVault } from "@veil/vault";
+import { profileAvatarById, type ProfileAvatarId } from "./profile-avatars";
 
 interface DemoItem {
   id: string;
@@ -23,6 +24,40 @@ const DEMO_ITEMS: DemoItem[] = [
   { id: "demo-p4", type: "photo", title: "Rooftop, first warm day", category: "general", priceCents: null, description: "Everyone in the building came up at once.", ageMinutes: 180, likes: 94 },
   { id: "demo-l4", type: "listing", title: "Yashica T4 point & shoot", category: "cameras", priceCents: 41000, description: "Tested, light seals replaced. Comes with strap.", ageMinutes: 480, likes: 33 },
 ];
+
+export interface SampleAuthor {
+  handle: string;
+  avatarId: ProfileAvatarId;
+}
+
+// Fictional authors for the signed-out landing examples, keyed by the stable demo ids, so visitors
+// see how posts carry drawn avatars and handles. The sample items themselves stay authorless
+// (authorId/authorHandle null): this is a display label for sample cards, never vault authorship.
+// @maya matches the sample messages ("@maya liked ...", "Imported ... posts from @maya").
+const SAMPLE_AUTHORS: Record<string, SampleAuthor> = {
+  "demo-p1": { handle: "maya", avatarId: "seal" },
+  "demo-p2": { handle: "juno", avatarId: "cat" },
+  "demo-p3": { handle: "rex", avatarId: "alien" },
+  "demo-p4": { handle: "maya", avatarId: "seal" },
+  "demo-l1": { handle: "volt", avatarId: "robot" },
+  "demo-l2": { handle: "otis", avatarId: "frog" },
+  "demo-l3": { handle: "juno", avatarId: "dog" },
+  "demo-l4": { handle: "maya", avatarId: "seal" },
+};
+
+export interface ResolvedSampleAuthor extends SampleAuthor {
+  avatarLabel: string;
+  avatarData: string;
+}
+
+/** Returns the fictional author shown with a sample item, with its drawn avatar, or null for real items. */
+export function sampleAuthorFor(itemId: string): ResolvedSampleAuthor | null {
+  const author = SAMPLE_AUTHORS[itemId];
+  if (!author) return null;
+  const avatar = profileAvatarById(author.avatarId);
+  if (!avatar) return null;
+  return { ...author, avatarLabel: avatar.label, avatarData: avatar.data };
+}
 
 /** Builds the prototype items without touching a vault. The landing preview shows these as labelled samples. */
 export function getSampleItems(now: Date): Item[] {
