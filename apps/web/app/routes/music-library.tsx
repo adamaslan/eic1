@@ -48,8 +48,8 @@ export default function MusicLibrary() {
           <div className="flex min-w-0 flex-col gap-3">
             <h1 className="text-[20px] font-bold">music-library</h1>
             <p>42b - {tracks.length} songs. Listen without signing in.</p>
-            <p>Original MP3 files, unchanged. Pick a song to begin. Only the selected song loads; audio format support depends on your browser.</p>
-            <h2 className="break-words font-bold [overflow-wrap:anywhere]" data-testid="library-current">{track ? track.file.replace(/\.mp3$/i, "") : "Choose a song"}</h2>
+            <p>Original audio files, unchanged. Pick a song to begin. Only the selected song loads; audio format support depends on your browser.</p>
+            <h2 className="break-words font-bold [overflow-wrap:anywhere]" data-testid="library-current">{track ? track.file.replace(/\.(mp3|m4a)$/i, "") : "Choose a song"}</h2>
             <audio ref={audioRef} src={track ? `/42b/${encodeURIComponent(track.file).replace(/%2C/gi, ",")}` : undefined} preload="none" controls className="w-full min-w-0" data-testid="library-audio" onEnded={next} onPlaying={() => setNote("")} onError={() => setNote("This song could not be loaded or played. Try again or choose another song.")} />
             <div className="flex flex-wrap items-center gap-3">
               <Button95 disabled={index === null || index === 0} onClick={() => index !== null && select(index - 1)}>Previous</Button95>
@@ -61,7 +61,7 @@ export default function MusicLibrary() {
             <label className="flex flex-col gap-1">Find a song<input type="search" value={query} onChange={(e) => setQuery(e.target.value)} className="min-h-[44px] w-full min-w-0 bg-white p-2 [border:2px_inset_#fff]" /></label>
             <p>{visible.length} of {tracks.length} songs</p>
             <ol aria-label="42b songs" className="max-h-[50vh] overflow-y-auto bg-white p-1">
-              {visible.map((t) => <li key={t.file}><button type="button" aria-current={t.i === index ? "true" : undefined} className={`min-h-[44px] w-full px-2 py-2 text-left [overflow-wrap:anywhere] ${t.i === index ? "bg-[#000080] text-white" : "hover:bg-[#dcdcdc]"}`} onClick={() => select(t.i)}>{t.i + 1}. {t.file.replace(/\.mp3$/i, "")}</button></li>)}
+              {visible.map((t) => <li key={t.file}><button type="button" aria-current={t.i === index ? "true" : undefined} className={`min-h-[44px] w-full px-2 py-2 text-left [overflow-wrap:anywhere] ${t.i === index ? "bg-[#000080] text-white" : "hover:bg-[#dcdcdc]"}`} onClick={() => select(t.i)}>{t.i + 1}. {t.file.replace(/\.(mp3|m4a)$/i, "")}</button></li>)}
             </ol>
             {!visible.length && <p>No songs match that search.</p>}
           </div>

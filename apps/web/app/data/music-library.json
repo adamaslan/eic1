@@ -48,12 +48,6 @@
     "durationSeconds": 56.842449
   },
   {
-    "file": "Nahnahnahmah - Shalma.mp3",
-    "bytes": 1337159,
-    "sha256": "531faff7c82f6832f4ae33493498814da3fb6882e402abd0badd6345d9c870ab",
-    "durationSeconds": 101.668571
-  },
-  {
     "file": "I dont want to say goodbye to you.mp3",
     "bytes": 1932535,
     "sha256": "f8939179665e582bb2dab903166f0b5c4ddf2ee2e0d78b3b66970f607586e3fc",
@@ -238,5 +232,23 @@
     "bytes": 964394,
     "sha256": "65aefc0081129d526fdb445381da0ba281e43eb48fd59877b616e948e7814643",
     "durationSeconds": 70.217143
+  },
+  {
+    "file": "20230815-011900-i will never be the same.m4a",
+    "bytes": 644693,
+    "sha256": "36be3163ad4efdf611dc84fc2729bfc04344c2e6aa1b3fc10fd7b2f1f1c6d76c",
+    "durationSeconds": 46.416689
+  },
+  {
+    "file": "knowyoureloved 20220117-212045-kyl-fe.mp3",
+    "bytes": 539658,
+    "sha256": "55ce3bace99cc6c0cf00e94124515c0f04e5e62556aa3ea8c994e62bf403b6e7",
+    "durationSeconds": 46.994286
+  },
+  {
+    "file": "the way you support me 20230815-005244wav.m4a",
+    "bytes": 703719,
+    "sha256": "5d7a9108d263e53dfa22b8bcfc4c431abbd8fb037d609d019cef1c2aa00432a0",
+    "durationSeconds": 55.913651
   }
 ]
