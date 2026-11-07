@@ -12,7 +12,7 @@ test("homepage library works signed out, plays real audio, and keeps controls in
   await page.getByRole("link", { name: "Open the music library", exact: true }).click();
   await expect(page).toHaveURL(/\/music-library$/);
   const songs = page.getByRole("list", { name: "42b songs" });
-  await expect(songs.getByRole("button")).toHaveCount(40);
+  await expect(songs.getByRole("button")).toHaveCount(42);
   expect(audioRequests).toHaveLength(0);
   await songs.getByRole("button").first().click();
   const audio = page.getByTestId("library-audio");
@@ -20,7 +20,7 @@ test("homepage library works signed out, plays real audio, and keeps controls in
   await page.getByLabel("Playback speed").selectOption("1.5");
   await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.playbackRate)).toBe(1.5);
   await page.getByRole("button", { name: "Next", exact: true }).click();
-  await expect(page.getByTestId("library-current")).toContainText(tracks[1]!.file.replace(/\.mp3$/i, ""));
+  await expect(page.getByTestId("library-current")).toContainText(tracks[1]!.file.replace(/\.(mp3|m4a)$/i, ""));
   await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.currentTime)).toBeGreaterThan(0.1);
   await page.getByLabel("Find a song").fill("nothing-matches-this");
   await expect(page.getByText("No songs match that search.")).toBeVisible();
@@ -41,7 +41,7 @@ test("every original track is served byte-identical and loads as audio without s
     const url = `/42b/${encodeURIComponent(track.file).replace(/%2C/gi, ",")}`;
     const response = await request.get(url);
     expect(response.status(), track.file).toBe(200);
-    expect(response.headers()["content-type"], track.file).toMatch(/audio\/mpeg/);
+    expect(response.headers()["content-type"], track.file).toMatch(/audio\/(mpeg|mp4|x-m4a)/);
     const bytes = await response.body();
     expect(bytes.length).toBe(track.bytes);
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(track.sha256);
