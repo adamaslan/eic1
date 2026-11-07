@@ -2,6 +2,7 @@ import { Avatar } from "~/components/avatar";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { formatPrice, hueFor, timeAgo, type Item } from "@veil/core";
+import { sampleAuthorFor } from "@veil/features";
 import { Card95 } from "~/ui95/Card95";
 import { useMediaUri } from "~/platform/use-media-uri";
 import { useSessionStore } from "~/platform/session";
@@ -23,6 +24,24 @@ function Open({ item, onOpen, children }: { item: Item; onOpen?: (item: Item) =>
 }
 
 export function AuthorTag({ item }: { item: Item }) {
+  // Sample items (landing examples, demo seed) carry a fictional author with a built-in drawn avatar.
+  // No vault lookup: the avatar is a local asset, so this renders signed-out too.
+  const sample = sampleAuthorFor(item.id);
+  if (sample) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[#404040]">
+        <img
+          src={`data:image/png;base64,${sample.avatarData}`}
+          alt={`${sample.handle}'s avatar`}
+          title={sample.avatarLabel}
+          width={28}
+          height={28}
+          className="inline-block shrink-0 object-contain align-middle"
+        />
+        @{sample.handle}
+      </span>
+    );
+  }
   if (!item.authorHandle) return null;
   return <span className="inline-flex items-center gap-1 text-[#404040]"><Avatar authorId={item.authorId ?? undefined} label={`${item.authorHandle}'s avatar`} />@{item.authorHandle}</span>;
 }
@@ -59,7 +78,7 @@ export function PhotoCard({
             {timeAgo(item.createdAt, now)} · {item.likedByMe ? "♥" : "♡"} {item.likes}
           </span>
         </div>
-        {item.authorHandle && (
+        {(item.authorHandle || sampleAuthorFor(item.id)) && (
           <div className="px-1 pb-0.5 text-[11px]">
             <AuthorTag item={item} />
           </div>

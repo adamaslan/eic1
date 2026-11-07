@@ -5,7 +5,7 @@ import { getSampleItems, selectFeed, selectPicks } from "@veil/features";
 import { Button95 } from "~/ui95/Button95";
 import { Tabs95 } from "~/ui95/Tabs95";
 import { Window } from "~/ui95/Window";
-import { ListingRow, PhotoCard } from "~/components/cards";
+import { AuthorTag, ListingRow, PhotoCard } from "~/components/cards";
 
 const TABS = [
   { id: "feed", label: "Feed" },
@@ -116,6 +116,9 @@ function SampleDetail({ item, now, onBack }: { item: Item; now: Date; onBack: ()
       <h2 className="font-bold">{item.title}</h2>
       <p className="text-[#404040]">
         {item.category} · {formatPrice(item.priceCents)} · {timeAgo(item.createdAt, now)} · ♡ {item.likes}
+      </p>
+      <p className="text-[11px]">
+        <AuthorTag item={item} />
       </p>
       <p>{item.description}</p>
       <div className="flex flex-wrap gap-2">

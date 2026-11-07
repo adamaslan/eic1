@@ -34,3 +34,31 @@ test("private avatar decorates own shell and graph but never selected feed previ
   await page.getByRole("button", { name: "Lock", exact: true }).click(); await expect(page.getByAltText("Your avatar")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test("signed-out landing feed examples carry drawn avatars, and the gallery shows all 20", async ({ page }) => {
+  const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto("/");
+  // Feed tab: sample photo cards show their fictional authors' drawn avatars, no vault needed.
+  await expect(page.getByAltText("maya's avatar").first()).toBeVisible();
+  await expect(page.getByAltText("juno's avatar").first()).toBeVisible();
+  await expect(page.getByAltText("rex's avatar").first()).toBeVisible();
+  // Marketplace tab: sample listing rows carry authors too.
+  await page.getByRole("tab", { name: "Marketplace", exact: true }).click();
+  await expect(page.getByAltText("volt's avatar").first()).toBeVisible();
+  await expect(page.getByAltText("otis's avatar").first()).toBeVisible();
+  // Detail view of a sample item also names its author.
+  await page.getByRole("tab", { name: "Feed", exact: true }).click();
+  await page.getByRole("button", { name: /Cat asleep on the radiator/ }).click();
+  await expect(page.getByAltText("juno's avatar").first()).toBeVisible();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  // The gallery lists every drawn avatar and links the sticker downloads.
+  await expect(page.getByRole("list", { name: "The 20 drawn avatars", exact: true }).locator("img")).toHaveCount(20);
+  await expect(page.getByRole("link", { name: "Download all 20 as PNG stickers", exact: true })).toBeVisible();
+  // The music panel states the catalog-derived count and real formats, never a stale hardcode.
+  const musicCatalog = JSON.parse(await readFile(new URL("../apps/web/app/data/music-library.json", import.meta.url), "utf8")) as { file: string }[];
+  const formats = [...new Set(musicCatalog.map((track) => track.file.split(".").pop()?.toUpperCase()))].join(" and ");
+  await expect(page.getByText(`42b - ${musicCatalog.length} songs, free to play.`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`Original ${formats} files, unchanged.`, { exact: false })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
