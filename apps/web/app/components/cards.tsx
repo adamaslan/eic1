@@ -60,11 +60,22 @@ export function PhotoCard({
   const vault = useSessionStore((state) => state.vault);
   const thumbUri = useMediaUri(vault, item.thumbId, item.mediaMime);
   const hue = hueFor(item.id);
+  const sample = sampleAuthorFor(item.id);
   return (
     <Open item={item} onOpen={onOpen}>
       <Card95>
         {thumbUri ? (
           <img src={thumbUri} alt={item.title} style={{ height }} className="w-full object-cover" />
+        ) : sample ? (
+          // Sample items have no photo: show the example's drawn sticker big instead of a blank color panel.
+          <div style={{ height }} className="flex w-full items-center justify-center bg-white">
+            <img
+              src={`/stickers/eic-sticker-${sample.avatarId}.png`}
+              alt={`Drawn ${sample.avatarLabel} sticker`}
+              title={`${sample.avatarLabel} sticker`}
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
         ) : (
           <div
             style={{ height, background: `linear-gradient(135deg, hsl(${hue} 70% 60%), hsl(${(hue + 40) % 360} 70% 35%))` }}
@@ -78,7 +89,7 @@ export function PhotoCard({
             {timeAgo(item.createdAt, now)} · {item.likedByMe ? "♥" : "♡"} {item.likes}
           </span>
         </div>
-        {(item.authorHandle || sampleAuthorFor(item.id)) && (
+        {(item.authorHandle || sample) && (
           <div className="px-1 pb-0.5 text-[11px]">
             <AuthorTag item={item} />
           </div>
