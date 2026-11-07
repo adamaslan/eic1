@@ -42,6 +42,13 @@ test("signed-out landing feed examples carry drawn avatars, and the gallery show
   await expect(page.getByAltText("maya's avatar").first()).toBeVisible();
   await expect(page.getByAltText("juno's avatar").first()).toBeVisible();
   await expect(page.getByAltText("rex's avatar").first()).toBeVisible();
+  // The sample photo panels show the example's drawn sticker big, not a blank color panel.
+  const stickerPanels = page.locator('img[src^="/stickers/eic-sticker-"]');
+  await expect(stickerPanels).toHaveCount(4);
+  await expect(page.getByRole("img", { name: "Drawn Cat sticker", exact: true })).toBeVisible();
+  for (const sticker of await stickerPanels.all()) {
+    await expect(sticker).toHaveJSProperty("naturalWidth", 96);
+  }
   // Marketplace tab: sample listing rows carry authors too.
   await page.getByRole("tab", { name: "Marketplace", exact: true }).click();
   await expect(page.getByAltText("volt's avatar").first()).toBeVisible();
