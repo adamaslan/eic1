@@ -87,7 +87,7 @@ function Toggle({ label, checked, onChange, hint }: { label: string; checked: bo
       <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[var(--w95-title-a)]" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span>
         {label}
-        {hint && <span className="block text-[11px] text-[var(--w95-shade)]">{hint}</span>}
+        {hint && <span className="block text-[11px] text-[var(--w95-muted)]">{hint}</span>}
       </span>
     </label>
   );
@@ -215,12 +215,12 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
               <label key={key} className="flex items-center justify-between gap-2 text-[12px]">
                 <span>
                   {COLOR_LABELS[key]}
-                  {theme.custom[key] && <span className="text-[var(--w95-shade)]"> *</span>}
+                  {theme.custom[key] && <span className="text-[var(--w95-muted)]"> *</span>}
                 </span>
                 <input type="color" value={colors[key]} onChange={(e) => setColor(key, e.target.value)} className="h-7 w-12 cursor-pointer border border-[var(--w95-ink)] bg-[var(--w95-face)]" />
               </label>
             ))}
-            <p className="col-span-full text-[11px] text-[var(--w95-shade)]">* changed from the {themePresets[theme.preset].label} preset. Picking a preset clears your changes.</p>
+            <p className="col-span-full text-[11px] text-[var(--w95-muted)]">* changed from the {themePresets[theme.preset].label} preset. Picking a preset clears your changes.</p>
           </div>
         )}
 
@@ -256,7 +256,7 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
         {tab === "effects" && (
           <div className="flex flex-col gap-3">
             <Segmented label="Animation" value={theme.motion} options={MOTION_OPTIONS} onChange={(motion) => set({ motion })} />
-            <p className="text-[11px] text-[var(--w95-shade)]">Your device's reduce-motion setting always wins over Calm and Party.</p>
+            <p className="text-[11px] text-[var(--w95-muted)]">Your device's reduce-motion setting always wins over Calm and Party.</p>
             <Segmented label="Cursor" value={theme.cursor} options={CURSOR_OPTIONS} onChange={(cursor) => set({ cursor })} />
             <Toggle label="CRT scanlines" hint="Old-monitor glow over the whole desktop." checked={theme.crt} onChange={(crt) => set({ crt })} />
             <Toggle label="Click sounds" hint="Tiny synthesized beeps. Off by default." checked={theme.sounds} onChange={(sounds) => set({ sounds })} />
