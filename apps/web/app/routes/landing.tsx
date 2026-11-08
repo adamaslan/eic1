@@ -7,6 +7,7 @@ import { BUILD_DATE, BUILD_SHA } from "~/build-info";
 import { PROFILE_AVATARS } from "@veil/features";
 import { LandingDashboard } from "~/components/landing-dashboard";
 import { LandingPreview } from "~/components/landing-preview";
+import { FeatureGallery } from "~/components/feature-gallery";
 import musicCatalog from "~/data/music-library.json";
 
 export function meta(_args: Route.MetaArgs) {
@@ -71,6 +72,8 @@ export default function Landing() {
             </div>
           </div>
         </Window>
+
+        <FeatureGallery />
 
         <MusicLibraryBox />
 
@@ -197,6 +200,7 @@ function UnlockedLanding() {
         </nav>
         <MusicLibraryBox />
         <LandingDashboard />
+        <FeatureGallery unlocked />
         <p className="text-center text-[11px] text-[#c0c0c0]" title={`Built ${BUILD_DATE}`}>
           build {BUILD_SHA}
         </p>
