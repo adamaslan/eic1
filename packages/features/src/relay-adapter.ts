@@ -1,7 +1,7 @@
-import { AppError, VaultCorruptError } from "@veil/core";
+import { AppError, VaultCorruptError, type Bytes } from "@veil/core";
 import { signPayload, verifySignature } from "@veil/crypto";
 import { decodeBase64, encodeBase64 } from "@veil/core";
-import { CHUNK_ID_PATTERN, verifyRelayPublish, type RelayPublishRequest } from "./chat-relay";
+import { CHUNK_ID_PATTERN, base32Lower, verifyRelayPublish, type RelayPublishRequest } from "./chat-relay";
 
 // Relay endpoint core (proposal; nothing deployed or wired). Host-neutral: the caller
 // supplies an atomic store with compare-and-set semantics and owns the transport. The
@@ -242,7 +242,7 @@ export interface RelayReadRequest {
 }
 
 export async function signRelayRead(
-  secretKey: Uint8Array,
+  secretKey: Bytes,
   read: { feedPath: string; ts: number; nonce: string },
 ): Promise<string> {
   const payload = new TextEncoder().encode(`${read.feedPath}:${read.ts}:${read.nonce}`);
@@ -292,7 +292,7 @@ async function gateRelayRead(
   }
   const { store, ops } = countingStore(rawStore);
   const readerDigest = await globalThis.crypto.subtle.digest("SHA-256", decodeBase64(request.pubkey));
-  const nonceKey = `replay/${encodeBase64(new Uint8Array(readerDigest))}/${encodeURIComponent(objectPath)}/${request.nonce}`;
+  const nonceKey = `replay/${base32Lower(new Uint8Array(readerDigest))}/${encodeURIComponent(objectPath)}/${request.nonce}`;
   const fresh = await store.compareAndSet(nonceKey, String(request.ts), { createOnly: true });
   if (fresh === null) throw new AppError("That read request has already been used.");
   const entry = await store.get(`${request.feedPath}/.state.json`);
