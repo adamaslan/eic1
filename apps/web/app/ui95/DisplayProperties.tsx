@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   contrastRatio,
@@ -104,7 +104,7 @@ function Toggle({ label, checked, onChange, hint }: { label: string; checked: bo
       <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[var(--w95-title-a)]" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span>
         {label}
-        {hint && <span className="block text-[11px] text-[var(--w95-shade)]">{hint}</span>}
+        {hint && <span className="block text-[11px] text-[var(--w95-muted)]">{hint}</span>}
       </span>
     </label>
   );
@@ -113,6 +113,36 @@ function Toggle({ label, checked, onChange, hint }: { label: string; checked: bo
 export function DisplayProperties() {
   const open = useThemeStore((s) => s.displayOpen);
   const setOpen = useThemeStore((s) => s.setDisplayOpen);
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const panel = dialog.current;
+    panel?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+      } else if (event.key === "Tab" && panel) {
+        const items = [...panel.querySelectorAll<HTMLElement>("a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex='0']")]
+          .filter((item) => item.getClientRects().length > 0);
+        const first = items[0]; const last = items.at(-1);
+        if (!first) { event.preventDefault(); panel.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || document.activeElement === panel || !panel.contains(document.activeElement))) {
+          event.preventDefault(); last?.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || !panel.contains(document.activeElement))) {
+          event.preventDefault(); first.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      if (trigger?.isConnected) trigger.focus();
+      else document.querySelector<HTMLElement>("[data-start-button]")?.focus();
+    };
+  }, [open, setOpen]);
   return (
     <AnimatePresence>
       {open && (
@@ -130,6 +160,8 @@ export function DisplayProperties() {
           }}
         >
           <motion.div
+            ref={dialog}
+            tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-label="Display Properties"
@@ -208,7 +240,7 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
               <label key={key} className="flex items-center justify-between gap-2 text-[12px]">
                 <span>
                   {COLOR_LABELS[key]}
-                  {theme.custom[key] && <span className="text-[var(--w95-shade)]"> *</span>}
+                  {theme.custom[key] && <span className="text-[var(--w95-muted)]"> *</span>}
                 </span>
                 <input type="color" value={colors[key]} onChange={(e) => setColor(key, e.target.value)} className="h-7 w-12 cursor-pointer border border-[var(--w95-ink)] bg-[var(--w95-face)]" />
               </label>
@@ -216,7 +248,7 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
             <ContrastCheck label="Text on window face" fg={colors.ink} bg={colors.face} />
             <ContrastCheck label="Title text on title bar" fg={colors.titleText} bg={colors.titleA} />
             <ContrastCheck label="Links on window face" fg={colors.link} bg={colors.face} />
-            <p className="col-span-full text-[11px] text-[var(--w95-shade)]">* changed from the {themePresets[theme.preset].label} preset. Picking a preset clears your changes.</p>
+            <p className="col-span-full text-[11px] text-[var(--w95-muted)]">* changed from the {themePresets[theme.preset].label} preset. Picking a preset clears your changes.</p>
           </div>
         )}
 
@@ -273,7 +305,7 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
         {tab === "effects" && (
           <div className="flex flex-col gap-3">
             <Segmented label="Animation" value={theme.motion} options={MOTION_OPTIONS} onChange={(motion) => set({ motion })} />
-            <p className="text-[11px] text-[var(--w95-shade)]">Your device's reduce-motion setting always wins over Calm and Party.</p>
+            <p className="text-[11px] text-[var(--w95-muted)]">Your device's reduce-motion setting always wins over Calm and Party.</p>
             <Segmented label="Cursor" value={theme.cursor} options={CURSOR_OPTIONS} onChange={(cursor) => set({ cursor })} />
             <Segmented
               label="Cursor pack"
