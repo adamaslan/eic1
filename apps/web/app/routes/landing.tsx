@@ -200,11 +200,13 @@ function UnlockedLanding() {
             Lock
           </button>
         </nav>
-        <MusicLibraryBox />
-        <LandingDashboard />
-        <p className="text-center text-[11px] text-[#c0c0c0]" title={`Built ${BUILD_DATE}`}>
-          build {BUILD_SHA}
-        </p>
+        <div className="w95-zoom flex flex-col gap-3">
+          <MusicLibraryBox />
+          <LandingDashboard />
+          <p className="text-center text-[11px] text-[#c0c0c0]" title={`Built ${BUILD_DATE}`}>
+            build {BUILD_SHA}
+          </p>
+        </div>
       </div>
     </main>
   );
