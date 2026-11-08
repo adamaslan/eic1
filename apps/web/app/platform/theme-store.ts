@@ -15,6 +15,11 @@ import {
 // colours and toggles only - no names, handles, content or keys - so a shared theme code
 // reveals nothing about the person who made it.
 
+export type TitleStyle = "gradient" | "flat" | "stripes";
+export type SoundScheme = "classic" | "eightBit" | "silent";
+const TITLE_STYLES: readonly TitleStyle[] = ["gradient", "flat", "stripes"];
+const SOUND_SCHEMES: readonly SoundScheme[] = ["classic", "eightBit", "silent"];
+
 export type MotionLevel = "off" | "calm" | "party";
 export type CursorEffect = "none" | "sparkles" | "trail";
 
@@ -29,6 +34,10 @@ export interface ThemeSettings {
   cursor: CursorEffect;
   crt: boolean;
   sounds: boolean;
+  /** Title-bar look. */
+  titleStyle: TitleStyle;
+  /** Click-sound voice. "silent" keeps the sound switch but plays nothing. */
+  soundScheme: SoundScheme;
   /** Typeface pack for window text. */
   font: FontPackId;
   /** Rounded corners: a non-canonical but popular softening of the bevel. */
@@ -52,6 +61,8 @@ export const DEFAULT_THEME: ThemeSettings = {
   sounds: false,
   soft: false,
   font: "classic",
+  titleStyle: "gradient",
+  soundScheme: "classic",
 };
 
 const MOTION_LEVELS: readonly MotionLevel[] = ["off", "calm", "party"];
@@ -97,6 +108,8 @@ export function sanitizeTheme(input: unknown): ThemeSettings {
     sounds: raw.sounds === true,
     soft: raw.soft === true,
     font: isFont(raw.font) ? raw.font : DEFAULT_THEME.font,
+    titleStyle: TITLE_STYLES.includes(raw.titleStyle as TitleStyle) ? (raw.titleStyle as TitleStyle) : DEFAULT_THEME.titleStyle,
+    soundScheme: SOUND_SCHEMES.includes(raw.soundScheme as SoundScheme) ? (raw.soundScheme as SoundScheme) : DEFAULT_THEME.soundScheme,
   };
 }
 

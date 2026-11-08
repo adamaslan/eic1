@@ -38,7 +38,7 @@ export function Window({ title, children, className, icon, onClose }: WindowProp
       <Bevel variant="out">
         <div className="bg-[var(--w95-face)] p-0.5 text-[12px] text-[var(--w95-ink)]" style={{ fontFamily: "var(--w95-font, Tahoma, 'MS Sans Serif', Verdana, sans-serif)" }}>
           <div
-            className={`flex h-[20px] items-center gap-1 px-1.5 text-[12px] font-bold text-[var(--w95-title-text)] ${party ? "w95-shimmer" : ""}`}
+            className={`w95-title flex h-[20px] items-center gap-1 px-1.5 text-[12px] font-bold text-[var(--w95-title-text)] ${party ? "w95-shimmer" : ""}`}
             style={{ background: "linear-gradient(90deg, var(--w95-title-a) 0%, var(--w95-title-b) 50%, var(--w95-title-a) 100%)", backgroundSize: "200% 100%" }}
             onDoubleClick={() => setMinimized((m) => !m)}
           >

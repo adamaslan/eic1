@@ -238,6 +238,16 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
               Text size: {Math.round(theme.scale * 100)}%
               <input type="range" min={0.9} max={1.4} step={0.05} value={theme.scale} onChange={(e) => set({ scale: Number(e.target.value) })} />
             </label>
+            <Segmented
+              label="Title bars"
+              value={theme.titleStyle}
+              options={[
+                { id: "gradient", label: "Gradient" },
+                { id: "flat", label: "Flat" },
+                { id: "stripes", label: "Stripes" },
+              ]}
+              onChange={(titleStyle) => set({ titleStyle })}
+            />
             <Toggle label="Soft corners" hint="Rounds the bevels a little. Not period-accurate, very comfy." checked={theme.soft} onChange={(soft) => set({ soft })} />
           </div>
         )}
@@ -248,6 +258,16 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
             <p className="text-[11px] text-[var(--w95-shade)]">Your device's reduce-motion setting always wins over Calm and Party.</p>
             <Segmented label="Cursor" value={theme.cursor} options={CURSOR_OPTIONS} onChange={(cursor) => set({ cursor })} />
             <Toggle label="CRT scanlines" hint="Old-monitor glow over the whole desktop." checked={theme.crt} onChange={(crt) => set({ crt })} />
+            <Segmented
+              label="Sound voice"
+              value={theme.soundScheme}
+              options={[
+                { id: "classic", label: "Classic" },
+                { id: "eightBit", label: "8-bit" },
+                { id: "silent", label: "Silent" },
+              ]}
+              onChange={(soundScheme) => set({ soundScheme })}
+            />
             <Toggle label="Click sounds" hint="Tiny synthesized beeps. Off by default." checked={theme.sounds} onChange={(sounds) => set({ sounds })} />
           </div>
         )}

@@ -61,4 +61,9 @@ describe("theme settings", () => {
     expect(wcagLevel(contrastRatio(c.ink, c.face))).toBe("AAA");
     expect(wcagLevel(contrastRatio(c.titleText, c.titleA))).toBe("AAA");
   });
+
+  it("allowlists title-bar and sound-voice choices", () => {
+    expect(sanitizeTheme({ titleStyle: "stripes", soundScheme: "eightBit" })).toMatchObject({ titleStyle: "stripes", soundScheme: "eightBit" });
+    expect(sanitizeTheme({ titleStyle: "<img>", soundScheme: "boom" })).toMatchObject({ titleStyle: "gradient", soundScheme: "classic" });
+  });
 });

@@ -226,3 +226,11 @@ html[data-dark] :is(.bg-white, .bg-\[\#ffffe1\]) .text-\[\#800000\] {
 html[data-dark] :is(.bg-white, .bg-\[\#ffffe1\]) .text-\[\#008000\] {
   color: #008000;
 }
+
+/* Title-bar styles (Display Properties → Desktop). The default gradient is set inline in Window. */
+html[data-title="flat"] .w95-title {
+  background: var(--w95-title-a) !important;
+}
+html[data-title="stripes"] .w95-title {
+  background: repeating-linear-gradient(90deg, var(--w95-title-a) 0 6px, var(--w95-title-b) 6px 12px) !important;
+}

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { BUILD_DATE, BUILD_SHA } from "~/build-info";
 import { playBlip } from "~/platform/sounds";
@@ -26,6 +26,18 @@ export function Taskbar({ startLabel = "Start", onStart, clock, children, startI
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDate, setShowDate] = useState(false);
   const setDisplayOpen = useThemeStore((s) => s.setDisplayOpen);
+  // Ctrl+Esc (Win95 key) toggles Start from anywhere on the desktop.
+  useEffect(() => {
+    if (!startItems) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.key === "Escape") {
+        event.preventDefault();
+        setMenuOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [startItems]);
   return (
     <footer
       className="sticky inset-x-0 bottom-0 z-10 flex items-center gap-1 bg-[var(--w95-face)] p-1"

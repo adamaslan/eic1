@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { MotionConfig } from "motion/react";
 import { fontPacks } from "@veil/tokens";
 import { resolveColors, useThemeStore } from "~/platform/theme-store";
+import { playBlip } from "~/platform/sounds";
 
 const VARS: Record<string, keyof ReturnType<typeof resolveColors>> = {
   "--w95-face": "face",
@@ -36,6 +37,7 @@ export function ThemeRoot({ children }: { children: ReactNode }) {
     root.style.setProperty("--w95-font", fontPacks[theme.font].stack);
     root.style.setProperty("--w95-radius", theme.soft ? "6px" : "0px");
     root.dataset.wall = theme.wallpaper;
+    root.dataset.title = theme.titleStyle;
     root.dataset.motion = theme.motion;
     if (theme.crt) root.dataset.crt = "";
     else delete root.dataset.crt;
@@ -45,6 +47,23 @@ export function ThemeRoot({ children }: { children: ReactNode }) {
     else delete root.dataset.soft;
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", colors.desk);
   }, [theme]);
+
+  // Easter egg: type "hotdog" anywhere on the desktop to unlock the hot-dog stand.
+  useEffect(() => {
+    let typed = "";
+    const onKey = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (event.key.length !== 1) return;
+      typed = (typed + event.key.toLowerCase()).slice(-6);
+      if (typed === "hotdog") {
+        typed = "";
+        useThemeStore.getState().choosePreset("hotdog");
+        playBlip("tada");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // "off" disables every spring; "calm"/"party" still honour the OS reduced-motion setting.
   return (
