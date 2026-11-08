@@ -16,7 +16,7 @@ const SORTS: { value: MarketSort; label: string }[] = [
   { value: "price-asc", label: "Price: low to high" },
   { value: "price-desc", label: "Price: high to low" },
 ];
-const selectClass = "bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
+const selectClass = "bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none";
 
 export default function Market() {
   const vault = useSessionStore((state) => state.vault);
@@ -52,7 +52,7 @@ export default function Market() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search listings"
-          className="min-w-0 flex-1 bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none"
+          className="min-w-0 flex-1 bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none"
         />
         <select
           aria-label="Category"
@@ -73,7 +73,7 @@ export default function Market() {
       </div>
 
       {listings.length === 0 && (
-        <div className="flex flex-col items-start gap-2 text-[12px] text-[#0a0a0a]">
+        <div className="flex flex-col items-start gap-2 text-[12px] text-[var(--w95-ink)]">
           <p>{filtered ? "No listings match those filters." : "No listings yet."}</p>
           {!filtered && <DemoSeed onSeeded={reload} />}
         </div>

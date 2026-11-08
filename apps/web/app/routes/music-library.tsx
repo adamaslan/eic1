@@ -41,7 +41,7 @@ export default function MusicLibrary() {
 
   const visible = tracks.map((t, i) => ({ ...t, i })).filter((t) => t.file.toLowerCase().includes(query.toLowerCase()));
   return (
-    <main className="min-h-screen bg-[#008080] p-3 pb-8 text-[12px]">
+    <main className="w95-desktop min-h-screen p-3 pb-8 text-[12px]">
       <div className="mx-auto flex max-w-2xl flex-col gap-3">
         <Link to="/" className="inline-flex min-h-[44px] items-center text-white underline">Home</Link>
         <Window title="music-library">
@@ -61,7 +61,7 @@ export default function MusicLibrary() {
             <label className="flex flex-col gap-1">Find a song<input type="search" value={query} onChange={(e) => setQuery(e.target.value)} className="min-h-[44px] w-full min-w-0 bg-white p-2 [border:2px_inset_#fff]" /></label>
             <p>{visible.length} of {tracks.length} songs</p>
             <ol aria-label="42b songs" className="max-h-[50vh] overflow-y-auto bg-white p-1">
-              {visible.map((t) => <li key={t.file}><button type="button" aria-current={t.i === index ? "true" : undefined} className={`min-h-[44px] w-full px-2 py-2 text-left [overflow-wrap:anywhere] ${t.i === index ? "bg-[#000080] text-white" : "hover:bg-[#dcdcdc]"}`} onClick={() => select(t.i)}>{t.i + 1}. {t.file.replace(/\.(mp3|m4a)$/i, "")}</button></li>)}
+              {visible.map((t) => <li key={t.file}><button type="button" aria-current={t.i === index ? "true" : undefined} className={`min-h-[44px] w-full px-2 py-2 text-left [overflow-wrap:anywhere] ${t.i === index ? "bg-[var(--w95-title-a)] text-white" : "hover:bg-[#dcdcdc]"}`} onClick={() => select(t.i)}>{t.i + 1}. {t.file.replace(/\.(mp3|m4a)$/i, "")}</button></li>)}
             </ol>
             {!visible.length && <p>No songs match that search.</p>}
           </div>

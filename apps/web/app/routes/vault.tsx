@@ -117,13 +117,13 @@ export default function VaultScreen() {
           <Button95 onClick={handleExport}>Export encrypted backup</Button95>
           <Button95 onClick={lock}>Lock now</Button95>
         </div>
-        <p className="text-[#404040]">
+        <p className="text-[var(--w95-muted)]">
           To restore a backup on another browser, choose “Restore from backup” on that browser’s unlock screen.
         </p>
 
-        <fieldset className="flex flex-col gap-2 border border-[#808080] p-2">
+        <fieldset className="flex flex-col gap-2 border border-[var(--w95-shade)] p-2">
           <legend className="px-1 font-bold">Export a readable copy</legend>
-          <p className="text-[#404040]">
+          <p className="text-[var(--w95-muted)]">
             Plain JSON anyone with the file can read. It downloads to this device only; nothing is sent anywhere. For an
             encrypted copy, use the backup above.
           </p>
@@ -152,7 +152,7 @@ export default function VaultScreen() {
             </p>
           )}
           {pendingReadableExport && (
-            <div role="group" aria-label="Confirm readable export" className="flex flex-col gap-2 border border-[#808080] bg-[#ffffe1] p-2">
+            <div role="group" aria-label="Confirm readable export" className="flex flex-col gap-2 border border-[var(--w95-shade)] bg-[#ffffe1] p-2">
               <p><b>Confirm plaintext export:</b> {pendingReadableExport.description}. This JSON is unencrypted and anyone with the file can read it.</p>
               <div className="flex flex-wrap gap-2">
                 <Button95 onClick={confirmReadableExport}>Download readable JSON</Button95>
@@ -162,7 +162,7 @@ export default function VaultScreen() {
           )}
         </fieldset>
 
-        <fieldset className="flex flex-col gap-2 border border-[#808080] p-2">
+        <fieldset className="flex flex-col gap-2 border border-[var(--w95-shade)] p-2">
           <legend className="px-1 font-bold text-[#800000]">Danger zone</legend>
           {!confirming ? (
             <Button95 onClick={() => setConfirming(true)} className="self-start">

@@ -3,6 +3,7 @@ import type { Route } from "./+types/landing";
 import { Window } from "~/ui95/Window";
 import { Bevel } from "~/ui95/Bevel";
 import { useSessionStore } from "~/platform/session";
+import { useThemeStore } from "~/platform/theme-store";
 import { BUILD_DATE, BUILD_SHA } from "~/build-info";
 import { PROFILE_AVATARS } from "@veil/features";
 import { LandingDashboard } from "~/components/landing-dashboard";
@@ -42,7 +43,7 @@ const FACTS = [
   ["Lock", "auto, after 60 idle minutes"],
 ];
 
-const linkClass = "text-[#0000cc] underline";
+const linkClass = "text-[var(--w95-link)] underline";
 
 export default function Landing() {
   const unlocked = useSessionStore((state) => state.vault !== null);
@@ -50,7 +51,7 @@ export default function Landing() {
   if (unlocked) return <UnlockedLanding />;
 
   return (
-    <main className="min-h-screen bg-[#008080] p-3 pb-10">
+    <main className="w95-desktop min-h-screen p-3 pb-10">
       <div className="mx-auto flex max-w-3xl flex-col gap-3">
         <Window title="Everybody is Cool">
           <div className="flex flex-col gap-3 text-[12px]">
@@ -61,13 +62,13 @@ export default function Landing() {
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Link to="/unlock" className="inline-block min-h-[44px] sm:min-h-0">
-                <Bevel variant="out" className="bg-[#c0c0c0]">
-                  <span className="block px-4 py-2 text-[13px] font-bold text-[#0a0a0a]">
+                <Bevel variant="out" className="bg-[var(--w95-face)]">
+                  <span className="block px-4 py-2 text-[13px] font-bold text-[var(--w95-ink)]">
                     Create or open your vault
                   </span>
                 </Bevel>
               </Link>
-              <span className="text-[#404040]">Takes a passphrase and about ten seconds.</span>
+              <span className="text-[var(--w95-muted)]">Takes a passphrase and about ten seconds.</span>
             </div>
           </div>
         </Window>
@@ -163,7 +164,7 @@ function MusicLibraryBox() {
   return (
     <Window title="Music library">
       <div className="flex flex-col items-start gap-2 text-[12px] sm:flex-row sm:items-center sm:gap-3">
-        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-[22px] w-[22px] shrink-0 text-[#0a0a0a]" fill="currentColor">
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-[22px] w-[22px] shrink-0 text-[var(--w95-ink)]" fill="currentColor">
           <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
         </svg>
         <div className="min-w-0 sm:flex-1">
@@ -171,8 +172,8 @@ function MusicLibraryBox() {
           <p>Original {MUSIC_FORMATS} files, unchanged. Listen without signing in - no vault, no account, nothing to set up.</p>
         </div>
         <Link to="/music-library" className="inline-block min-h-[44px] sm:min-h-0">
-          <Bevel variant="out" className="bg-[#c0c0c0]">
-            <span className="block px-4 py-2 text-[13px] font-bold text-[#0a0a0a]">Open the music library</span>
+          <Bevel variant="out" className="bg-[var(--w95-face)]">
+            <span className="block px-4 py-2 text-[13px] font-bold text-[var(--w95-ink)]">Open the music library</span>
           </Bevel>
         </Link>
       </div>
@@ -182,16 +183,20 @@ function MusicLibraryBox() {
 
 function UnlockedLanding() {
   const lock = useSessionStore((state) => state.lock);
+  const openDisplay = useThemeStore((state) => state.setDisplayOpen);
   return (
-    <main className="min-h-screen bg-[#008080] p-3 pb-10">
+    <main className="w95-desktop min-h-screen p-3 pb-10">
       <div className="mx-auto flex max-w-5xl flex-col gap-3">
         <nav aria-label="Main navigation" className="flex flex-wrap items-center gap-1">
           {NAV.map(([to, label]) => (
-            <Link key={to} to={to} className="block min-h-[44px] bg-[#c0c0c0] px-3 py-1 text-[12px] text-[#0a0a0a] [border:2px_outset_#fff] sm:min-h-0">
+            <Link key={to} to={to} className="block min-h-[44px] bg-[var(--w95-face)] px-3 py-1 text-[12px] text-[var(--w95-ink)] [border:2px_outset_#fff] sm:min-h-0">
               {label}
             </Link>
           ))}
-          <button type="button" onClick={lock} className="ml-auto min-h-[44px] cursor-pointer bg-[#c0c0c0] px-3 py-1 text-[12px] text-[#0a0a0a] [border:2px_outset_#fff] sm:min-h-0">
+          <button type="button" onClick={() => openDisplay(true)} aria-label="Display Properties" className="ml-auto min-h-[44px] cursor-pointer bg-[var(--w95-face)] px-3 py-1 text-[12px] text-[var(--w95-ink)] [border:2px_outset_#fff] sm:min-h-0">
+            🎨 Display
+          </button>
+          <button type="button" onClick={lock} className=" min-h-[44px] cursor-pointer bg-[var(--w95-face)] px-3 py-1 text-[12px] text-[var(--w95-ink)] [border:2px_outset_#fff] sm:min-h-0">
             Lock
           </button>
         </nav>

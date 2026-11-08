@@ -97,15 +97,15 @@ export function ProfileView({
       <Window title={isOwn ? "My Profile" : `${nickname ?? handle ?? profile.displayName}'s profile`} className="relative mx-auto max-w-[420px]">
         <div className="flex flex-col gap-2" style={{ fontFamily: FONT_STACK[profile.theme.fontChoice] }}>
           {profile.avatar && (
-            <img src={`data:${profile.avatar.mime};base64,${profile.avatar.data}`} alt={`${profile.displayName}'s avatar`} className="h-16 w-16 border border-[#808080] object-cover" />
+            <img src={`data:${profile.avatar.mime};base64,${profile.avatar.data}`} alt={`${profile.displayName}'s avatar`} className="h-16 w-16 border border-[var(--w95-shade)] object-cover" />
           )}
           <p className="text-[16px] font-bold" style={{ color: ACCENT_COLOR[profile.theme.windowAccent] }}>{profile.displayName}</p>
           {handle && <p className="text-[12px]">@{handle}</p>}
           {isOwn === false && (
             <p className="text-[12px]">
               {verified ? `Signature verified from @${handle}` : "Unsigned - trust the sender"}
-              <span className="text-[#404040]"> · profile claims updated {timeAgo(profile.updatedAt, now)} ago</span>
-              {importedAt && <span className="text-[#404040]"> · bundle imported {timeAgo(importedAt, now)} ago</span>}
+              <span className="text-[var(--w95-muted)]"> · profile claims updated {timeAgo(profile.updatedAt, now)} ago</span>
+              {importedAt && <span className="text-[var(--w95-muted)]"> · bundle imported {timeAgo(importedAt, now)} ago</span>}
             </p>
           )}
           {profile.bio && <p className="whitespace-pre-wrap text-[12px]">{profile.bio}</p>}
@@ -230,12 +230,12 @@ export default function ProfileRoute() {
             <li>Your signed connect card - public key, no posts, no secrets. The handle and key are what their app verifies.</li>
             <li>Avatar, theme and decorations are NOT in the link; your selected versions can reach them through a later feed sync or share import.</li>
           </ul>
-          <p className="text-[#404040]">Anyone who gets the link can read it - share it directly with the person, not in a group.</p>
+          <p className="text-[var(--w95-muted)]">Anyone who gets the link can read it - share it directly with the person, not in a group.</p>
           <div className="flex items-center gap-2">
             <Button95 onClick={() => void shareProfile()} disabled={sharing || !ownerHandle}>{sharing ? "Sharing…" : "Share profile"}</Button95>
             {!ownerHandle && <span className="text-[#800000]">Save a handle on Connections first.</span>}
           </div>
-          {shareNote && <p role="status" className="text-[#404040]">{shareNote}</p>}
+          {shareNote && <p role="status" className="text-[var(--w95-muted)]">{shareNote}</p>}
         </div>
       </Window>
     )}

@@ -39,7 +39,7 @@ export function ProfileAssets({ profile, change }: { profile: Profile; change: (
     catch (e) { if (live.current) setError(e instanceof Error ? e.message : "Could not read this image. Your avatar is unchanged."); }
     finally { if (live.current) setBusy(false); if (fileInput.current) fileInput.current.value = ""; }
   }
-  return <fieldset disabled={busy} className="flex min-w-0 flex-col gap-2 border border-[#808080] p-2">
+  return <fieldset disabled={busy} className="flex min-w-0 flex-col gap-2 border border-[var(--w95-shade)] p-2">
     <legend>Avatar and decorations</legend>
     <p>Local files only. Avatar fits inside 96 x 96 without cropping, stored as PNG (25 KB cap), shown at 64 x 64. Save private draft to keep these edits. Sharing still needs explicit field selection and feed-profile update.</p>
     <label>Choose avatar image<input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" className="block max-w-full" onChange={e => void choose(e.target.files?.[0])} /></label>
