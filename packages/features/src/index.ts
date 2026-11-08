@@ -27,3 +27,4 @@ export * from "./profile-assets";
 export * from "./profile-avatars";
 
 export { loadDisplayAvatar } from "./display-avatar";
+export * from "./sticker-remix";
