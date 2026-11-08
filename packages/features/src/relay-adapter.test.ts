@@ -80,6 +80,16 @@ async function readRequest(key: Awaited<ReturnType<typeof generateSigningKeyPair
 }
 
 describe("admitRelayPublish", () => {
+  it("uses delimiter-safe fixed-width reader digest namespaces for nonce admission", async () => {
+    const {store,data}=memStore(); const key=await generateSigningKeyPair();
+    const path="feeds/"+"a".repeat(52); const now=Date.now();
+    const req=await readRequest(key,path,now,"test/nonce");
+    await expect(serveRelayRead(store,req,{now:new Date(now)})).rejects.toThrow(/not on the relay/);
+    const nonceKeys=[...data.keys()].filter(k=>k.startsWith("replay/"));
+    expect(nonceKeys).toHaveLength(1);
+    expect(nonceKeys[0]).toMatch(/^replay\/[a-z2-7]{52}\//);
+  });
+
   it("admits a valid publish into immutable seq-keyed objects and records ops", async () => {
     const { store, data } = memStore();
     const { key, request } = await signedPublish({ seq: 1 });
