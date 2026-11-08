@@ -60,13 +60,13 @@ const MAKE_AND_PLAY: GalleryFeature[] = [
 const FEED_MARKET_FRIENDS: GalleryFeature[] = [
   {
     title: "Photo feed",
-    blurb: "Keep photo moments in a private feed. The sample below shows what it looks like.",
+    blurb: "Keep photo moments in a private feed on your device.",
     to: "/feed",
     access: "vault",
   },
   {
     title: "Marketplace picks",
-    blurb: "Browse your listings and tune picks by category and keyword.",
+    blurb: "Browse your listings. Tune picks by category and keyword from your home dashboard.",
     to: "/market",
     access: "vault",
   },
