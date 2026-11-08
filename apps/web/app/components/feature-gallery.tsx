@@ -119,7 +119,7 @@ function ctaLabel(access: Access, unlocked: boolean): string {
 function Card({ feature, unlocked }: { feature: GalleryFeature; unlocked: boolean }) {
   return (
     <Link
-      to={feature.to}
+      to={!unlocked && feature.access === "vault" && feature.to === "/" ? "/unlock" : feature.to}
       className="block min-h-[44px] bg-white p-2 text-[12px] text-[#0a0a0a] [border:2px_inset_#fff] hover:bg-[#ffffe1]"
     >
       <span className="block font-bold">{feature.title}</span>
