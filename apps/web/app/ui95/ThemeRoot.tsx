@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { MotionConfig } from "motion/react";
+import { fontPacks } from "@veil/tokens";
 import { resolveColors, useThemeStore } from "~/platform/theme-store";
 
 const VARS: Record<string, keyof ReturnType<typeof resolveColors>> = {
@@ -32,6 +33,7 @@ export function ThemeRoot({ children }: { children: ReactNode }) {
     const colors = resolveColors(theme);
     for (const [name, key] of Object.entries(VARS)) root.style.setProperty(name, colors[key]);
     root.style.setProperty("--w95-scale", String(theme.scale));
+    root.style.setProperty("--w95-font", fontPacks[theme.font].stack);
     root.style.setProperty("--w95-radius", theme.soft ? "6px" : "0px");
     root.dataset.wall = theme.wallpaper;
     root.dataset.motion = theme.motion;

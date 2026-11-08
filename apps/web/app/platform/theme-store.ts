@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import {
+  fontPacks,
   themeColorKeys,
   themePresets,
   wallpapers,
   type ThemeColors,
+  type FontPackId,
   type ThemePresetId,
   type WallpaperId,
 } from "@veil/tokens";
@@ -27,6 +29,8 @@ export interface ThemeSettings {
   cursor: CursorEffect;
   crt: boolean;
   sounds: boolean;
+  /** Typeface pack for window text. */
+  font: FontPackId;
   /** Rounded corners: a non-canonical but popular softening of the bevel. */
   soft: boolean;
 }
@@ -47,6 +51,7 @@ export const DEFAULT_THEME: ThemeSettings = {
   crt: false,
   sounds: false,
   soft: false,
+  font: "classic",
 };
 
 const MOTION_LEVELS: readonly MotionLevel[] = ["off", "calm", "party"];
@@ -54,6 +59,10 @@ const CURSOR_EFFECTS: readonly CursorEffect[] = ["none", "sparkles", "trail"];
 
 function isPreset(value: unknown): value is ThemePresetId {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(themePresets, value);
+}
+
+function isFont(value: unknown): value is FontPackId {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(fontPacks, value);
 }
 
 function isWallpaper(value: unknown): value is WallpaperId {
@@ -87,6 +96,7 @@ export function sanitizeTheme(input: unknown): ThemeSettings {
     crt: raw.crt === true,
     sounds: raw.sounds === true,
     soft: raw.soft === true,
+    font: isFont(raw.font) ? raw.font : DEFAULT_THEME.font,
   };
 }
 

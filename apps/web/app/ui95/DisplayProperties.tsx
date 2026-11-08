@@ -1,6 +1,16 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { themeColorKeys, themePresets, wallpapers, type ThemeColors, type ThemePresetId } from "@veil/tokens";
+import {
+  contrastRatio,
+  fontPacks,
+  themeColorKeys,
+  themePresets,
+  wallpapers,
+  wcagLevel,
+  type FontPackId,
+  type ThemeColors,
+  type ThemePresetId,
+} from "@veil/tokens";
 import {
   decodeThemeCode,
   encodeThemeCode,
@@ -188,6 +198,9 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
                 <input type="color" value={colors[key]} onChange={(e) => setColor(key, e.target.value)} className="h-7 w-12 cursor-pointer border border-[var(--w95-ink)] bg-[var(--w95-face)]" />
               </label>
             ))}
+            <ContrastCheck label="Text on window face" fg={colors.ink} bg={colors.face} />
+            <ContrastCheck label="Title text on title bar" fg={colors.titleText} bg={colors.titleA} />
+            <ContrastCheck label="Links on window face" fg={colors.link} bg={colors.face} />
             <p className="col-span-full text-[11px] text-[var(--w95-shade)]">* changed from the {themePresets[theme.preset].label} preset. Picking a preset clears your changes.</p>
           </div>
         )}
@@ -212,6 +225,14 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
                   </button>
                 ))}
               </div>
+            </fieldset>
+            <fieldset className="flex flex-wrap items-center gap-1">
+              <legend className="mb-1 text-[12px]">Font</legend>
+              {(Object.keys(fontPacks) as FontPackId[]).map((id) => (
+                <Button95 key={id} pressed={theme.font === id} onClick={() => set({ font: id })}>
+                  <span style={{ fontFamily: fontPacks[id].stack }}>{fontPacks[id].label}</span>
+                </Button95>
+              ))}
             </fieldset>
             <label className="flex flex-col gap-1 text-[12px]">
               Text size: {Math.round(theme.scale * 100)}%
@@ -290,6 +311,26 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
         </p>
       </div>
     </Window>
+  );
+}
+
+// Live WCAG check for one colour pair, so a custom palette can't quietly become unreadable.
+function ContrastCheck({ label, fg, bg }: { label: string; fg: string; bg: string }) {
+  const ratio = contrastRatio(fg, bg);
+  const level = wcagLevel(ratio);
+  const verdict = level === "fail" ? "⚠️ fails" : level;
+  return (
+    <p className="col-span-full flex items-center justify-between gap-2 text-[11px]">
+      <span className="flex items-center gap-1">
+        <span aria-hidden="true" className="inline-block h-3 w-6 border border-[var(--w95-ink)]" style={{ background: bg, color: fg }}>
+          <span className="block text-center text-[9px] leading-[10px]" style={{ color: fg }}>Aa</span>
+        </span>
+        {label}
+      </span>
+      <span className="tabular-nums" aria-label={`${label} contrast ${ratio.toFixed(1)} to 1, ${verdict}`}>
+        {ratio.toFixed(1)}:1 {verdict}
+      </span>
+    </p>
   );
 }
 
