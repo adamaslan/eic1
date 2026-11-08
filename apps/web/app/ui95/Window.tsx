@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import { useThemeStore } from "~/platform/theme-store";
 import { playBlip } from "~/platform/sounds";
 import { Bevel } from "./Bevel";
@@ -66,20 +66,17 @@ export function Window({ title, children, className, icon, onClose }: WindowProp
               </TitleButton>
             )}
           </div>
-          <AnimatePresence initial={false}>
-            {!minimized && (
-              <motion.div
-                id={bodyId}
-                key="body"
-                initial={{ height: 0, opacity: 0, overflow: "hidden" }}
-                animate={{ height: "auto", opacity: 1, transitionEnd: { overflow: "visible" } }}
-                exit={{ height: 0, opacity: 0, overflow: "hidden" }}
-                transition={{ duration: 0.18 }}
-              >
-                <div className="p-2">{children}</div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <motion.div
+            id={bodyId}
+            inert={minimized}
+            aria-hidden={minimized}
+            initial={false}
+            animate={minimized ? { height: 0, opacity: 0 } : { height: "auto", opacity: 1 }}
+            style={{ overflow: minimized ? "hidden" : "visible" }}
+            transition={{ duration: 0.18 }}
+          >
+            <div className="p-2">{children}</div>
+          </motion.div>
         </div>
       </Bevel>
     </motion.div>
