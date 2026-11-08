@@ -79,6 +79,12 @@ describe("submitGuess", () => {
     expect(Object.keys(second.guesses)).toHaveLength(1);
   });
 
+  it("refuses a guess record over the 256-byte limit", () => {
+    const huge = "x".repeat(MAX_GUESS_BYTES);
+    expect(guessBytes(huge, 0)).toBeGreaterThan(MAX_GUESS_BYTES);
+    expect(() => submitGuess(openRound(), huge, 0, NOW)).toThrow(/256 bytes/);
+  });
+
   it("refuses an out-of-range guess", () => {
     expect(() => submitGuess(openRound(), "bob", 5 as never, NOW)).toThrow();
   });
