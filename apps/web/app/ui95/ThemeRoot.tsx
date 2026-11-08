@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { MotionConfig } from "motion/react";
-import { fontPacks, themePresets } from "@veil/tokens";
+import { MotionConfig, useReducedMotion } from "motion/react";
+import { fontPacks } from "@veil/tokens";
 import { resolveColors, useThemeStore, type CursorPack, type ThemeSettings } from "~/platform/theme-store";
 import { playBlip } from "~/platform/sounds";
+import { colorsAt, decorativeMotionOff, nextThemeBoundary } from "~/platform/theme-behavior";
 
 const VARS = {
   "--w95-face": "face",
@@ -18,21 +19,13 @@ const VARS = {
   "--w95-link": "link",
 } as const;
 
-// Hours when auto day/night switches to Midnight on this device.
-function isNight(date: Date): boolean {
-  const hour = date.getHours();
-  return hour >= 19 || hour < 7;
-}
-
-function colorsFor(theme: ThemeSettings) {
-  if (theme.autoDay && isNight(new Date())) return { ...themePresets.midnight.colors, ...theme.custom };
-  return resolveColors(theme);
-}
-
 // Applies Display Properties to the document after hydration. The prerendered shell
 // carries the classic defaults from app.css, so nothing here changes server/client markup.
 export function ThemeRoot({ children }: { children: ReactNode }) {
   const theme = useThemeStore((s) => s.theme);
+  const osReduced = useReducedMotion();
+  const still = decorativeMotionOff(theme.motion, osReduced === true);
+  const [clockVersion, setClockVersion] = useState(0);
   const loaded = useThemeStore((s) => s.loaded);
   const load = useThemeStore((s) => s.load);
 
@@ -42,7 +35,7 @@ export function ThemeRoot({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    const colors = colorsFor(theme);
+    const colors = colorsAt(theme, new Date());
     for (const [name, key] of Object.entries(VARS)) root.style.setProperty(name, colors[key]);
     root.style.setProperty("--w95-scale", String(theme.scale));
     root.style.setProperty("--w95-font", fontFor(theme));
@@ -56,7 +49,31 @@ export function ThemeRoot({ children }: { children: ReactNode }) {
     setFlag(root, "soft", theme.soft);
     setFlag(root, "dark", luminance(colors.ink) > luminance(colors.face));
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", colors.desk);
-  }, [theme]);
+  }, [theme, clockVersion]);
+
+  useEffect(() => {
+    if (!theme.autoDay) return;
+    let timer: number;
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        setClockVersion(v => v + 1);
+        schedule();
+      }, nextThemeBoundary(new Date()));
+    };
+    const resume = () => {
+      if (document.visibilityState === "visible") {
+        setClockVersion(v => v + 1);
+        schedule();
+      }
+    };
+    schedule();
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [theme.autoDay]);
 
   // Easter egg: type "hotdog" anywhere on the desktop to unlock the hot-dog stand.
   useEffect(() => {
@@ -79,10 +96,10 @@ export function ThemeRoot({ children }: { children: ReactNode }) {
   return (
     <MotionConfig reducedMotion={theme.motion === "off" ? "always" : "user"}>
       {children}
-      {theme.cursor !== "none" && theme.motion !== "off" && <CursorFx kind={theme.cursor} />}
-      {theme.confetti && theme.motion === "party" && <ConfettiFx />}
-      {theme.bootSplash && theme.motion !== "off" && <BootSplash />}
-      {theme.screensaver && <IdleSaver />}
+      {theme.cursor !== "none" && !still && <CursorFx kind={theme.cursor} />}
+      {theme.confetti && theme.motion === "party" && !still && <ConfettiFx />}
+      {theme.bootSplash && !still && <BootSplash />}
+      {theme.screensaver && <IdleSaver still={still} />}
     </MotionConfig>
   );
 }
@@ -165,7 +182,9 @@ function CursorFx({ kind }: { kind: "sparkles" | "trail" }) {
 const CONFETTI_LABEL = /save|send|share|post|submit|add entry/i;
 function ConfettiFx() {
   useEffect(() => {
+    const pieces = new Set<HTMLElement>();
     const onClick = (event: MouseEvent) => {
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       const button = (event.target as HTMLElement).closest("button");
       if (!button || !CONFETTI_LABEL.test(button.textContent ?? "")) return;
       const colors = ["#ff3fa4", "#ffd166", "#00e5ff", "#b6f24e", "#ffffff"];
@@ -181,6 +200,9 @@ function ConfettiFx() {
           pointerEvents: "none",
           zIndex: "75",
         });
+        if (pieces.size >= 42) { const oldest = pieces.values().next().value; oldest?.remove(); if (oldest) pieces.delete(oldest); }
+        pieces.add(piece);
+        piece.dataset.confetti = "";
         document.body.appendChild(piece);
         const dx = (Math.random() - 0.5) * 220;
         const dy = -60 - Math.random() * 120;
@@ -191,11 +213,14 @@ function ConfettiFx() {
           ],
           { duration: 900 + Math.random() * 400, easing: "cubic-bezier(.2,.7,.4,1)" },
         );
-        animation.onfinish = () => piece.remove();
+        animation.onfinish = () => { piece.remove(); pieces.delete(piece); };
       }
     };
     document.addEventListener("click", onClick, true);
-    return () => document.removeEventListener("click", onClick, true);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      pieces.forEach(piece => { piece.getAnimations().forEach(a => a.cancel()); piece.remove(); });
+    };
   }, []);
   return null;
 }
@@ -237,7 +262,7 @@ function BootSplash() {
 // Starfield after 5 idle minutes. Any input dismisses it. Shows no content, and is static
 // under reduced motion.
 const IDLE_MS = 5 * 60_000;
-function IdleSaver() {
+function IdleSaver({ still }: { still: boolean }) {
   const [idle, setIdle] = useState(false);
   useEffect(() => {
     let timer = window.setTimeout(() => setIdle(true), IDLE_MS);
@@ -254,16 +279,15 @@ function IdleSaver() {
     };
   }, []);
   if (!idle) return null;
-  return <Starfield />;
+  return <Starfield still={still} />;
 }
 
-function Starfield() {
+function Starfield({ still }: { still: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const el = canvas.current;
     const ctx = el?.getContext("2d");
     if (!el || !ctx) return;
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const stars = Array.from({ length: 140 }, () => ({ x: Math.random(), y: Math.random(), z: Math.random() * 0.9 + 0.1 }));
     let frame = 0;
     const draw = () => {
@@ -283,7 +307,7 @@ function Starfield() {
     };
     draw();
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [still]);
   return (
     <div role="presentation" className="fixed inset-0 z-[85] cursor-pointer">
       <canvas ref={canvas} aria-hidden="true" className="h-full w-full" />
