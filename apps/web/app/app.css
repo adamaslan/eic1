@@ -175,12 +175,16 @@ html[data-crt] body::after {
 /* Motion off, or the OS asks for less motion: freeze every decorative animation. */
 html[data-motion="off"] .w95-desktop,
 html[data-motion="off"] .w95-desktop *,
+html[data-motion="off"] [class*="w95-wall-"],
+html[data-motion="off"] .w95-shimmer,
 html[data-motion="off"] body::after {
   animation: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
   .w95-desktop *,
   .w95-desktop,
+  [class*="w95-wall-"],
+  .w95-shimmer,
   html[data-crt] body::after {
     animation: none !important;
   }
