@@ -14,15 +14,18 @@ const NOTES: Record<Blip, Array<[freq: number, start: number, dur: number]>> = {
 };
 
 export function playBlip(kind: Blip): void {
-  if (!useThemeStore.getState().theme.sounds) return;
+  const { sounds, soundScheme } = useThemeStore.getState().theme;
+  if (!sounds || soundScheme === "silent") return;
+  // Optional, gesture-driven haptic tick follows the same opt-in and Silent gate.
+  try { if (typeof navigator !== "undefined") navigator.vibrate?.(8); } catch { /* Unsupported or blocked. */ }
   try {
     ctx ??= new AudioContext();
     const now = ctx.currentTime;
     for (const [freq, start, dur] of NOTES[kind]) {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = "square";
-      osc.frequency.value = freq;
+      osc.type = soundScheme === "eightBit" ? "square" : "sine";
+      osc.frequency.value = soundScheme === "eightBit" ? freq * 1.5 : freq;
       gain.gain.setValueAtTime(0.04, now + start);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
       osc.connect(gain).connect(ctx.destination);
