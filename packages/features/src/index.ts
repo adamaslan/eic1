@@ -27,3 +27,6 @@ export * from "./profile-assets";
 export * from "./profile-avatars";
 
 export { loadDisplayAvatar } from "./display-avatar";
+
+export * from "./relay-client";
+export * from "./relay-outbox";
