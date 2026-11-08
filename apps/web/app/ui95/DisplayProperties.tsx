@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { themeColorKeys, themePresets, wallpapers, type ThemeColors, type ThemePresetId } from "@veil/tokens";
 import {
@@ -96,6 +96,36 @@ function Toggle({ label, checked, onChange, hint }: { label: string; checked: bo
 export function DisplayProperties() {
   const open = useThemeStore((s) => s.displayOpen);
   const setOpen = useThemeStore((s) => s.setDisplayOpen);
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const panel = dialog.current;
+    panel?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+      } else if (event.key === "Tab" && panel) {
+        const items = [...panel.querySelectorAll<HTMLElement>("a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex='0']")]
+          .filter((item) => item.getClientRects().length > 0);
+        const first = items[0]; const last = items.at(-1);
+        if (!first) { event.preventDefault(); panel.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || document.activeElement === panel || !panel.contains(document.activeElement))) {
+          event.preventDefault(); last?.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || !panel.contains(document.activeElement))) {
+          event.preventDefault(); first.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      if (trigger?.isConnected) trigger.focus();
+      else document.querySelector<HTMLElement>("[data-start-button]")?.focus();
+    };
+  }, [open, setOpen]);
   return (
     <AnimatePresence>
       {open && (
@@ -113,6 +143,8 @@ export function DisplayProperties() {
           }}
         >
           <motion.div
+            ref={dialog}
+            tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-label="Display Properties"
