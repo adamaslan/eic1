@@ -66,4 +66,11 @@ describe("theme settings", () => {
     expect(sanitizeTheme({ titleStyle: "stripes", soundScheme: "eightBit" })).toMatchObject({ titleStyle: "stripes", soundScheme: "eightBit" });
     expect(sanitizeTheme({ titleStyle: "<img>", soundScheme: "boom" })).toMatchObject({ titleStyle: "gradient", soundScheme: "classic" });
   });
+
+  it("allowlists every picks-3 setting and defaults safely", () => {
+    const bad = sanitizeTheme({ cursorPack: "<x>", transition: "spin", autoDay: "yes", oneHand: 1, screensaver: "on", bootSplash: 0, confetti: null, marquee: [], pet: {} });
+    expect(bad).toMatchObject({ cursorPack: "classic", transition: "fade", autoDay: false, oneHand: false, screensaver: false, bootSplash: false, confetti: false, marquee: false, pet: false });
+    const good = sanitizeTheme({ cursorPack: "sticker", transition: "slide", autoDay: true, oneHand: true, screensaver: true, bootSplash: true, confetti: true, marquee: true, pet: true });
+    expect(good).toMatchObject({ cursorPack: "sticker", transition: "slide", autoDay: true, oneHand: true, screensaver: true, bootSplash: true, confetti: true, marquee: true, pet: true });
+  });
 });

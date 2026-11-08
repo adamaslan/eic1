@@ -20,6 +20,11 @@ export type SoundScheme = "classic" | "eightBit" | "silent";
 const TITLE_STYLES: readonly TitleStyle[] = ["gradient", "flat", "stripes"];
 const SOUND_SCHEMES: readonly SoundScheme[] = ["classic", "eightBit", "silent"];
 
+export type CursorPack = "classic" | "hourglass" | "sticker";
+export type TransitionStyle = "fade" | "slide" | "none";
+const CURSOR_PACKS: readonly CursorPack[] = ["classic", "hourglass", "sticker"];
+const TRANSITIONS: readonly TransitionStyle[] = ["fade", "slide", "none"];
+
 export type MotionLevel = "off" | "calm" | "party";
 export type CursorEffect = "none" | "sparkles" | "trail";
 
@@ -36,6 +41,23 @@ export interface ThemeSettings {
   sounds: boolean;
   /** Title-bar look. */
   titleStyle: TitleStyle;
+  /** Day/night: Midnight after 19:00 and before 07:00 on this device's clock, when no preset is pinned. */
+  autoDay: boolean;
+  cursorPack: CursorPack;
+  /** Page-change animation. */
+  transition: TransitionStyle;
+  /** Puts the tab row and taskbar at the bottom for one-hand use on phones. */
+  oneHand: boolean;
+  /** Starfield after 5 idle minutes; never shows content. */
+  screensaver: boolean;
+  /** One-time 1.2s splash per browser session. */
+  bootSplash: boolean;
+  /** Confetti from save and send buttons in Party mode. */
+  confetti: boolean;
+  /** Scrolling tip in the taskbar. */
+  marquee: boolean;
+  /** Small desk pet in the tray. */
+  pet: boolean;
   /** Click-sound voice. "silent" keeps the sound switch but plays nothing. */
   soundScheme: SoundScheme;
   /** Typeface pack for window text. */
@@ -60,6 +82,15 @@ export const DEFAULT_THEME: ThemeSettings = {
   crt: false,
   sounds: false,
   soft: false,
+  autoDay: false,
+  cursorPack: "classic",
+  transition: "fade",
+  oneHand: false,
+  screensaver: false,
+  bootSplash: false,
+  confetti: false,
+  marquee: false,
+  pet: false,
   font: "classic",
   titleStyle: "gradient",
   soundScheme: "classic",
@@ -107,6 +138,15 @@ export function sanitizeTheme(input: unknown): ThemeSettings {
     crt: raw.crt === true,
     sounds: raw.sounds === true,
     soft: raw.soft === true,
+    autoDay: raw.autoDay === true,
+    cursorPack: CURSOR_PACKS.includes(raw.cursorPack as CursorPack) ? (raw.cursorPack as CursorPack) : DEFAULT_THEME.cursorPack,
+    transition: TRANSITIONS.includes(raw.transition as TransitionStyle) ? (raw.transition as TransitionStyle) : DEFAULT_THEME.transition,
+    oneHand: raw.oneHand === true,
+    screensaver: raw.screensaver === true,
+    bootSplash: raw.bootSplash === true,
+    confetti: raw.confetti === true,
+    marquee: raw.marquee === true,
+    pet: raw.pet === true,
     font: isFont(raw.font) ? raw.font : DEFAULT_THEME.font,
     titleStyle: TITLE_STYLES.includes(raw.titleStyle as TitleStyle) ? (raw.titleStyle as TitleStyle) : DEFAULT_THEME.titleStyle,
     soundScheme: SOUND_SCHEMES.includes(raw.soundScheme as SoundScheme) ? (raw.soundScheme as SoundScheme) : DEFAULT_THEME.soundScheme,

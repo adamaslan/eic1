@@ -234,3 +234,78 @@ html[data-title="flat"] .w95-title {
 html[data-title="stripes"] .w95-title {
   background: repeating-linear-gradient(90deg, var(--w95-title-a) 0 6px, var(--w95-title-b) 6px 12px) !important;
 }
+
+/* ---------- fun95 picks 3 ---------- */
+html[data-cursor] .w95-desktop,
+html[data-cursor] body {
+  cursor: var(--w95-cursor, auto);
+}
+
+@keyframes w95-boot {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* Party mode: failed-save and error dialogs give one small shake. The wording never changes. */
+html[data-motion="party"] [role="alert"] {
+  animation: w95-shake 0.4s ease-in-out;
+}
+@keyframes w95-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* Taskbar tip marquee: a single line that scrolls, stopped under still or reduced motion. */
+.w95-marquee-track {
+  display: inline-block;
+  white-space: nowrap;
+  padding-left: 100%;
+  animation: w95-marquee 14s linear infinite;
+}
+@keyframes w95-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+html[data-motion="off"] .w95-marquee-track,
+html[data-motion="still"] .w95-marquee-track {
+  animation: none;
+  padding-left: 0;
+}
+
+/* Tray pet: a little wiggle on hover, in Calm and Party. */
+.w95-pet:hover {
+  animation: w95-wiggle 0.6s ease-in-out infinite;
+}
+@keyframes w95-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-8deg); }
+  75% { transform: rotate(8deg); }
+}
+html[data-motion="off"] .w95-pet:hover {
+  animation: none;
+}
+
+/* Phones: Start menu becomes a full-width bottom sheet. */
+@media (max-width: 639px) {
+  .w95-start-sheet {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+  .w95-start-sheet ul {
+    padding-bottom: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w95-marquee-track,
+  .w95-pet:hover,
+  html[data-motion] [role="alert"] {
+    animation: none !important;
+  }
+}

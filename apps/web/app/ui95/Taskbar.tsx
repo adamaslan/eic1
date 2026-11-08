@@ -26,6 +26,8 @@ export function Taskbar({ startLabel = "Start", onStart, clock, children, startI
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDate, setShowDate] = useState(false);
   const setDisplayOpen = useThemeStore((s) => s.setDisplayOpen);
+  const pet = useThemeStore((s) => s.theme.pet);
+  const [petHearts, setPetHearts] = useState(0);
   // Ctrl+Esc (Win95 key) toggles Start from anywhere on the desktop.
   useEffect(() => {
     if (!startItems) return;
@@ -83,6 +85,20 @@ export function Taskbar({ startLabel = "Start", onStart, clock, children, startI
       <div className="flex min-w-0 flex-1 gap-1">{children}</div>
       <Bevel variant="in">
         <span className="flex items-center gap-1 px-1 py-0.5 text-[11px] tabular-nums text-[var(--w95-ink)]">
+          {pet && (
+            <button
+              type="button"
+              aria-label="Desk pet: tap to say hi"
+              title="Desk pet"
+              onClick={() => {
+                playBlip("click");
+                setPetHearts((n) => n + 1);
+              }}
+              className="w95-pet min-h-[36px] min-w-[28px] cursor-pointer text-[14px] sm:min-h-0"
+            >
+              {petHearts % 2 === 0 ? "🫧" : "💖"}
+            </button>
+          )}
           {startItems && (
             <button
               type="button"
