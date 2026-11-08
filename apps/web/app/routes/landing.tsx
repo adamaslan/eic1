@@ -6,8 +6,10 @@ import { useSessionStore } from "~/platform/session";
 import { useThemeStore } from "~/platform/theme-store";
 import { BUILD_DATE, BUILD_SHA } from "~/build-info";
 import { PROFILE_AVATARS } from "@veil/features";
+import { LandingPlayground } from "~/components/landing-playground";
 import { LandingDashboard } from "~/components/landing-dashboard";
 import { LandingPreview } from "~/components/landing-preview";
+import { FeatureGallery } from "~/components/feature-gallery";
 import musicCatalog from "~/data/music-library.json";
 
 export function meta(_args: Route.MetaArgs) {
@@ -52,26 +54,10 @@ export default function Landing() {
 
   return (
     <main className="w95-desktop min-h-screen p-3 pb-10">
-      <div className="mx-auto flex max-w-3xl flex-col gap-3">
-        <Window title="Everybody is Cool">
-          <div className="flex flex-col gap-3 text-[12px]">
-            <h1 className="text-[20px] font-bold leading-tight">A private marketplace that lives on your device.</h1>
-            <p className="max-w-prose">
-              Everybody is Cool is a feed and a classifieds board in one. Everything you post is encrypted with a passphrase only
-              you know, and it never leaves this browser unless you export it.
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <Link to="/unlock" className="inline-block min-h-[44px] sm:min-h-0">
-                <Bevel variant="out" className="bg-[var(--w95-face)]">
-                  <span className="block px-4 py-2 text-[13px] font-bold text-[var(--w95-ink)]">
-                    Create or open your vault
-                  </span>
-                </Bevel>
-              </Link>
-              <span className="text-[var(--w95-muted)]">Takes a passphrase and about ten seconds.</span>
-            </div>
-          </div>
-        </Window>
+      <div className="mx-auto flex max-w-6xl flex-col gap-5">
+        <LandingPlayground />
+
+        <FeatureGallery />
 
         <MusicLibraryBox />
 
@@ -200,11 +186,15 @@ function UnlockedLanding() {
             Lock
           </button>
         </nav>
-        <MusicLibraryBox />
-        <LandingDashboard />
-        <p className="text-center text-[11px] text-[#c0c0c0]" title={`Built ${BUILD_DATE}`}>
-          build {BUILD_SHA}
-        </p>
+        <div className="w95-zoom flex flex-col gap-3">
+          <MusicLibraryBox />
+          <LandingDashboard />
+          <LandingPlayground unlocked />
+          <FeatureGallery unlocked />
+          <p className="text-center text-[11px] text-[#c0c0c0]" title={`Built ${BUILD_DATE}`}>
+            build {BUILD_SHA}
+          </p>
+        </div>
       </div>
     </main>
   );
