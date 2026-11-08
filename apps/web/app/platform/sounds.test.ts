@@ -1,0 +1,10 @@
+import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
+import {useThemeStore,DEFAULT_THEME} from './theme-store';
+let tones:Array<{type:OscillatorType;frequency:number}>;
+let contextCreated:ReturnType<typeof vi.fn<() => void>>;
+let vibrate:ReturnType<typeof vi.fn<(duration: number) => void>>;
+beforeEach(()=>{vi.resetModules();tones=[];contextCreated=vi.fn();vibrate=vi.fn();vi.stubGlobal('navigator',{vibrate});vi.stubGlobal('AudioContext',class{currentTime=0;destination={};constructor(){contextCreated();}createOscillator(){const o={type:'sine' as OscillatorType,frequency:{value:0},connect(){return{connect(){}}},start(){tones.push({type:o.type,frequency:o.frequency.value})},stop(){}};return o;}createGain(){return{gain:{setValueAtTime(){},exponentialRampToValueAtTime(){}}}}});});
+afterEach(()=>{useThemeStore.setState({theme:{...DEFAULT_THEME,custom:{}}});vi.unstubAllGlobals();});
+// Keep the actual store instance used by sounds after module reset.
+async function play(sounds:boolean,soundScheme:'classic'|'eightBit'|'silent',kind:'click'|'open'='click'){const {useThemeStore:store,DEFAULT_THEME:defaults}=await import('./theme-store');store.setState({theme:{...defaults,custom:{},sounds,soundScheme}});const {playBlip}=await import('./sounds');playBlip(kind);}
+describe('opt-in sound behavior',()=>{it('off never creates audio or vibrates',async()=>{await play(false,'classic');expect(contextCreated).not.toHaveBeenCalled();expect(vibrate).not.toHaveBeenCalled();});it('Silent creates no audio or vibration even with sounds enabled',async()=>{await play(true,'silent');expect(contextCreated).not.toHaveBeenCalled();expect(tones).toEqual([]);expect(vibrate).not.toHaveBeenCalled();});it('Classic and 8-bit create different voices',async()=>{await play(true,'classic');const classic={...tones[0]};await play(true,'eightBit');expect(tones[1]).not.toEqual(classic);expect(vibrate).toHaveBeenCalledWith(8);});it('missing vibration or audio support is harmless',async()=>{vi.stubGlobal('navigator',{});vi.stubGlobal('AudioContext',class{constructor(){throw Error('unsupported')}});await expect(play(true,'classic','open')).resolves.toBeUndefined();});});
