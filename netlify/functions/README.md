@@ -26,14 +26,16 @@ What activation changes on the account (Free Legacy plan, $0 today): function
 invocations for share traffic and a `shared-posts` blob store (created on first
 publish). No paid features are required at current plan levels, but plan terms can
 change - the meters live under Usage & billing. A daily scheduled sweep for expired
-shares is deliberately NOT in this draft: phase 1 relies on lazy expiry at read time,
-and adding the cron is its own activation decision later.
+shares is deliberately NOT in this draft: lazy expiry only removes shares that are read again. Cleanup policy and scheduling
+are activation blockers requiring an owner decision, not a post-release follow-up.
 
 ## Known activation blockers (resolved before the flag goes on, not draft safeguards)
 
-- The abuse bounds are approximate: the blob store has no compare-and-swap, so
-  concurrent publishers can drift past the caps. They stop bulk abuse; they are not a
-  guaranteed budget bound.
+- Global post count/byte accounting is not one transaction with blob creation or
+  deletion. ETag CAS protects per-client rate claims, not the global storage budget.
+  A reservation/rollback design and concurrency proof remain required before activation.
+- Expired unread posts, rate records and absent-id revoke markers need an approved
+  bounded cleanup policy before activation. No cleanup job or deletion policy is added here.
 - Reads are unmetered: a widely forwarded link costs function invocations + bandwidth
   per view with no per-link throttle. Free-plan meters (Usage & billing) are the only
   backstop today.
@@ -41,10 +43,10 @@ and adding the cron is its own activation decision later.
 ## Proposed config (defaults in lib/share-core.ts, not owner-set preferences)
 
 - Retention: 90 days. A read that finds an EXPIRED share deletes it on sight (ordinary
-  reads are never destructive). A scheduled sweep (cleanup) is deferred to a later phase.
+  active reads leave content unchanged). A scheduled sweep requires an owner decision.
 - Size: 4 MB per shared bundle; photos recompress well under that.
-- Abuse bounds (approximate - the blob store has no compare-and-swap): 10 publishes per
-  client IP per hour; 500 live shares / 250 MB total. IPs are stored only as truncated
+- Abuse bounds: conditional ETag accounting limits 10 attempts (including invalid ones) per
+  client IP per hour; global 500-share / 250 MB caps remain approximate. IPs are stored only as truncated
   SHA-256 hashes for rate windows.
 - Revocation: the creator's delete key lives only in their vault. After revoke, the page
   and photo 404 within the cache window (60s page / 300s photo, must-revalidate). Note:
