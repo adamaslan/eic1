@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router";
 import { PROFILE_AVATARS } from "@veil/features";
 import { themePresets, type ThemePresetId } from "@veil/tokens";
@@ -49,11 +50,42 @@ export function LandingPlayground({ unlocked = false }: { unlocked?: boolean }) 
           <p className="eic-remix-note">Party mode switches between Party and Still. Choose Calm in All the knobs. Saved only on this device. Sound stays off unless you turn it on. Your device's reduced-motion setting always wins.</p>
         </Window>
         <div className="eic-mini-row">
-          <div className="eic-mixtape"><span className="eic-tape-label">42b / SIDE A</span><div className="eic-tape-reels"><i /><span>♫</span><i /></div><Link to="/music-library">Original songs. Zero login. ↗</Link></div>
+          <LandingCassette />
           <div className="eic-doodle"><span>your next masterpiece</span><div aria-hidden="true">✿<b>☺</b>✧</div><Link to={unlocked ? "/draw" : "/unlock"}>Open Paint ↗</Link></div>
         </div>
         <div className="eic-desk-note">✧ A real working preview of this build's customization. Your vault content stays private.</div>
       </div>
+    </section>
+  );
+}
+
+// Local visual toy only. It never starts audio or changes saved display preferences.
+function LandingCassette() {
+  const [sideB, setSideB] = useState(false);
+  const [spinning, setSpinning] = useState(false);
+  return (
+    <section aria-label="Two-sided mixtape" className="eic-mixtape" data-side={sideB ? "b" : "a"} data-spinning={spinning}>
+      <div className="eic-tape-stage" aria-hidden="true">
+        <div className="eic-tape-body">
+          <div className="eic-tape-face eic-tape-front">
+            <span className="eic-tape-label">42b / SIDE A</span>
+            <div className="eic-tape-reels"><i /><span>♫</span><i /></div>
+            <span className="eic-tape-scribble">original songs. zero login.</span>
+          </div>
+          <div className="eic-tape-face eic-tape-back">
+            <span className="eic-tape-label">42b / SIDE B</span>
+            <div className="eic-tape-reels"><i /><span>✧</span><i /></div>
+            <span className="eic-tape-scribble">a little weird. all yours.</span>
+          </div>
+        </div>
+      </div>
+      <p role="status" className="eic-tape-status">{sideB ? "Side B · Make it yours" : "Side A · Original songs"}</p>
+      <div className="eic-tape-controls">
+        <button type="button" onClick={() => setSideB(b => !b)} aria-label={sideB ? "Flip to Side A" : "Flip to Side B"}>Flip to {sideB ? "A" : "B"} ↻</button>
+        <button type="button" aria-pressed={spinning} onClick={() => setSpinning(s => !s)}>{spinning ? "Pause reels" : "Spin reels"}</button>
+      </div>
+      <p className="eic-tape-motion-note">Visual only. Still and reduced motion pause the animation.</p>
+      <Link to="/music-library" aria-label="Open cassette music library">Open music · {musicCatalog.length} songs ↗</Link>
     </section>
   );
 }
