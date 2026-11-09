@@ -6,7 +6,7 @@ import { Button95 } from "~/ui95/Button95";
 import { ProfileAssets } from "./profile-assets";
 import { Window } from "~/ui95/Window";
 
-const input = "w-full border border-[#808080] bg-white p-1 text-[12px] text-black";
+const input = "w-full border border-[var(--w95-shade)] bg-white p-1 text-[12px] text-black";
 const labels = { bio: "Bio", avatar: "Avatar", decorations: "Decorations", theme: "Background and theme", song: "Favorite song", book: "Favorite book" };
 export function ProfileStudio({ initial, vault, handle, renderPreview, onSaved }: {
   initial: ProfileDraft; vault: UnlockedVault; handle: string;
@@ -56,7 +56,7 @@ export function ProfileStudio({ initial, vault, handle, renderPreview, onSaved }
           <label>Profile font<select className={input} value={profile.theme.fontChoice} onChange={e => field({ theme: { ...profile.theme, fontChoice: e.target.value as Profile["theme"]["fontChoice"] } })}>{FONT_CHOICES.map(v => <option key={v}>{v}</option>)}</select></label>
         </div>
         <ProfileAssets profile={profile} change={next => field(next)} />
-        <fieldset className="flex flex-col gap-1 border border-[#808080] p-2"><legend>Include in feed profile</legend>
+        <fieldset className="flex flex-col gap-1 border border-[var(--w95-shade)] p-2"><legend>Include in feed profile</legend>
           {(Object.keys(labels) as Array<keyof typeof labels>).map(key => <label key={key} className="flex min-h-[36px] items-center gap-2"><input type="checkbox" checked={draft.selected[key]} onChange={e => setDraft({ ...draft, selected: { ...draft.selected, [key]: e.target.checked } })} />{labels[key]}</label>)}
         </fieldset>
         {projectionError && <p role="alert">{projectionError}</p>}

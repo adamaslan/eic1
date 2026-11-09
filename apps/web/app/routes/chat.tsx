@@ -22,7 +22,7 @@ export function meta(_args: Route.MetaArgs) {
   return [{ title: "Chat — Everybody is Cool" }];
 }
 
-const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
+const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none";
 
 // Pure presentational half, exported for render tests. The route component below owns vault access.
 export function ChatThreadView({
@@ -93,7 +93,7 @@ export function ChatThreadView({
                 >
                   <span className="inline-flex items-center gap-1 font-bold">{(message.direction === "out" || authorId) && <Avatar authorId={message.direction === "out" ? undefined : authorId} label={message.direction === "out" ? "Your avatar" : `${handle}'s avatar`} />}{message.direction === "out" ? "You" : `@${handle}`}</span>
                   <span className="whitespace-pre-wrap break-words">{message.body}</span>
-                  <span className="text-[#404040]">{timeAgo(message.sentAt, new Date())} ago</span>
+                  <span className="text-[var(--w95-muted)]">{timeAgo(message.sentAt, new Date())} ago</span>
                 </li>
               ))}
             </ul>
@@ -116,7 +116,7 @@ export function ChatThreadView({
             <Button95 type="submit" disabled={busy || !verified || !draft.trim()}>
               Send
             </Button95>
-            <span className="text-[#404040]">
+            <span className="text-[var(--w95-muted)]">
               {draft.length}/{CHAT_BODY_MAX}
             </span>
           </div>

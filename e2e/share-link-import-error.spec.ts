@@ -79,8 +79,8 @@ test("handle-less recipient sees an honest import error and can still import the
   await pageB.getByRole("button", { name: "Import", exact: true }).click();
   // First contact imports the post AND saves the sender's verified key - the
   // confirmation must name both, with honest counts (not only "Chat unlocked").
-  await expect(pageB.getByRole("status")).toContainText("Imported from @sender: 1 new, 0 updated");
-  await expect(pageB.getByRole("status")).toContainText("Chat unlocked with @sender");
+  await expect(pageB.getByRole("status").filter({ hasText: /^Imported from @sender:/ })).toContainText("Imported from @sender: 1 new, 0 updated");
+  await expect(pageB.getByRole("status").filter({ hasText: /^Imported from @sender:/ })).toContainText("Chat unlocked with @sender");
   await pageB.getByRole("button", { name: "Close" }).click();
   await pageB.goto("/market");
   await expect(pageB.getByText(title)).toBeVisible();

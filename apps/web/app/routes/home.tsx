@@ -20,7 +20,7 @@ export default function Home() {
   const [pressed, setPressed] = useState(false);
 
   return (
-    <main className="flex min-h-screen flex-col bg-[#008080] p-3">
+    <main className="w95-desktop flex min-h-screen flex-col p-3">
       <div className="flex-1">
       <Window title="Everybody is Cool — primitives">
         <div className="flex flex-col gap-3">
@@ -32,7 +32,7 @@ export default function Home() {
             ))}
           </div>
           <p role="status" className="text-[12px]">Active view: {active}</p>
-          <Link to="/unlock" className="text-[12px] text-[#0000cc] underline">
+          <Link to="/unlock" className="text-[12px] text-[var(--w95-link)] underline">
             Open vault
           </Link>
           <Button95 pressed={pressed} onClick={() => setPressed((p) => !p)}>

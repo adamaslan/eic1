@@ -30,7 +30,7 @@ export function meta(_args: Route.MetaArgs) {
   return [{ title: "Connections — Everybody is Cool" }];
 }
 
-const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
+const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none";
 
 
 // Pure presentational half, exported for render tests: connection rows with chat links + unread badges.
@@ -62,7 +62,7 @@ export function ConnectionsList({
             <span className="inline-flex items-center gap-1 font-bold"><Avatar authorId={connection.id} label={`${connection.handle}'s avatar`} />@{connection.handle}</span>
             <span className="flex items-center gap-2">
               {count > 0 && (
-                <span className="bg-[#000080] px-1 font-bold text-white" aria-label={`${count} unread message${count === 1 ? "" : "s"}`}>
+                <span className="bg-[var(--w95-title-a)] px-1 font-bold text-white" aria-label={`${count} unread message${count === 1 ? "" : "s"}`}>
                   {count} new
                 </span>
               )}
@@ -78,7 +78,7 @@ export function ConnectionsList({
                   {connection.syncDetail ? `: ${connection.syncDetail}` : ""}
                 </span>
               )}
-              <span className="text-[#404040]">connected {timeAgo(connection.addedAt, now)} ago</span>
+              <span className="text-[var(--w95-muted)]">connected {timeAgo(connection.addedAt, now)} ago</span>
             </span>
           </li>
         );
@@ -316,11 +316,11 @@ export default function Connections() {
             <Avatar authorId={connection.id} label={`${connection.handle}'s avatar`} />
             {connection.nickname ? `${connection.nickname} (@${connection.handle})` : `@${connection.handle}`}
           </span>
-          <span className="text-[#404040]">
+          <span className="text-[var(--w95-muted)]">
             {postCount} post{postCount === 1 ? "" : "s"} · last import {timeAgo(connection.lastImportAt ?? connection.addedAt, new Date())} ago
           </span>
           {unreadCount > 0 && (
-            <span className="bg-[#000080] px-1 font-bold text-white" aria-label={`${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`}>
+            <span className="bg-[var(--w95-title-a)] px-1 font-bold text-white" aria-label={`${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`}>
               {unreadCount} new
             </span>
           )}
@@ -417,7 +417,7 @@ export default function Connections() {
           <div>
             <Button95 onClick={importPasted} disabled={busy || !social.settingsReady || !settings.handle || !pasted.trim()}>Import pasted text</Button95>
           </div>
-          {!settings.handle && <p className="text-[#404040]">Choose a handle first.</p>}
+          {!settings.handle && <p className="text-[var(--w95-muted)]">Choose a handle first.</p>}
           {rotationPrompt && (
             <div className="flex flex-col gap-1 bg-[#ffffe1] px-1.5 py-1">
               <p role="alert">{rotationPrompt}</p>

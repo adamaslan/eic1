@@ -199,7 +199,7 @@ export default function Journal() {
   return (
     <div className="flex flex-col gap-3">
       <Window title="New entry">
-        <form onSubmit={save} className="flex flex-col gap-2 text-[12px] text-[#0a0a0a]">
+        <form onSubmit={save} className="flex flex-col gap-2 text-[12px] text-[var(--w95-ink)]">
           <label htmlFor="journal-text" className="font-bold">What is on your mind?</label>
           <textarea
             id="journal-text"
@@ -214,7 +214,7 @@ export default function Journal() {
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button95 type="submit" className="shrink-0 whitespace-nowrap" disabled={saving || !text.trim()}>{saving ? "Encrypting…" : "🔒 Save entry"}</Button95>
-            <span className="text-[11px] text-[#404040]">Ctrl/⌘+Enter also saves. Entries stay encrypted in this vault. Post share files never include journal entries; they leave only when you export a copy or share an entry's link yourself.</span>
+            <span className="text-[11px] text-[var(--w95-muted)]">Ctrl/⌘+Enter also saves. Entries stay encrypted in this vault. Post share files never include journal entries; they leave only when you export a copy or share an entry's link yourself.</span>
           </div>
           {error && <p role="alert" className="text-[#800000]">{error}</p>}
           {notice && <p role="status">{notice}</p>}
@@ -230,7 +230,7 @@ export default function Journal() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search entries"
               aria-label="Search entries"
-              className="w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px]"
+              className="w-full bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none sm:w-[260px]"
             />
             <div className="flex flex-wrap items-center gap-1">
               {JOURNAL_DATE_RANGES.map((option) => (
@@ -250,7 +250,7 @@ export default function Journal() {
               )}
             </div>
             {filterActive && filtered !== null && (
-              <p className="text-[11px] text-[#404040]">
+              <p className="text-[11px] text-[var(--w95-muted)]">
                 Showing {filtered.entries.length} of {filtered.total} {filtered.total === 1 ? "entry" : "entries"}.
               </p>
             )}
@@ -290,14 +290,14 @@ export default function Journal() {
                 ) : (
                   <>
                     <p className="whitespace-pre-wrap">{entry.text}</p>
-                    <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[#404040]">
+                    <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[var(--w95-muted)]">
                       <span>{timeAgo(entry.createdAt, now)} ago</span>
                       {editingEnabled && (
-                        <button type="button" onClick={() => startEdit(entry)} className="text-[#0000cc] underline">
+                        <button type="button" onClick={() => startEdit(entry)} className="text-[var(--w95-link)] underline">
                           Edit
                         </button>
                       )}
-                      <button type="button" onClick={() => void shareEntry(entry)} className="text-[#0000cc] underline">
+                      <button type="button" onClick={() => void shareEntry(entry)} className="text-[var(--w95-link)] underline">
                         Share
                       </button>
                       {confirmingId === entry.id ? (
@@ -306,7 +306,7 @@ export default function Journal() {
                           <button type="button" onClick={() => void remove(entry)} className="font-bold text-[#800000] underline">
                             Yes, delete
                           </button>
-                          <button type="button" onClick={() => setConfirmingId(null)} className="text-[#0000cc] underline">
+                          <button type="button" onClick={() => setConfirmingId(null)} className="text-[var(--w95-link)] underline">
                             Keep
                           </button>
                         </>
@@ -317,14 +317,14 @@ export default function Journal() {
                       )}
                     </div>
                     {shareState?.id === entry.id && shareState.kind !== "fallback" && (
-                      <p className="mt-0.5 text-[11px] text-[#404040]">
+                      <p className="mt-0.5 text-[11px] text-[var(--w95-muted)]">
                         {shareState.kind === "copied"
                           ? "Link copied. It opens the app and shows this entry - it travels in the link itself, no server involved."
                           : shareState.note}
                       </p>
                     )}
                     {shareState?.id === entry.id && shareState.kind === "fallback" && (
-                      <div className="mt-0.5 flex flex-col gap-1 text-[11px] text-[#404040]">
+                      <div className="mt-0.5 flex flex-col gap-1 text-[11px] text-[var(--w95-muted)]">
                         {entry.text === shareState.builtFrom ? (
                           <p>Your browser blocked the automatic copy - the link was not copied. Choose a next step, or do nothing.</p>
                         ) : (
@@ -345,7 +345,7 @@ export default function Journal() {
           </ul>
         )}
         <p className="mt-2 text-[12px]">
-          <Link to="/tools" className="text-[#0000cc] underline">Back to tools</Link>
+          <Link to="/tools" className="text-[var(--w95-link)] underline">Back to tools</Link>
         </p>
       </Window>
     </div>

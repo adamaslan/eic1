@@ -43,14 +43,14 @@ export default function Feed() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search posts"
-          className="min-w-0 flex-1 bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none sm:w-[260px] sm:flex-none"
+          className="min-w-0 flex-1 bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none sm:w-[260px] sm:flex-none"
         />
-        <Link to="/draw" className="shrink-0 text-[12px] font-bold text-[#0000cc] underline">
+        <Link to="/draw" className="shrink-0 text-[12px] font-bold text-[var(--w95-link)] underline">
           🎨 Paint
         </Link>
       </div>
       {photos.length === 0 && (
-        <div className="flex flex-col items-start gap-2 text-[12px] text-[#0a0a0a]">
+        <div className="flex flex-col items-start gap-2 text-[12px] text-[var(--w95-ink)]">
           <p>{query ? "No posts match that search." : "No posts yet."}</p>
           {!query && <DemoSeed onSeeded={reload} />}
         </div>

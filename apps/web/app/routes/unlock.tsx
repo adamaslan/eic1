@@ -12,7 +12,7 @@ export function meta(_args: Route.MetaArgs) {
 }
 
 const MIN_PASSPHRASE_LENGTH = 8;
-const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
+const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none";
 
 export default function Unlock() {
   const vault = useSessionStore((state) => state.vault);
@@ -89,7 +89,7 @@ export default function Unlock() {
   }
 
   return (
-    <main className="min-h-screen bg-[#008080] p-3">
+    <main className="w95-desktop min-h-screen p-3">
       <Window title="Vault — encrypted local storage">
         {exists === null && <p className="text-[12px]">Checking this device…</p>}
         {exists === null && error && <p role="alert" className="text-[12px] text-[#800000]">{error}</p>}
@@ -148,7 +148,7 @@ export default function Unlock() {
         )}
 
         <p className="mt-3">
-          <Link to="/" className="text-[#0000cc] underline">
+          <Link to="/" className="text-[var(--w95-link)] underline">
             Back to home
           </Link>
         </p>

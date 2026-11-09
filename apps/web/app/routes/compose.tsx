@@ -19,7 +19,7 @@ export function meta(_args: Route.MetaArgs) {
   return [{ title: "New post — Everybody is Cool" }];
 }
 
-const FIELD = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
+const FIELD = "w-full bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none";
 
 export default function Compose() {
   const vault = useSessionStore((state) => state.vault);
@@ -83,7 +83,7 @@ export default function Compose() {
 
   return (
     <Window title="New post">
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3 text-[12px] text-[#0a0a0a]" noValidate>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3 text-[12px] text-[var(--w95-ink)]" noValidate>
         <fieldset className="flex gap-4">
           <legend className="mb-1 font-bold">Post type</legend>
           {(["photo", "listing"] as const).map((option) => (
@@ -178,7 +178,7 @@ export default function Compose() {
               Draw a picture…
             </Button95>
           </div>
-          <span className="text-[11px] text-[#404040]">Resized and compressed on this device before encryption.</span>
+          <span className="text-[11px] text-[var(--w95-muted)]">Resized and compressed on this device before encryption.</span>
           {progress && (
             <div role="status" className="text-[11px]">
               {progress.label} {progress.percent}%
@@ -239,7 +239,7 @@ function Field({
         {label}
       </label>
       {children}
-      {hint && <span className="text-[11px] text-[#404040]">{hint}</span>}
+      {hint && <span className="text-[11px] text-[var(--w95-muted)]">{hint}</span>}
       {error && <p role="alert" className="text-[#800000]">{error}</p>}
     </div>
   );

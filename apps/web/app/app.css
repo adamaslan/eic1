@@ -11,7 +11,371 @@
   --color-veil-like: #ff5c8a;
 }
 
+/* Win95 theme variables. Defaults are the classic palette; ThemeRoot overwrites them from
+   Display Properties after hydration, so a page that never loads JS still looks classic. */
+:root {
+  --w95-face: #c0c0c0;
+  --w95-shade: #808080;
+  --w95-hilite: #dfdfdf;
+  --w95-light: #ffffff;
+  --w95-ink: #0a0a0a;
+  --w95-desk: #008080;
+  --w95-title-a: #000080;
+  --w95-title-b: #1084d0;
+  --w95-title-text: #ffffff;
+  --w95-accent: #b6f24e;
+  --w95-link: #0000cc;
+  --w95-muted: color-mix(in srgb, var(--w95-ink) 72%, var(--w95-face));
+  --w95-scale: 1;
+  --w95-radius: 0px;
+}
+
+/* Text-size slider: zoom the page content (not the shell), since screens use px sizes. */
+.w95-zoom {
+  zoom: var(--w95-scale);
+}
+
 html,
 body {
   @apply bg-white dark:bg-gray-950;
 }
+
+::selection {
+  background: var(--w95-title-a);
+  color: var(--w95-title-text);
+}
+
+/* Dotted keyboard focus, the way Win95 drew it - visible on every theme. */
+.w95-desktop :focus-visible {
+  outline: 1px dotted var(--w95-ink);
+  outline-offset: -4px;
+}
+
+/* Chunky beveled scrollbars. */
+.w95-desktop ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+.w95-desktop ::-webkit-scrollbar-track {
+  background-color: var(--w95-hilite);
+  background-image: repeating-conic-gradient(var(--w95-face) 0 25%, var(--w95-light) 0 50%);
+  background-size: 2px 2px;
+}
+.w95-desktop ::-webkit-scrollbar-thumb {
+  background: var(--w95-face);
+  border: 1px solid;
+  border-color: var(--w95-light) var(--w95-ink) var(--w95-ink) var(--w95-light);
+  box-shadow: inset 1px 1px var(--w95-hilite), inset -1px -1px var(--w95-shade);
+}
+.w95-desktop ::-webkit-scrollbar-corner {
+  background: var(--w95-face);
+}
+
+html[data-soft] .w95-bevel,
+html[data-soft] .w95-bevel > div {
+  border-radius: var(--w95-radius);
+}
+
+/* ---------- Wallpapers: pure CSS, no image requests ---------- */
+.w95-desktop {
+  background-color: var(--w95-desk);
+}
+.w95-wall-tiles,
+html[data-wall="tiles"] .w95-desktop {
+  background-image:
+    linear-gradient(45deg, rgb(0 0 0 / 0.12) 25%, transparent 25% 75%, rgb(0 0 0 / 0.12) 75%),
+    linear-gradient(45deg, rgb(0 0 0 / 0.12) 25%, transparent 25% 75%, rgb(0 0 0 / 0.12) 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
+}
+.w95-wall-checker,
+html[data-wall="checker"] .w95-desktop {
+  background-image: repeating-conic-gradient(rgb(255 255 255 / 0.18) 0 25%, transparent 0 50%);
+  background-size: 48px 48px;
+}
+.w95-wall-clouds,
+html[data-wall="clouds"] .w95-desktop {
+  background-image:
+    radial-gradient(ellipse 120px 50px at 20% 25%, rgb(255 255 255 / 0.45), transparent 70%),
+    radial-gradient(ellipse 160px 60px at 75% 40%, rgb(255 255 255 / 0.35), transparent 70%),
+    radial-gradient(ellipse 110px 40px at 40% 75%, rgb(255 255 255 / 0.3), transparent 70%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.15), transparent);
+  background-size: 520px 360px;
+  animation: w95-drift 90s linear infinite;
+}
+.w95-wall-stars,
+html[data-wall="stars"] .w95-desktop {
+  background-image:
+    radial-gradient(1px 1px at 10% 20%, #fff, transparent),
+    radial-gradient(1px 1px at 30% 70%, #fff, transparent),
+    radial-gradient(2px 2px at 55% 35%, #fff, transparent),
+    radial-gradient(1px 1px at 80% 15%, #fff, transparent),
+    radial-gradient(1px 1px at 90% 80%, #fff, transparent),
+    radial-gradient(2px 2px at 65% 90%, rgb(255 255 255 / 0.7), transparent);
+  background-size: 220px 220px;
+  animation: w95-drift 120s linear infinite;
+}
+.w95-wall-hearts,
+html[data-wall="hearts"] .w95-desktop {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M20 30 L10 20 A5 5 0 0 1 20 13 A5 5 0 0 1 30 20 Z' fill='white' fill-opacity='0.25'/%3E%3C/svg%3E");
+  background-size: 40px 40px;
+  animation: w95-drift 60s linear infinite;
+}
+.w95-wall-grid,
+html[data-wall="grid"] .w95-desktop {
+  background-image:
+    linear-gradient(transparent 60%, rgb(255 63 164 / 0.25)),
+    linear-gradient(rgb(0 229 255 / 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(0 229 255 / 0.35) 1px, transparent 1px);
+  background-size: 100% 100%, 32px 32px, 32px 32px;
+}
+.w95-wall-confetti,
+html[data-wall="confetti"] .w95-desktop {
+  background-image:
+    radial-gradient(circle at 15% 25%, #ff3fa4 3px, transparent 4px),
+    radial-gradient(circle at 60% 15%, #ffd166 3px, transparent 4px),
+    radial-gradient(circle at 80% 60%, #00e5ff 3px, transparent 4px),
+    radial-gradient(circle at 35% 70%, #b6f24e 3px, transparent 4px),
+    radial-gradient(circle at 90% 90%, #ffffff 2px, transparent 3px);
+  background-size: 140px 140px;
+}
+
+@keyframes w95-drift {
+  from { background-position: 0 0; }
+  to { background-position: 520px 0; }
+}
+
+/* CRT: scanlines plus a soft vignette, over everything but never catching pointer events. */
+html[data-crt] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  background:
+    repeating-linear-gradient(0deg, rgb(0 0 0 / 0.12) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 60%, rgb(0 0 0 / 0.35));
+  animation: w95-flicker 6s steps(60) infinite;
+}
+@keyframes w95-flicker {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+/* Marching ants on the title bar while a window is "busy" or freshly opened in party mode. */
+.w95-shimmer {
+  background-size: 200% 100% !important;
+  animation: w95-shimmer 3s linear infinite;
+}
+@keyframes w95-shimmer {
+  from { background-position: 0% 0; }
+  to { background-position: 200% 0; }
+}
+
+/* Motion off, or the OS asks for less motion: freeze every decorative animation. */
+html[data-motion="off"] .w95-desktop,
+html[data-motion="off"] .w95-desktop *,
+html[data-motion="off"] [class*="w95-wall-"],
+html[data-motion="off"] .w95-shimmer,
+html[data-motion="off"] body::after {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .w95-desktop *,
+  .w95-desktop,
+  [class*="w95-wall-"],
+  .w95-shimmer,
+  html[data-crt] body::after {
+    animation: none !important;
+  }
+}
+
+/* Disabled controls: the embossed grey text Win95 used, instead of fading. */
+.w95-btn:disabled span {
+  color: var(--w95-shade);
+  text-shadow: 1px 1px 0 var(--w95-light);
+}
+
+/* White wells (inputs, list boxes) and yellow tooltips keep classic dark-on-light ink on
+   every theme. Custom properties inherit, so resetting them here fixes the element and
+   everything inside it - a light-text theme can never put light text on white. */
+@layer base {
+  .bg-white,
+  .bg-\[\#ffffe1\],
+  input:not([type="color"], [type="range"], [type="checkbox"], [type="radio"]),
+  textarea,
+  select {
+    --w95-face: #c0c0c0;
+    --w95-shade: #808080;
+    --w95-hilite: #dfdfdf;
+    --w95-light: #ffffff;
+    --w95-ink: #0a0a0a;
+    --w95-link: #0000cc;
+    --w95-muted: #404040;
+    color: #0a0a0a;
+  }
+}
+
+/* Dark themes (light ink on a dark face): lift the fixed semantic colours so errors and
+   success notes stay readable. ThemeRoot sets data-dark from the palette's luminance. */
+html[data-dark] .text-\[\#800000\] {
+  color: #ff9a9a;
+}
+html[data-dark] .text-\[\#008000\] {
+  color: #8dffa8;
+}
+html[data-dark] :is(.bg-white, .bg-\[\#ffffe1\]) .text-\[\#800000\] {
+  color: #800000;
+}
+html[data-dark] :is(.bg-white, .bg-\[\#ffffe1\]) .text-\[\#008000\] {
+  color: #008000;
+}
+
+/* Title-bar styles (Display Properties → Desktop). The default gradient is set inline in Window. */
+html[data-title="flat"] .w95-title {
+  background: var(--w95-title-a) !important;
+}
+html[data-title="stripes"] .w95-title {
+  background: repeating-linear-gradient(90deg, var(--w95-title-a) 0 6px, var(--w95-title-b) 6px 12px) !important;
+}
+
+/* ---------- fun95 picks 3 ---------- */
+html[data-cursor] .w95-desktop,
+html[data-cursor] body {
+  cursor: var(--w95-cursor, auto);
+}
+
+@keyframes w95-boot {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* Party mode: failed-save and error dialogs give one small shake. The wording never changes. */
+html[data-motion="party"] [role="alert"] {
+  animation: w95-shake 0.4s ease-in-out;
+}
+@keyframes w95-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* Taskbar tip marquee: a single line that scrolls, stopped under still or reduced motion. */
+.w95-marquee-track {
+  display: inline-block;
+  white-space: nowrap;
+  padding-left: 100%;
+  animation: w95-marquee 14s linear infinite;
+}
+@keyframes w95-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+html[data-motion="off"] .w95-marquee-track {
+  animation: none;
+  padding-left: 0;
+}
+
+/* Tray pet: a little wiggle on hover, in Calm and Party. */
+.w95-pet:hover {
+  animation: w95-wiggle 0.6s ease-in-out infinite;
+}
+@keyframes w95-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-8deg); }
+  75% { transform: rotate(8deg); }
+}
+html[data-motion="off"] .w95-pet:hover {
+  animation: none;
+}
+
+/* Phones: Start menu becomes a full-width bottom sheet. */
+@media (max-width: 639px) {
+  .w95-start-sheet {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+  .w95-start-sheet ul {
+    padding-bottom: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w95-marquee-track,
+  .w95-pet:hover,
+  html[data-motion] [role="alert"] {
+    animation: none !important;
+  }
+}
+
+/* Playable landing: the controls above operate the real theme store. Fixed ink/paper
+   pairs keep the art readable even when a custom desktop palette is extreme. */
+.eic-playground { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:28px; align-items:center; padding:38px 10px 26px; }
+.eic-playground-copy { min-width:0; color:white; text-shadow:0 2px 0 #0004; }
+.eic-eyebrow { font:700 10px/1.4 monospace; letter-spacing:.17em; margin-bottom:16px; background:#161127; color:#f2ff92; display:inline-block; padding:6px 10px; transform:rotate(-2deg); }
+.eic-playground h1 { font:900 clamp(58px,7vw,94px)/.88 Arial,sans-serif; letter-spacing:-.075em; margin:0 0 22px; color:#fff; -webkit-text-stroke:1px #272039; text-shadow:4px 4px 0 #292039; }
+.eic-playground h1 span { color:#f3ff8c; font-style:italic; }
+.eic-playground h1 sup { font-size:44px; color:#ff8ece; vertical-align:top; margin-left:12px; }
+.eic-hero-description { max-width:370px; font:17px/1.5 Tahoma,sans-serif; background:#211733e8; padding:12px 15px; border-left:4px solid #fc8acb; }
+.eic-hero-actions { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin:22px 0 12px; }
+.eic-big-button { background:#eeff8b; color:#211733; padding:14px 17px; font-size:14px; font-weight:800; border:2px solid #211733; box-shadow:4px 4px 0 #211733; text-shadow:none; }
+.eic-big-button:hover { background:#fff; }
+.eic-music-link { color:white; background:#211733; padding:10px; text-decoration:underline; font-size:12px; }
+.eic-local-note { font-size:11px; background:#211733e8; padding:5px 8px; display:inline-block; }
+.eic-sticker-strip { display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin-top:24px; }
+.eic-sticker-strip img { background:#fff; border:2px solid #211733; padding:3px; box-shadow:2px 3px 0 #211733; transform:rotate(-7deg); }
+.eic-sticker-strip img:nth-child(even) { transform:rotate(8deg) translateY(5px); }
+.eic-sticker-strip span { font:italic 12px Georgia,serif; background:#211733; padding:6px 8px; }
+.eic-demo-desk { position:relative; min-width:0; }
+.eic-demo-tag { display:table; margin:0 0 9px auto; padding:6px 9px; background:#ffdcf0; border:1px solid #211733; color:#211733; font:700 9px monospace; letter-spacing:.06em; transform:rotate(2deg); }
+.eic-remix-window { box-shadow:8px 9px 0 #150d2e88; }
+.eic-remix-intro { display:flex; gap:12px; align-items:center; margin:4px 0 12px; }
+.eic-remix-intro>span { font-size:34px; line-height:1; }
+.eic-remix-intro strong { font-size:18px; }
+.eic-remix-intro p { font-size:11px; margin-top:4px; }
+.eic-look-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+.eic-look-button { min-width:0; padding:4px; font-size:10px; cursor:pointer; border:2px outset var(--w95-light); background:var(--w95-face); color:var(--w95-ink); }
+.eic-look-button[aria-pressed=true] { outline:2px solid var(--w95-ink); outline-offset:1px; }
+.eic-look-swatch { display:flex; align-items:center; justify-content:center; height:43px; margin-bottom:5px; border:1px solid #211733; }
+.eic-look-swatch>span { padding:2px 8px; border:1px solid #211733; font:700 17px Georgia,serif; }
+.eic-remix-switches { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+.eic-remix-switches button { padding:8px; min-height:36px; border:2px outset var(--w95-light); font-size:11px; cursor:pointer; background:var(--w95-face); }
+.eic-remix-switches button[aria-pressed=true] { border-style:inset; background:var(--w95-hilite); }
+.eic-remix-note { font-size:10px; line-height:1.5; margin-top:10px; }
+.eic-mini-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:20px 5px 0; }
+.eic-mixtape { padding:10px; background:#f8a7cc; color:#221c2c; border:2px solid #221c2c; border-radius:9px; box-shadow:4px 5px 0 #221c2c; transform:rotate(-4deg); }
+.eic-tape-label { display:block; background:#fff9db; font:700 10px monospace; padding:3px 6px; border:1px solid #221c2c; }
+.eic-tape-reels { display:flex; align-items:center; justify-content:space-around; margin:8px 0; background:#332338; border-radius:20px; padding:5px; color:#fff; }
+.eic-tape-reels i { width:26px; height:26px; border:6px dashed #fff0d7; border-radius:50%; }
+.eic-mixtape a,.eic-doodle a { font-size:10px; font-weight:bold; text-decoration:underline; }
+.eic-doodle { background:#fff9d8; border:2px solid #221c2c; color:#221c2c; padding:9px; box-shadow:4px 5px 0 #221c2c; transform:rotate(4deg); }
+.eic-doodle>span { font:10px monospace; }
+.eic-doodle>div { display:flex; align-items:center; justify-content:space-evenly; font-size:34px; color:#a42c78; height:62px; }
+.eic-doodle b { color:#4c44a2; font-size:52px; }
+.eic-desk-note { margin-top:18px; padding:5px 9px; color:white; background:#211733e8; font-size:10px; }
+.eic-feature-group { margin-bottom:20px; }
+.eic-group-title { display:inline-block; padding:5px 8px; margin-bottom:9px; font:700 11px monospace; color:var(--w95-title-text); background:var(--w95-title-a); letter-spacing:.06em; }
+.eic-feature-card { display:grid; grid-template-columns:40px 1fr; gap:4px 10px; height:100%; min-height:135px; padding:13px; background:var(--w95-face); color:var(--w95-ink); border:2px outset var(--w95-light); box-shadow:3px 3px 0 var(--w95-shade); }
+.eic-feature-card:hover { border-color:var(--w95-accent); transform:translateY(-2px); }
+.eic-card-glyph { grid-row:1/4; display:flex; width:40px; height:40px; align-items:center; justify-content:center; background:var(--w95-title-a); color:var(--w95-title-text); border:1px solid var(--w95-ink); font-size:25px; box-shadow:2px 2px 0 var(--w95-shade); }
+.eic-card-title { font-size:13px; font-weight:700; }
+.eic-card-blurb { font-size:11px; line-height:1.5; }
+.eic-card-cta { font-size:10px; text-decoration:underline; color:var(--w95-link); margin-top:6px; }
+@media (max-width:700px) {
+ .eic-playground { grid-template-columns:minmax(0,1fr); gap:30px; padding:22px 4px; }
+ .eic-playground h1 { font-size:min(76px,calc(19.5vw / var(--w95-scale,1))); }
+ .eic-hero-description { max-width:none; font-size:15px; }
+ .eic-sticker-strip { margin-top:18px; }
+ .eic-sticker-strip img { width:39px; height:39px; }
+ .eic-mini-row { gap:12px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .eic-demo-tag { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+ .eic-eyebrow,.eic-local-note { max-width:100%; overflow-wrap:anywhere; }
+ .eic-mixtape,.eic-doodle { min-width:0; overflow-wrap:anywhere; }
+}
+@media (prefers-reduced-motion:reduce) { .eic-feature-card:hover { transform:none; } }
+html[data-motion=off] .eic-feature-card:hover { transform:none; }
