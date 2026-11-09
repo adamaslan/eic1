@@ -7,6 +7,8 @@ import { MemoryStore } from "../../../packages/vault/src/memory-store";
 import { buildShareBundle, loadOrCreateShareIdentity } from "@veil/features";
 import {
   MAX_RELAY_BUNDLE_BYTES,
+  PUBLISH_RATE_LIMIT,
+  checkPublishRate,
   createShare,
   deleteShare,
   extractPhoto,
@@ -458,4 +460,19 @@ describe("share relay fresh-owner-intent proof", () => {
     }
     await expect(deleteShare(store, id, "junk-key-final-pad-pad-pad-pad-pad", NOW, "client-a")).rejects.toThrow("Too many");
   });
+});
+
+
+it("does not lose concurrent rate claims for one client", async () => {
+  const store = memoryStore();
+  const results = await Promise.allSettled(Array.from({ length: PUBLISH_RATE_LIMIT + 5 }, () => checkPublishRate(store, "same-client", NOW)));
+  const accepted = results.filter((r) => r.status === "fulfilled").length;
+  expect(accepted).toBeLessThanOrEqual(PUBLISH_RATE_LIMIT);
+  expect(accepted).toBeGreaterThan(0);
+});
+it("fails closed when a stored rate counter has no conditional-update token", async () => {
+  const store = memoryStore();
+  await checkPublishRate(store, "no-etag", NOW);
+  for (const [key, entry] of store.entries) if (key.startsWith("rl/")) delete entry.etag;
+  await expect(checkPublishRate(store, "no-etag", NOW)).rejects.toMatchObject({ status: 503 });
 });
