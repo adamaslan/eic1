@@ -1,6 +1,12 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_local_suites:
+        description: "Run optional duplicate local test suites"
+        type: boolean
+        default: false
   pull_request:
   push:
     branches: [main]
@@ -11,6 +17,8 @@ concurrency:
 
 jobs:
   lint:
+    # Relevant tests and real app build run locally before publication.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_local_suites
     name: eslint - rules-of-hooks is an error
     runs-on: ubuntu-latest
     steps:
@@ -22,6 +30,8 @@ jobs:
       - run: npm run lint
 
   typecheck:
+    # Relevant tests and real app build run locally before publication.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_local_suites
     name: tsc --noEmit
     runs-on: ubuntu-latest
     steps:
@@ -33,6 +43,8 @@ jobs:
       - run: npm run typecheck --workspace web
 
   unit:
+    # Relevant tests and real app build run locally before publication.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_local_suites
     name: vitest
     runs-on: ubuntu-latest
     steps:
@@ -48,40 +60,33 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
+      # The deploy preview serves the PR HEAD build, never the merge ref. Specs must
+      # come from the same commit Netlify built, or any spec added on main after the
+      # branch point waits for UI the preview cannot serve (timeout class seen on
+      # PR #58: main's music/profile-studio specs vs a pre-music branch preview).
+      # lint/tsc/vitest keep the merge-ref default - they test the merged result; the
+      # post-publish prod gate covers the integrated result after every merge.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Assert smoke checkout is the PR head
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node e2e/ci-preview.mjs assert-head
       - run: npm ci
+      - name: Test transition-smoke safety guards
+        run: node --test e2e/ci-preview.test.mjs
       - run: npx playwright install --with-deps chromium
       - name: Wait for the Netlify deploy preview of this commit
         id: preview
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -u
-          sha="${{ github.event.pull_request.head.sha }}"
-          url="https://deploy-preview-${{ github.event.pull_request.number }}--everybodyiscool.netlify.app"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          # Prefer Netlify's commit status for THIS commit so we never test a stale
-          # preview; if Netlify posts no commit status, fall back to polling the URL.
-          for i in $(seq 1 90); do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs" --jq '[.check_runs[] | select(.name | ascii_downcase | contains("deploy-preview")) | .conclusion] | first // ""' 2>/dev/null || echo "")
-            if [ "$state" = "success" ]; then
-              echo "Netlify reports a successful deploy for $sha"
-              exit 0
-            fi
-            if [ -z "$state" ]; then
-              code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)
-              if [ "$code" = "200" ]; then
-                echo "No Netlify commit status; preview URL answers 200"
-                exit 0
-              fi
-            fi
-            sleep 10
-          done
-          echo "Deploy preview never became ready" >&2
-          exit 1
+          PREVIEW_URL: https://deploy-preview-${{ github.event.pull_request.number }}--everybodyiscool.netlify.app
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node e2e/ci-preview.mjs wait
       - name: Run transition smoke against the deploy preview
         run: npx playwright test
         env:
@@ -92,4 +97,3 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
-

@@ -1,7 +1,9 @@
+import { Avatar } from "~/components/avatar";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   buildSocialGraph,
+  MAX_GRAPH_ITEMS,
   createGraphLayout,
   emptyGraphFilter,
   filterSocialGraph,
@@ -25,6 +27,7 @@ import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
 import { useSocial } from "~/platform/use-social";
 import { useSessionStore } from "~/platform/session";
+import { useFeatureEnabled } from "~/platform/use-gate";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Graph — Everybody is Cool" }];
@@ -108,6 +111,34 @@ function degreesOf(graph: SocialGraph): Map<string, number> {
   return degree;
 }
 
+// Fit view: the layout works in a fixed W x H box, but settled positions can fall outside
+// it (sparse graphs fan nodes past the edges). The viewBox is the fixed box EXPANDED to
+// cover every shown node plus its label, at the SAME W:H aspect so the canvas never
+// changes size and pushes the caption out of the fixed-height window. Small graphs keep
+// the exact baseline box; overflow stays reachable instead of clipping at the canvas edge.
+const FIT_PAD = 28; // covers the largest node radius (22) with margin
+const FIT_LABEL = 16; // node labels render up to ~12px below the node
+function fitViewBox(positions: Record<string, GraphPoint>, width: number, height: number): string {
+  let minX = 0;
+  let minY = 0;
+  let maxX = width;
+  let maxY = height;
+  for (const point of Object.values(positions)) {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
+    minX = Math.min(minX, point.x - FIT_PAD);
+    minY = Math.min(minY, point.y - FIT_PAD);
+    maxX = Math.max(maxX, point.x + FIT_PAD);
+    maxY = Math.max(maxY, point.y + FIT_PAD + FIT_LABEL);
+  }
+  const scale = Math.max((maxX - minX) / width, (maxY - minY) / height);
+  if (scale <= 1) return `0 0 ${width} ${height}`;
+  const boxW = width * scale;
+  const boxH = height * scale;
+  const x0 = minX - (boxW - (maxX - minX)) / 2;
+  const y0 = minY - (boxH - (maxY - minY)) / 2;
+  return `${x0} ${y0} ${boxW} ${boxH}`;
+}
+
 function diamondPath(r: number): string {
   return `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`;
 }
@@ -121,12 +152,20 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
 
 export default function Graph() {
   const vault = useSessionStore((state) => state.vault);
+  const graphEnabled = useFeatureEnabled(vault, "graph");
   const { items, settings, settingsReady, connections, refresh } = useSocial(vault);
 
+  // Windowed browsing of the item nodes: the default window is the newest 100 items; older
+  // windows page backward. Not persisted - which window you browsed is visit state, and the
+  // graph always opens on the newest items.
+  const [itemOffset, setItemOffset] = useState(0);
   const graph = useMemo(() => {
     const list = items.status === "ready" ? items.items : [];
-    return buildSocialGraph({ myHandle: settingsReady ? settings.handle : null, connections, items: list });
-  }, [items, settingsReady, settings.handle, connections]);
+    return buildSocialGraph(
+      { myHandle: settingsReady ? settings.handle : null, connections, items: list },
+      { itemOffset },
+    );
+  }, [items, settingsReady, settings.handle, connections, itemOffset]);
 
   // Kind toggles and a label search narrow the shown graph. Filters are deliberately not
   // persisted: a search can name something private, and what you filtered for should not
@@ -146,6 +185,9 @@ export default function Graph() {
   const focusParam = searchParams.get("focus");
   const [focusMissed, setFocusMissed] = useState(false);
   const [showList, setShowList] = useState(false);
+  useEffect(() => {
+    setSelectedId(null);
+  }, [itemOffset]);
   const [compact, setCompact] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : false,
   );
@@ -327,10 +369,18 @@ export default function Graph() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusParam, bodyState]);
 
+  if (!graphEnabled) {
+    return (
+      <p className="text-[12px]">
+        The map is turned off in Tools. Nothing is deleted - turn it back on any time and your people and posts show up again.
+      </p>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <Window title="Social graph">
-        <div className="flex flex-col gap-2 text-[12px] text-[#0a0a0a]">
+        <div className="flex flex-col gap-2 text-[12px] text-[var(--w95-ink)]">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-bold">Layout:</span>
             {(["radial", "free"] as const).map((option) => (
@@ -366,7 +416,7 @@ export default function Graph() {
                 placeholder="Name or title"
                 value={filter.query}
                 onChange={(event) => setFilter((current) => ({ ...current, query: event.target.value }))}
-                className="w-36 bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none"
+                className="w-36 bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none"
               />
             </label>
             {(["connection", "post", "listing"] as const).map((kind) => (
@@ -383,6 +433,27 @@ export default function Graph() {
             )}
           </div>
 
+          {graph.graphableItems > MAX_GRAPH_ITEMS && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold">Items:</span>
+              <Button95
+                onClick={() => setItemOffset((current) => Math.max(0, current - MAX_GRAPH_ITEMS))}
+                disabled={graph.itemWindowStart === 0}
+              >
+                Newer 100
+              </Button95>
+              <Button95
+                onClick={() => setItemOffset((current) => current + MAX_GRAPH_ITEMS)}
+                disabled={graph.truncatedItems === 0}
+              >
+                Older 100
+              </Button95>
+              {graph.itemWindowStart > 0 && (
+                <Button95 onClick={() => setItemOffset(0)}>Back to newest</Button95>
+              )}
+            </div>
+          )}
+
           {focusMissed && (
             <p role="status" className="bg-[#ffffe1] px-1 text-[#800000]">
               That connection is not on the map. Hidden connections stay off it.
@@ -393,21 +464,21 @@ export default function Graph() {
           ) : bodyState === "error" ? (
             <p role="alert" className="text-[#800000]">
               {items.status === "error" ? items.message : "This vault could not be read."}{" "}
-              <button type="button" onClick={refresh} className="text-[#0000cc] underline">
+              <button type="button" onClick={refresh} className="text-[var(--w95-link)] underline">
                 Try again
               </button>
             </p>
           ) : bodyState === "empty" ? (
             <p>
               Nothing to map yet. Add a connection or a post and it shows up here.{" "}
-              <Link to="/connections" className="text-[#0000cc] underline">Connections</Link>
+              <Link to="/connections" className="text-[var(--w95-link)] underline">Connections</Link>
               {" · "}
-              <Link to="/compose" className="text-[#0000cc] underline">New post</Link>
+              <Link to="/compose" className="text-[var(--w95-link)] underline">New post</Link>
             </p>
           ) : filterActive && shownGraph.nodes.length <= 1 ? (
             <p>
               Nothing shows with the current filters.{filter.query.trim() !== "" && " No matching names or titles."}{" "}
-              <button type="button" onClick={() => setFilter(emptyGraphFilter)} className="text-[#0000cc] underline">
+              <button type="button" onClick={() => setFilter(emptyGraphFilter)} className="text-[var(--w95-link)] underline">
                 Clear the filter
               </button>
             </p>
@@ -416,11 +487,11 @@ export default function Graph() {
               {shownGraph.nodes.map((node) => {
                 const isSelected = node.id === selectedId;
                 return (
-                  <li key={node.id} className={isSelected ? "bg-[#c0c0c0] px-1.5 py-1" : "bg-white px-1.5 py-1"}>
-                    <Link to={node.href} className="font-bold text-[#0000cc] underline">
-                      {node.label}
+                  <li key={node.id} className={isSelected ? "bg-[var(--w95-face)] px-1.5 py-1" : "bg-white px-1.5 py-1"}>
+                    <Link to={node.href} className="font-bold text-[var(--w95-link)] underline">
+                      {(node.kind === "me" || node.kind === "connection") && <Avatar authorId={node.kind === "me" ? undefined : node.id.slice("connection:".length)} label={`${node.label}'s avatar`} />} {node.label}
                     </Link>
-                    <span className="text-[#404040]">
+                    <span className="text-[var(--w95-muted)]">
                       {" "}— {KIND_LABEL[node.kind]}, {degree.get(node.id) ?? 0} {(degree.get(node.id) ?? 0) === 1 ? "link" : "links"}
                     </span>
                     {" "}
@@ -429,7 +500,7 @@ export default function Graph() {
                       aria-pressed={isSelected}
                       aria-label={`Details for ${node.label}`}
                       onClick={() => setSelectedId(isSelected ? null : node.id)}
-                      className="text-[#0000cc] underline outline-none focus:outline-2 focus:outline-dotted focus:outline-[#0a0a0a]"
+                      className="text-[var(--w95-link)] underline outline-none focus:outline-2 focus:outline-dotted focus:outline-[var(--w95-ink)]"
                     >
                       Details
                     </button>
@@ -441,7 +512,7 @@ export default function Graph() {
             <Bevel variant="in">
               <svg
                 ref={svgRef}
-                viewBox={`0 0 ${W} ${H}`}
+                viewBox={fitViewBox(positions, W, H)}
                 role="application"
                 aria-label="Social graph: you, your connections, posts and listings"
                 className="block h-auto w-full touch-none select-none bg-white"
@@ -504,6 +575,7 @@ export default function Graph() {
                       ) : (
                         <circle r={GRAPH_RADIUS[node.kind]} fill={FILL[node.kind]} stroke={isSelected ? "#000080" : "#0a0a0a"} strokeWidth={isSelected ? 2 : 1} />
                       )}
+                      {(node.kind === "me" || node.kind === "connection") && <Avatar svg size={24} authorId={node.kind === "me" ? undefined : node.id.slice("connection:".length)} label={`${node.label}'s avatar`} />}
                       {labelled && (
                         <text x={0} y={GRAPH_RADIUS[node.kind] + 12} textAnchor="middle" fontSize={compact ? 12 : 10} fill="#0a0a0a" style={{ pointerEvents: "none", fontFamily: "Courier New, monospace" }}>
                           {node.label}
@@ -516,24 +588,27 @@ export default function Graph() {
             </Bevel>
           )}
 
-          <p className="text-[11px] text-[#404040]">
+          <p className="text-[11px] text-[var(--w95-muted)]">
             {filterActive
               ? `Showing ${shownConnections} of ${visibleConnections} ${visibleConnections === 1 ? "person" : "people"} · ${posts} of ${totalPosts} ${totalPosts === 1 ? "post" : "posts"} · ${listings} of ${totalListings} ${totalListings === 1 ? "listing" : "listings"} · ${likes} ${likes === 1 ? "like" : "likes"}.`
               : `${visibleConnections} ${visibleConnections === 1 ? "person" : "people"} · ${posts} ${posts === 1 ? "post" : "posts"} · ${listings} ${listings === 1 ? "listing" : "listings"} · ${likes} ${likes === 1 ? "like" : "likes"}.`}
             {" "}Drag a node to pin it. Square is you, circle is a person or post, diamond is a listing.
             {graph.hiddenConnections > 0 && ` ${graph.hiddenConnections} hidden ${graph.hiddenConnections === 1 ? "connection stays" : "connections stay"} out of the map.`}
-            {graph.truncatedItems > 0 && ` Showing the 100 newest items; ${graph.truncatedItems} older left off.`}
-            {filterActive && filter.query.trim() !== "" && graph.truncatedItems > 0 && " Filters search only the mapped items, not the older ones left off."}
+            {graph.truncatedItems > 0 && graph.itemWindowStart === 0 && ` Showing the 100 newest items; ${graph.truncatedItems} older left off.`}
+            {graph.itemWindowStart > 0 && ` Showing items ${graph.itemWindowStart + 1}–${graph.itemWindowStart + totalPosts + totalListings} of ${graph.graphableItems}, newest first.`}
+            {graph.newerItems > 0 && ` ${graph.newerItems} newer ${graph.newerItems === 1 ? "item is" : "items are"} on a newer window.`}
+            {graph.truncatedItems > 0 && graph.itemWindowStart > 0 && ` ${graph.truncatedItems} older left off.`}
+            {filterActive && filter.query.trim() !== "" && (graph.truncatedItems > 0 || graph.newerItems > 0) && " Filters search only the mapped items, not the ones on other windows."}
           </p>
         </div>
       </Window>
 
       {selected && (
         <Window title={`Details — ${KIND_LABEL[selected.kind]}`}>
-          <div className="flex flex-col gap-1 text-[12px] text-[#0a0a0a]">
+          <div className="flex flex-col gap-1 text-[12px] text-[var(--w95-ink)]">
             <p className="font-bold">{selected.label}</p>
             <p>
-              <Link to={selected.href} className="text-[#0000cc] underline">
+              <Link to={selected.href} className="text-[var(--w95-link)] underline">
                 {selected.kind === "me" ? "Open your profile" : selected.kind === "connection" ? "Open profile" : "Open in full"}
               </Link>
             </p>

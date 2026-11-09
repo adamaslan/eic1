@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router";
 import { CATEGORIES, type Category } from "@veil/core";
 import { selectMarket, useVaultItems, type MarketSort } from "@veil/features";
 import type { Route } from "./+types/market";
@@ -15,11 +16,22 @@ const SORTS: { value: MarketSort; label: string }[] = [
   { value: "price-asc", label: "Price: low to high" },
   { value: "price-desc", label: "Price: high to low" },
 ];
-const selectClass = "bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
+const selectClass = "bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none";
 
 export default function Market() {
   const vault = useSessionStore((state) => state.vault);
   const { state, reload } = useVaultItems(vault);
+  const location = useLocation();
+  // The save notice belongs to the history entry that arrived from a save. Keyed on that
+  // entry, it hides on any other navigation, including a re-click of this same tab.
+  const [savedEntry] = useState(() => ((location.state as { saved?: boolean } | null)?.saved === true ? location.key : null));
+  const justSaved = savedEntry !== null && savedEntry === location.key && (location.state as { saved?: boolean } | null)?.saved === true;
+  // Once shown, drop the flag from the browser's history entry so a reload or a Back to
+  // this entry does not re-announce the save. The React Router location keeps the same key.
+  useEffect(() => {
+    if (savedEntry === null) return;
+    window.history.replaceState({ ...window.history.state, usr: null }, "");
+  }, [savedEntry]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<Category | "all">("all");
   const [sort, setSort] = useState<MarketSort>("newest");
@@ -33,13 +45,14 @@ export default function Market() {
 
   return (
     <div className="flex flex-col gap-2">
+      {justSaved && <p role="status" className="text-[12px]">Saved - encrypted in this vault.</p>}
       <div className="flex flex-wrap gap-2">
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search listings"
-          className="min-w-0 flex-1 bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none"
+          className="min-w-0 flex-1 bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none"
         />
         <select
           aria-label="Category"
@@ -60,7 +73,7 @@ export default function Market() {
       </div>
 
       {listings.length === 0 && (
-        <div className="flex flex-col items-start gap-2 text-[12px] text-[#0a0a0a]">
+        <div className="flex flex-col items-start gap-2 text-[12px] text-[var(--w95-ink)]">
           <p>{filtered ? "No listings match those filters." : "No listings yet."}</p>
           {!filtered && <DemoSeed onSeeded={reload} />}
         </div>

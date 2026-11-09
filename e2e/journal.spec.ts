@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Journal editing: save entries, edit in place (timestamp preserved), search, and delete
@@ -7,21 +8,11 @@ import { expect, test, type Page } from "@playwright/test";
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
 
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
-
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+function expectCleanRuntime(watched: WatchedRuntime) {
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
-  expect([...watched.pageErrors, ...unexpected].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
+  expect([...watched.pageErrors, ...unexpected.map((entry) => entry.text)].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
 }
 
 let vaultCounter = 0;
@@ -38,7 +29,7 @@ async function createVault(page: Page) {
 }
 
 test("journal entries can be saved, edited, searched, and deleted with confirmation", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
   await page.goto("/tools/journal");
 
@@ -47,6 +38,7 @@ test("journal entries can be saved, edited, searched, and deleted with confirmat
   await page.getByRole("button", { name: "🔒 Save entry" }).click();
   await expect(page.getByText("Bridge at dawn, worth the cold")).toBeVisible();
   await expect(page.getByLabel("What is on your mind?")).toBeEnabled();
+  await expect(page.getByText("Saved - encrypted in this vault.")).toBeVisible();
   await page.getByLabel("What is on your mind?").fill("Gym, then gallery paperwork");
   await page.getByRole("button", { name: "🔒 Save entry" }).click();
   await expect(page.getByText("Entries (2)")).toBeVisible();
@@ -72,6 +64,7 @@ test("journal entries can be saved, edited, searched, and deleted with confirmat
   await page.getByLabel("Edit entry").fill("Bridge at dawn, worth every cold minute");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Bridge at dawn, worth every cold minute")).toBeVisible();
+  await expect(page.getByText("Changes saved - encrypted in this vault.")).toBeVisible();
   await expect(page.getByText("Bridge at dawn, worth the cold", { exact: true })).toHaveCount(0);
 
   // Search narrows the list; a miss says so honestly.
@@ -101,6 +94,8 @@ test("journal entries can be saved, edited, searched, and deleted with confirmat
   await page.getByRole("button", { name: "Delete" }).first().click();
   await page.getByRole("button", { name: "Yes, delete" }).click();
   await expect(page.getByText("Entries (2)")).toBeVisible();
+  await expect(page.getByText("Saved - encrypted in this vault.")).toHaveCount(0);
+  await expect(page.getByText("Changes saved - encrypted in this vault.")).toHaveCount(0);
 
   expectCleanRuntime(watched);
 });

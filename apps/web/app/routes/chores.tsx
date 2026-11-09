@@ -1,0 +1,414 @@
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link } from "react-router";
+import {
+  AppError,
+  CHORE_NAME_MAX,
+  CHORE_PERSON_NAME_MAX,
+  CHORE_ROTATION_WEEKS,
+  WEEKDAY_LABELS,
+  addDays,
+  localDateKey,
+  weekOf,
+  rotatedPerson,
+  choreSlot,
+  rotationForWeek,
+  weekStartKey,
+  weeksBetween,
+  type Chore,
+} from "@veil/core";
+import {
+  addChore,
+  addChorePerson,
+  assignmentsForWeek,
+  clearChoreOverride,
+  deleteChore,
+  getChoreChart,
+  listChorePeople,
+  listChores,
+  setChoreOverride,
+  toggleChoreDone,
+} from "@veil/features";
+import type { Route } from "./+types/chores";
+import { Button95 } from "~/ui95/Button95";
+import { Window } from "~/ui95/Window";
+import { useSessionStore } from "~/platform/session";
+import { newItemId } from "~/platform/vault-service";
+
+export function meta(_args: Route.MetaArgs) {
+  return [{ title: "Chore chart — Everybody is Cool" }];
+}
+
+const NAME_CELL_MAX = 7;
+
+function shortName(person: string): string {
+  return person.length > NAME_CELL_MAX ? `${person.slice(0, NAME_CELL_MAX - 1)}…` : person;
+}
+
+export default function Chores() {
+  const vault = useSessionStore((state) => state.vault);
+  const [chores, setChores] = useState<Chore[] | null>(null);
+  const [people, setPeople] = useState<string[] | null>(null);
+  const [assignments, setAssignments] = useState<Record<string, Record<string, string>>>({});
+  const [eraPeople, setEraPeople] = useState<string[]>([]);
+  const [weekBase, setWeekBase] = useState(() => new Date());
+  const [name, setName] = useState("");
+  const [personName, setPersonName] = useState("");
+  const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [savingPerson, setSavingPerson] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  const week = useMemo(() => weekOf(weekBase), [weekBase]);
+  const weekKeys = useMemo(() => week.map(localDateKey), [week]);
+  const todayKey = localDateKey(new Date());
+  const thisWeekStart = weekStartKey(todayKey);
+  const displayedWeekStart = weekKeys[0]!;
+  const weeksAhead = weeksBetween(thisWeekStart, displayedWeekStart);
+  const atForwardCap = weeksAhead >= CHORE_ROTATION_WEEKS;
+  const weekLabel = `${week[0]!.toLocaleDateString([], { month: "short", day: "numeric" })} – ${week[6]!.toLocaleDateString([], { month: "short", day: "numeric" })}`;
+
+  const loadAssignments = useCallback(
+    async (base: Date): Promise<boolean> => {
+      if (!vault) return false;
+      try {
+        const [map, chart] = await Promise.all([assignmentsForWeek(vault, base), getChoreChart(vault)]);
+        const plain: Record<string, Record<string, string>> = {};
+        for (const [choreId, byDate] of map) {
+          plain[choreId] = Object.fromEntries(byDate);
+        }
+        setAssignments(plain);
+        // Switching cycles the people of the displayed week's own list, so a future week
+        // offers the names that actually start that week, and a pre-chart week offers none.
+        setEraPeople(chart ? rotationForWeek(chart, weekStartKey(localDateKey(weekOf(base)[0]!)))?.people ?? [] : []);
+        return true;
+      } catch (caught) {
+        setError(caught instanceof AppError ? caught.message : "The rotation could not be read.");
+        return false;
+      }
+    },
+    [vault],
+  );
+
+  const reload = useCallback(async (): Promise<boolean> => {
+    if (!vault) return false;
+    // Chores and the roster load independently: an unreadable chart record must not
+    // hide the chore list, and a chore-list failure must not fake an empty roster.
+    const [choreResult, peopleResult] = await Promise.allSettled([listChores(vault), listChorePeople(vault)]);
+    let ok = true;
+    if (choreResult.status === "fulfilled") {
+      setChores(choreResult.value);
+    } else {
+      setError(choreResult.reason instanceof AppError ? choreResult.reason.message : "The chore chart could not be read.");
+      ok = false;
+    }
+    if (peopleResult.status === "fulfilled") {
+      setPeople(peopleResult.value);
+      if (ok) setError(null);
+    } else {
+      setError(peopleResult.reason instanceof AppError ? peopleResult.reason.message : "The people list could not be read.");
+      ok = false;
+    }
+    return ok;
+  }, [vault]);
+
+  const reloadAll = useCallback(async (): Promise<boolean> => {
+    const ok = await reload();
+    const assigned = await loadAssignments(weekBase);
+    return ok && assigned;
+  }, [reload, loadAssignments, weekBase]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  useEffect(() => {
+    void loadAssignments(weekBase);
+  }, [loadAssignments, weekBase]);
+
+  function flipDay(day: number) {
+    setNotice(null);
+    setDays((current) => (current.includes(day) ? current.filter((d) => d !== day) : [...current, day].sort((a, b) => a - b)));
+  }
+
+  async function save(event?: FormEvent) {
+    event?.preventDefault();
+    if (!vault || saving) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await addChore(vault, { name, days }, { newId: newItemId, now: new Date() });
+      // The encrypted write landed: clear the form, then confirm explicitly.
+      // A failed refresh afterwards must not read as a failed save.
+      setName("");
+      setDays([0, 1, 2, 3, 4, 5, 6]);
+      const refreshed = await reloadAll();
+      setNotice(refreshed ? "Chore saved to your encrypted vault." : "Chore saved to your encrypted vault, but the chart couldn't refresh.");
+    } catch (caught) {
+      // Pre-write failure: the input stays untouched so nothing is lost.
+      setError(caught instanceof AppError ? caught.message : "The chore could not be saved. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function savePerson(event?: FormEvent) {
+    event?.preventDefault();
+    if (!vault || savingPerson) return;
+    setSavingPerson(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const chart = await addChorePerson(vault, personName, { now: new Date() });
+      const added = personName.trim();
+      setPersonName("");
+      const refreshed = await reloadAll();
+      const latest = [...chart.rotations].sort((a, b) => a.effectiveWeek.localeCompare(b.effectiveWeek)).at(-1);
+      const timing = latest && latest.effectiveWeek === thisWeekStart ? "is on the chart now." : "joins the chart next week - this week's names stay as they are.";
+      setNotice(refreshed ? `${added} ${timing}` : `${added} ${timing} The chart couldn't refresh.`);
+    } catch (caught) {
+      setError(caught instanceof AppError ? caught.message : "The person could not be added. Please try again.");
+    } finally {
+      setSavingPerson(false);
+    }
+  }
+
+  async function toggle(chore: Chore, key: string) {
+    if (!vault || busyKey) return;
+    setBusyKey(`${chore.id}:${key}`);
+    setError(null);
+    setNotice(null);
+    try {
+      await toggleChoreDone(vault, chore.id, key);
+      const refreshed = await reload();
+      setNotice(refreshed ? "Check-off saved to your encrypted vault." : "Check-off saved to your encrypted vault, but the chart couldn't refresh.");
+    } catch (caught) {
+      setError(caught instanceof AppError ? caught.message : "The check-off could not be saved. Please try again.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function remove(chore: Chore) {
+    if (!vault || busyKey) return;
+    setBusyKey(chore.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await deleteChore(vault, chore.id);
+      const refreshed = await reloadAll();
+      setNotice(refreshed ? "Chore deleted." : "Chore deleted, but the chart couldn't refresh.");
+    } catch (caught) {
+      setError(caught instanceof AppError ? caught.message : "The chore could not be deleted. Please try again.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function switchPerson(chore: Chore, key: string) {
+    if (!vault || busyKey || eraPeople.length === 0) return;
+    const byDate = assignments[chore.id];
+    const displayed = byDate?.[key];
+    if (!displayed) return;
+    setBusyKey(`switch:${chore.id}:${key}`);
+    setError(null);
+    setNotice(null);
+    try {
+      const index = eraPeople.indexOf(displayed);
+      const next = eraPeople[(index + 1) % eraPeople.length]!;
+      if (next === displayed) return;
+      // Cycling back to the rotation's own name clears the switch, so the
+      // date follows the rotation again instead of pinning that name.
+      const chart = await getChoreChart(vault);
+      const stableSlot = chart ? choreSlot(chart, chores ?? [], chore.id) : -1;
+      const rotationName = chart && stableSlot !== -1 ? rotatedPerson(chart, weekStartKey(key), stableSlot) : null;
+      if (next === rotationName) {
+        await clearChoreOverride(vault, chore.id, key);
+      } else {
+        await setChoreOverride(vault, chore.id, key, next, { now: new Date() });
+      }
+      await reloadAll();
+    } catch (caught) {
+      setError(caught instanceof AppError ? caught.message : "The switch could not be saved. Please try again.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Window title={`Chore chart — ${weekLabel}`}>
+        <div className="mb-1.5 flex items-center gap-2 text-[12px]">
+          <Button95 onClick={() => setWeekBase((base) => addDays(base, -7))} aria-label="Previous week">◀</Button95>
+          <Button95 onClick={() => setWeekBase(new Date())}>This week</Button95>
+          <Button95
+            onClick={() => setWeekBase((base) => addDays(base, 7))}
+            aria-label="Next week"
+            disabled={atForwardCap}
+            title={atForwardCap ? `The chart plans up to ${CHORE_ROTATION_WEEKS} weeks ahead.` : undefined}
+          >
+            ▶
+          </Button95>
+          <span className="ml-auto text-[11px] text-[var(--w95-muted)]">Check-offs stay in this vault.</span>
+        </div>
+
+        {chores === null ? (
+          error ? (
+            <p className="text-[12px] text-[#800000]" role="alert">
+              {error}{" "}
+              <button type="button" className="underline" onClick={() => void reload()}>Try again</button>
+            </p>
+          ) : (
+            <p className="text-[12px]">Loading…</p>
+          )
+        ) : chores.length === 0 ? (
+          <p className="text-[12px]">No chores yet. Add one below to start the chart.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[12px]">
+              <thead>
+                <tr>
+                  <th className="bg-[var(--w95-face)] px-1 py-0.5 text-left font-bold">Chore</th>
+                  {week.map((day, index) => (
+                    <th
+                      key={weekKeys[index]}
+                      className={`px-1 py-0.5 text-center font-bold ${weekKeys[index] === todayKey ? "bg-[var(--w95-title-a)] text-white" : "bg-[var(--w95-face)]"}`}
+                    >
+                      {WEEKDAY_LABELS[index]}
+                      <span className="block text-[10px] font-normal">{day.getDate()}</span>
+                    </th>
+                  ))}
+                  <th className="bg-[var(--w95-face)]" aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {chores.map((chore) => {
+                  const scheduledThisWeek = week.filter((day) => chore.days.includes(day.getDay())).length;
+                  const doneThisWeek = weekKeys.filter((key) => chore.done.includes(key)).length;
+                  return (
+                    <tr key={chore.id}>
+                      <th className="bg-white px-1 py-0.5 text-left font-normal">
+                        <span className="font-bold">{chore.name}</span>
+                        <span className="block text-[10px] text-[var(--w95-muted)]">{doneThisWeek}/{scheduledThisWeek} this week</span>
+                      </th>
+                      {week.map((day, index) => {
+                        const key = weekKeys[index]!;
+                        const scheduled = chore.days.includes(day.getDay());
+                        const done = chore.done.includes(key);
+                        const assignee = assignments[chore.id]?.[key];
+                        const canSwitch = eraPeople.length > 0;
+                        return (
+                          <td key={key} className="bg-white px-0.5 py-0.5 text-center">
+                            {scheduled ? (
+                              <div className="flex flex-col items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  aria-pressed={done}
+                                  aria-label={`${done ? "Uncheck" : "Check off"} ${chore.name} for ${WEEKDAY_LABELS[index]} ${day.getDate()}`}
+                                  disabled={busyKey === `${chore.id}:${key}`}
+                                  onClick={() => void toggle(chore, key)}
+                                  className="h-[32px] w-[32px] cursor-pointer border border-[var(--w95-shade)] bg-[var(--w95-hilite)] text-[14px] leading-none text-[#008000] sm:h-[28px] sm:w-[28px]"
+                                >
+                                  {done ? "✓" : ""}
+                                </button>
+                                {assignee && canSwitch ? (
+                                  <button
+                                    type="button"
+                                    title={`${assignee} - tap to switch who has this`}
+                                    aria-label={`Switch who has ${chore.name} for ${WEEKDAY_LABELS[index]} ${day.getDate()} (now ${assignee})`}
+                                    disabled={busyKey === `switch:${chore.id}:${key}`}
+                                    onClick={() => void switchPerson(chore, key)}
+                                    className="max-w-[52px] cursor-pointer truncate border border-transparent text-[10px] leading-tight text-[var(--w95-muted)] underline decoration-dotted hover:border-[var(--w95-shade)]"
+                                  >
+                                    {shortName(assignee)}
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="text-[var(--w95-shade)]" aria-hidden="true">—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="bg-white px-1 py-0.5 text-center">
+                        <Button95 onClick={() => void remove(chore)} disabled={busyKey === chore.id} aria-label={`Delete chore ${chore.name}`}>
+                          ✕
+                        </Button95>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <form onSubmit={savePerson} className="mt-2 flex flex-col gap-1.5 border-t border-[var(--w95-shade)] pt-2 text-[12px] text-[var(--w95-ink)]">
+          <p className="font-bold">People on the chart</p>
+          {people === null ? (
+            <p className="text-[#800000]" role="alert">{error ?? "The people list could not be read."}</p>
+          ) : people.length > 0 ? (
+            <p>
+              {people.join(", ")}
+              <span className="block text-[10px] text-[var(--w95-muted)]">
+                Chores rotate through this list week by week. Tap a name in the chart to switch one date. Names added after this week join the rotation next week, so earlier weeks never change.
+              </span>
+            </p>
+          ) : (
+            <p className="text-[var(--w95-muted)]">Add people and each chore rotates through them week by week.</p>
+          )}
+          <div className="flex items-center gap-2">
+            <label htmlFor="chore-person-name" className="sr-only">Person's name</label>
+            <input
+              id="chore-person-name"
+              type="text"
+              maxLength={CHORE_PERSON_NAME_MAX}
+              value={personName}
+              onChange={(change) => { setPersonName(change.target.value); setNotice(null); }}
+              placeholder="e.g. Ada"
+              className="w-40 bg-white px-1.5 py-1 text-[12px] outline-none"
+            />
+            <Button95 type="submit" disabled={savingPerson || !personName.trim()}>
+              {savingPerson ? "Encrypting…" : "🔒 Add person"}
+            </Button95>
+          </div>
+        </form>
+
+        <form onSubmit={save} className="mt-2 flex flex-col gap-2 border-t border-[var(--w95-shade)] pt-2 text-[12px] text-[var(--w95-ink)]">
+          <p className="font-bold">Add a chore</p>
+          <label htmlFor="chore-name" className="sr-only">Chore name</label>
+          <input
+            id="chore-name"
+            type="text"
+            maxLength={CHORE_NAME_MAX}
+            value={name}
+            onChange={(change) => { setName(change.target.value); setNotice(null); }}
+            placeholder="e.g. Water plants"
+            className="w-full bg-white px-1.5 py-1 text-[12px] outline-none"
+          />
+          <fieldset className="flex flex-wrap gap-x-3 gap-y-1">
+            <legend className="sr-only">Days this chore is for</legend>
+            {WEEKDAY_LABELS.map((label, day) => (
+              <label key={label} className="flex items-center gap-1">
+                <input type="checkbox" checked={days.includes(day)} onChange={() => flipDay(day)} />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+          <div>
+            <Button95 type="submit" disabled={saving || !name.trim() || days.length === 0}>
+              {saving ? "Encrypting…" : "🔒 Save chore"}
+            </Button95>
+          </div>
+          {notice && <p role="status" className="text-[#008000]">{notice}</p>}
+          {error && chores !== null && people !== null && <p role="alert" className="text-[#800000]">{error}</p>}
+        </form>
+        <p className="mt-2 text-[12px]">
+          <Link to="/tools" className="text-[var(--w95-link)] underline">Back to tools</Link>
+        </p>
+      </Window>
+    </div>
+  );
+}

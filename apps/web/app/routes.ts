@@ -15,9 +15,13 @@ export default [
     route("tools", "routes/tools.tsx"),
     route("tools/journal", "routes/journal.tsx"),
     route("tools/music", "routes/music.tsx"),
+    route("tools/calendar", "routes/calendar.tsx"),
+    route("tools/chores", "routes/chores.tsx"),
     route("vault", "routes/vault.tsx"),
     route("item/:id", "routes/item.tsx"),
   ]),
+  route("stickers", "routes/stickers.tsx"),
+  route("music-library", "routes/music-library.tsx"),
   route("unlock", "routes/unlock.tsx"),
   // Read-only shared-post view sits outside the desktop layout: reading a shared link
   // must not require a vault. Saving prompts for one explicitly.

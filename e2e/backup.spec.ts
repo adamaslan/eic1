@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Vault backup/restore - the data-loss net. The exported backup is the user's ONLY
@@ -12,21 +13,11 @@ import { expect, test, type Page } from "@playwright/test";
 
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
 
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
-
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+function expectCleanRuntime(watched: WatchedRuntime) {
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
-  expect([...watched.pageErrors, ...unexpected].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
+  expect([...watched.pageErrors, ...unexpected.map((entry) => entry.text)].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
 }
 
 let vaultCounter = 0;
@@ -42,7 +33,7 @@ async function createVault(page: Page, passphrase: string) {
 }
 
 test("backup export, wipe, restore: seeded data survives the round trip", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   const passphrase = `ci-backup-passphrase-${Date.now()}-${vaultCounter}`;
   const journalText = "backup probe entry - keep me safe";
   const listingTitle = "backup probe listing";
@@ -52,6 +43,9 @@ test("backup export, wipe, restore: seeded data survives the round trip", async 
   await page.goto("/tools/journal");
   await page.getByLabel("What is on your mind?").fill(journalText);
   await page.getByRole("button", { name: /Save entry/ }).click();
+  // The textarea already contains journalText before encryption finishes. Wait for
+  // the committed-save notice, not a text locator that also matches its input.
+  await expect(page.getByRole("status")).toHaveText("Saved - encrypted in this vault.");
   await expect(page.getByText(journalText)).toBeVisible();
 
   await page.goto("/compose");
@@ -102,7 +96,7 @@ test("backup export, wipe, restore: seeded data survives the round trip", async 
 });
 
 test("a corrupted backup fails honestly and leaves the vault absent", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await page.goto("/unlock");
   await expect(page.getByText(/No vault yet/)).toBeVisible();
 
@@ -119,7 +113,7 @@ test("a corrupted backup fails honestly and leaves the vault absent", async ({ p
 });
 
 test("readable export downloads chosen categories only, with an honest confirmation", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   const passphrase = `ci-export-passphrase-${Date.now()}-${vaultCounter}`;
   await createVault(page, passphrase);
 

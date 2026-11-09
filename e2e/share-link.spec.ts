@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Browser } from "@playwright/test";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Post share-link (#import=) recipient coverage. A share-one-post link carries the sealed
@@ -13,19 +14,9 @@ import { expect, test, type Page, type Browser } from "@playwright/test";
  * contexts, filtering only favicon-style failed resource loads.
  */
 
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
-
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
+function expectCleanRuntime(watched: WatchedRuntime) {
   // Failed resource loads (e.g. favicon) are network noise, not runtime failures.
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
 }
@@ -46,7 +37,7 @@ test("post share link imports into a second vault and reopening stays idempotent
   // Sender: vault, listing, then the item page's "Link" button copies the share link.
   const contextA = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
   const pageA = await contextA.newPage();
-  const watchedA = watchRuntime(pageA);
+  const watchedA = await watchRuntime(pageA);
   await createVault(pageA, `share-sender-${Date.now()}`);
   // Sharing requires a handle (the item page refuses without one).
   await pageA.goto("/connections");
@@ -70,7 +61,7 @@ test("post share link imports into a second vault and reopening stays idempotent
   // and must surface the import offer carrying the sender's claim.
   const contextB = await browser.newContext();
   const pageB = await contextB.newPage();
-  const watchedB = watchRuntime(pageB);
+  const watchedB = await watchRuntime(pageB);
   await createVault(pageB, `share-recipient-${Date.now()}`);
   // Importing also requires a handle (importShareBundle rejects handle-less vaults so it
   // can refuse self-imports and track the connection). A hard load of the link then

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Returning-user unlock coverage. /unlock gates every returning user's encrypted data, and
@@ -12,19 +13,9 @@ import { expect, test, type Page } from "@playwright/test";
  * uncaught page errors, filtering only favicon-style failed resource loads.
  */
 
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
-
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
+function expectCleanRuntime(watched: WatchedRuntime) {
   // Failed resource loads (e.g. favicon) are network noise, not runtime failures.
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
 }
@@ -47,7 +38,7 @@ async function createVault(page: Page, passphrase: string) {
 }
 
 test("lock then unlock with the right passphrase returns the user to their data", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   const passphrase = nextPassphrase();
   await createVault(page, passphrase);
 
@@ -81,7 +72,7 @@ test("lock then unlock with the right passphrase returns the user to their data"
 });
 
 test("wrong passphrase shows an honest error, keeps the vault closed, and a correct retry works", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   const passphrase = nextPassphrase();
   await createVault(page, passphrase);
   // Lock from a desktop route: the standalone landing locks in place, while the desktop
@@ -106,7 +97,7 @@ test("wrong passphrase shows an honest error, keeps the vault closed, and a corr
 });
 
 test("mismatched new-vault passphrases show an inline error and create nothing", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   const passphrase = nextPassphrase();
   await page.goto("/unlock");
   await expect(page.getByText(/No vault yet/)).toBeVisible();

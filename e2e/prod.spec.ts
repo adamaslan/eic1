@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Post-publish production gate (#418 class). Netlify's production free tier rewrites the
@@ -22,19 +23,8 @@ const expectedSha = process.env.EXPECT_BUILD_SHA?.slice(0, 7);
 
 test.skip(!process.env.EIC_TARGET_URL, "production gate runs only with EIC_TARGET_URL set");
 
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
-
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
-  // Failed resource loads (e.g. favicon) are network noise, not runtime failures.
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+function expectCleanRuntime(watched: WatchedRuntime) {
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
 }
@@ -56,7 +46,7 @@ test("deployed build stamp reaches the published commit", async ({ page }) => {
 });
 
 test("production routes hard-load with zero console/page errors", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   // Hard loads (full document hydration) across the main routes - the #418 failure mode
   // fired on every route, and only a hard load exercises document hydration.
   await page.goto("/");

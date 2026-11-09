@@ -1,3 +1,4 @@
+import { Avatar } from "~/components/avatar";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { AppError, HANDLE_MAX, timeAgo, type Connection } from "@veil/core";
@@ -29,7 +30,7 @@ export function meta(_args: Route.MetaArgs) {
   return [{ title: "Connections — Everybody is Cool" }];
 }
 
-const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
+const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none";
 
 
 // Pure presentational half, exported for render tests: connection rows with chat links + unread badges.
@@ -58,10 +59,10 @@ export function ConnectionsList({
         const count = unread[connection.id] ?? 0;
         return (
           <li key={connection.id} className="flex items-center justify-between bg-white px-1.5 py-1">
-            <span className="font-bold">@{connection.handle}</span>
+            <span className="inline-flex items-center gap-1 font-bold"><Avatar authorId={connection.id} label={`${connection.handle}'s avatar`} />@{connection.handle}</span>
             <span className="flex items-center gap-2">
               {count > 0 && (
-                <span className="bg-[#000080] px-1 font-bold text-white" aria-label={`${count} unread message${count === 1 ? "" : "s"}`}>
+                <span className="bg-[var(--w95-title-a)] px-1 font-bold text-white" aria-label={`${count} unread message${count === 1 ? "" : "s"}`}>
                   {count} new
                 </span>
               )}
@@ -77,7 +78,7 @@ export function ConnectionsList({
                   {connection.syncDetail ? `: ${connection.syncDetail}` : ""}
                 </span>
               )}
-              <span className="text-[#404040]">connected {timeAgo(connection.addedAt, now)} ago</span>
+              <span className="text-[var(--w95-muted)]">connected {timeAgo(connection.addedAt, now)} ago</span>
             </span>
           </li>
         );
@@ -150,7 +151,7 @@ export default function Connections() {
       const withId = await ensureAuthorId(vault, settings, newItemId);
       await social.update({ ...withId, handle: clean.slice(0, HANDLE_MAX) });
       setHandle(null);
-      return "Handle saved.";
+      return "Handle saved. Encrypted in this vault.";
     });
   }
 
@@ -280,7 +281,7 @@ export default function Connections() {
       await setConnectionNickname(vault, connectionId, nicknameDraft);
       social.refresh();
       setRenamingId(null);
-      return nicknameDraft.trim() ? "Nickname saved." : "Nickname cleared.";
+      return nicknameDraft.trim() ? "Nickname saved. Encrypted in this vault." : "Nickname cleared.";
     });
   }
 
@@ -311,14 +312,15 @@ export default function Connections() {
     return (
       <li key={connection.id} className="flex flex-col gap-1 bg-white px-1.5 py-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-          <span className="font-bold">
+          <span className="inline-flex items-center gap-1 font-bold">
+            <Avatar authorId={connection.id} label={`${connection.handle}'s avatar`} />
             {connection.nickname ? `${connection.nickname} (@${connection.handle})` : `@${connection.handle}`}
           </span>
-          <span className="text-[#404040]">
+          <span className="text-[var(--w95-muted)]">
             {postCount} post{postCount === 1 ? "" : "s"} · last import {timeAgo(connection.lastImportAt ?? connection.addedAt, new Date())} ago
           </span>
           {unreadCount > 0 && (
-            <span className="bg-[#000080] px-1 font-bold text-white" aria-label={`${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`}>
+            <span className="bg-[var(--w95-title-a)] px-1 font-bold text-white" aria-label={`${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`}>
               {unreadCount} new
             </span>
           )}
@@ -415,7 +417,7 @@ export default function Connections() {
           <div>
             <Button95 onClick={importPasted} disabled={busy || !social.settingsReady || !settings.handle || !pasted.trim()}>Import pasted text</Button95>
           </div>
-          {!settings.handle && <p className="text-[#404040]">Choose a handle first.</p>}
+          {!settings.handle && <p className="text-[var(--w95-muted)]">Choose a handle first.</p>}
           {rotationPrompt && (
             <div className="flex flex-col gap-1 bg-[#ffffe1] px-1.5 py-1">
               <p role="alert">{rotationPrompt}</p>

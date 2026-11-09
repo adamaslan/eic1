@@ -34,8 +34,14 @@ export interface GraphEdge {
 export interface SocialGraph {
   nodes: GraphNode[];
   edges: GraphEdge[];
-  /** Items left out because the graph caps its node count. */
+  /** Older items left off beyond the shown window because the graph caps its node count. */
   truncatedItems: number;
+  /** Newer items before the shown window's start (0 on the default newest window). */
+  newerItems: number;
+  /** Index into the newest-first graphable item list where the shown window starts. */
+  itemWindowStart: number;
+  /** Graphable item total across every window, before the cap. */
+  graphableItems: number;
   /** Hidden connections, excluded with everything they authored or liked. */
   hiddenConnections: number;
 }
@@ -67,11 +73,14 @@ function shortLabel(title: string): string {
   return title.length > LABEL_MAX ? `${title.slice(0, LABEL_MAX - 1)}…` : title;
 }
 
-export function buildSocialGraph(input: {
-  myHandle: string | null;
-  connections: Connection[];
-  items: Item[];
-}): SocialGraph {
+export function buildSocialGraph(
+  input: {
+    myHandle: string | null;
+    connections: Connection[];
+    items: Item[];
+  },
+  options?: { itemOffset?: number },
+): SocialGraph {
   const visible = input.connections.filter((connection) => !connection.hidden);
   const visibleIds = new Set(visible.map((connection) => connection.id));
   const hiddenConnections = input.connections.length - visible.length;
@@ -101,7 +110,12 @@ export function buildSocialGraph(input: {
   const graphable = input.items
     .filter((item) => item.authorId === null || visibleIds.has(item.authorId))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
-  const shown = graphable.slice(0, MAX_GRAPH_ITEMS);
+  // Windowed browsing: the default window is the newest MAX_GRAPH_ITEMS; older windows are
+  // reached by paging. The offset clamps to the last full page start so an out-of-range or
+  // stale offset can never render an empty map while items exist.
+  const lastWindowStart = Math.max(0, Math.ceil(graphable.length / MAX_GRAPH_ITEMS) * MAX_GRAPH_ITEMS - MAX_GRAPH_ITEMS);
+  const itemWindowStart = Math.min(Math.max(0, Math.floor(options?.itemOffset ?? 0)), lastWindowStart);
+  const shown = graphable.slice(itemWindowStart, itemWindowStart + MAX_GRAPH_ITEMS);
 
   for (const item of shown) {
     const nodeId = itemNodeId(item.id);
@@ -122,7 +136,15 @@ export function buildSocialGraph(input: {
     }
   }
 
-  return { nodes, edges, truncatedItems: graphable.length - shown.length, hiddenConnections };
+  return {
+    nodes,
+    edges,
+    truncatedItems: graphable.length - itemWindowStart - shown.length,
+    newerItems: itemWindowStart,
+    itemWindowStart,
+    graphableItems: graphable.length,
+    hiddenConnections,
+  };
 }
 
 /**

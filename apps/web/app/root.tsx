@@ -19,6 +19,7 @@ import {
   parseShareBundle,
   peekConnectCardAuthor,
   peekConnectCardHandle,
+  peekConnectCardProfile,
   readChatShareLink,
   readConnectLink,
   isJournalShareBundle,
@@ -46,7 +47,9 @@ import {
 } from "~/pending-links";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
-import { useSessionStore } from "~/platform/session";
+import { ThemeRoot } from "~/ui95/ThemeRoot";
+import { DisplayProperties } from "~/ui95/DisplayProperties";
+import { discardResumedVault, useSessionStore } from "~/platform/session";
 import { useAutoLock, useSessionExpiry } from "~/platform/use-auto-lock";
 import { newItemId, vaultResume } from "~/platform/vault-service";
 import { fetchSharedBundle, takeRelaySaveIntent } from "~/platform/share-relay";
@@ -108,12 +111,20 @@ export default function App() {
     let cancelled = false;
     const startRevision = useSessionStore.getState().revision;
     vaultResume().then((resumed) => {
-      if (cancelled) return;
+      if (cancelled) {
+        discardResumedVault(resumed?.vault);
+        return;
+      }
       const state = useSessionStore.getState();
       // A manual unlock or lock while the resume was in flight wins; drop the stale result.
-      if (state.revision !== startRevision) return;
-      if (resumed) state.setVault(resumed.vault, resumed.expiresAt);
-      else state.doneResuming();
+      if (state.revision !== startRevision) {
+        discardResumedVault(resumed?.vault);
+        return;
+      }
+      if (resumed) {
+        try { state.setVault(resumed.vault, resumed.expiresAt, resumed.lockMarker); }
+        catch { useSessionStore.getState().doneResuming(); }
+      } else state.doneResuming();
     });
     return () => {
       cancelled = true;
@@ -169,10 +180,11 @@ export default function App() {
   }, [vault]);
 
   return (
-    <>
+    <ThemeRoot>
       <Outlet />
       <PendingLinkHandler vault={vault} />
-    </>
+      <DisplayProperties />
+    </ThemeRoot>
   );
 }
 
@@ -445,6 +457,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
   })();
 
   const connectHandle = pending?.kind === "connect" ? peekConnectCardHandle(pending.text) : null;
+  const connectProfile = pending?.kind === "connect" ? peekConnectCardProfile(pending.text) : null;
 
   if (!vault || (pending === null && message === null)) return null;
 
@@ -463,10 +476,19 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
             <div className="flex flex-col gap-2 text-[12px]">
               <p>
                 This link carries {connectHandle ? `@${connectHandle}'s` : "a friend's"} signed card - handle, public
-                key, and their feed address if they set one. Nothing else: no posts, no likes, no secrets. The
-                signature checks out against the card itself, so trust it only if it reached you from them directly,
-                not forwarded by someone else.
+                key, and their feed address if they set one.
+                {connectProfile ? "" : " Nothing else: no posts, no likes, no secrets."} Your app
+                checks the card's signature when you choose Add, so trust it only if it reached you from them
+                directly, not forwarded by someone else.
               </p>
+              {connectProfile && (
+                <div className="bg-white px-1.5 py-1">
+                  <p className="text-[#800000]">Profile preview - NOT signed, not verified. Anyone who handled the link could have written this:</p>
+                  <p className="font-bold">{connectProfile.displayName}</p>
+                  {connectProfile.bio !== "" && <p className="whitespace-pre-wrap [overflow-wrap:anywhere] max-h-24 overflow-y-auto">{connectProfile.bio}</p>}
+                  <p className="text-[var(--w95-muted)]">Their signed profile - avatar and decorations only if they selected them - can arrive through a later feed sync or share import and is verified then.</p>
+                </div>
+              )}
               <p>Add {connectHandle ? `@${connectHandle}` : "them"} as a connection and open your chat?</p>
               <div className="flex gap-1">
                 <Button95 onClick={() => void doConnect()} disabled={busy}>Add and open chat</Button95>
@@ -480,7 +502,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
               {journalShare ? (
                 <>
                   <p className="bg-white px-1.5 py-1 whitespace-pre-wrap [overflow-wrap:anywhere] max-h-40 overflow-y-auto">{journalShare.entry.text}</p>
-                  <p className="text-[#404040]">
+                  <p className="text-[var(--w95-muted)]">
                     @{journalShare.author.handle}, {new Date(journalShare.entry.createdAt).toLocaleString()} -
                     This entry came through their link, not a server. The link text stays in this tab's memory, not browser storage or the address bar, until you save or dismiss it; it will be offered to the vault you unlock next.
                   </p>

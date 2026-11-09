@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
+import { unexpectedConsoleErrors, watchRuntime } from "./fixtures/runtime-watch";
 
 /**
  * Rollback data compatibility: this fixture is a real encrypted vault backup produced
@@ -34,12 +35,8 @@ async function imageInk(page: Page, name: string): Promise<number> {
 }
 
 test("a drawing saved by the pre-expansion Paint still restores and renders", async ({ page }) => {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
+  // Shared watcher also blocks Netlify's injected preview analytics bootstrap (CI flake source).
+  const { consoleErrors, pageErrors } = await watchRuntime(page);
 
   const backup = await readFile(FIXTURE, "utf8");
   await page.goto("/unlock");
@@ -61,5 +58,5 @@ test("a drawing saved by the pre-expansion Paint still restores and renders", as
   await page.getByText("old-drawing").first().click();
   await expect(page).toHaveURL(/\/feed\/|\/item/);
   expect(pageErrors).toEqual([]);
-  expect(consoleErrors.filter((text) => !text.startsWith("Failed to load resource"))).toEqual([]);
+  expect(unexpectedConsoleErrors(consoleErrors)).toEqual([]);
 });

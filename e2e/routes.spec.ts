@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
 /**
  * All-routes render smoke. Every route mounts and renders its own content - no crash
@@ -15,21 +16,11 @@ import { expect, test, type Page } from "@playwright/test";
 const REACT_HOOKS_SIGNATURE = /Rendered (more|fewer) hooks|error #310|error #418/i;
 const CRASH_HEADING = "Oops!";
 
-function watchRuntime(page: Page) {
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  return { consoleErrors, pageErrors };
-}
-
-function expectCleanRuntime(watched: { consoleErrors: string[]; pageErrors: string[] }) {
-  const unexpected = watched.consoleErrors.filter((text) => !text.startsWith("Failed to load resource"));
+function expectCleanRuntime(watched: WatchedRuntime) {
+  const unexpected = unexpectedConsoleErrors(watched.consoleErrors);
   expect(watched.pageErrors, "uncaught page errors").toEqual([]);
   expect(unexpected, "console errors").toEqual([]);
-  expect([...watched.pageErrors, ...unexpected].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
+  expect([...watched.pageErrors, ...unexpected.map((entry) => entry.text)].join("\n")).not.toMatch(REACT_HOOKS_SIGNATURE);
 }
 
 async function createVault(page: Page) {
@@ -43,7 +34,7 @@ async function createVault(page: Page) {
 }
 
 test("signed-out routes render clean; a bad route gets the honest 404, not a crash", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
 
   await page.goto("/");
   await expect(page).toHaveTitle("Everybody is Cool — a private marketplace that lives on your device");
@@ -64,7 +55,7 @@ test("signed-out routes render clean; a bad route gets the honest 404, not a cra
 });
 
 test("every desktop route mounts clean on an unlocked vault", async ({ page }) => {
-  const watched = watchRuntime(page);
+  const watched = await watchRuntime(page);
   await createVault(page);
 
   const routes: Array<[string, string | RegExp]> = [
@@ -75,6 +66,8 @@ test("every desktop route mounts clean on an unlocked vault", async ({ page }) =
     ["/connections", "Connections — Everybody is Cool"],
     ["/tools", "Tools — Everybody is Cool"],
     ["/tools/journal", "Journal — Everybody is Cool"],
+    ["/tools/calendar", "Calendar — Everybody is Cool"],
+    ["/tools/chores", "Chore chart — Everybody is Cool"],
     ["/vault", "Vault — Everybody is Cool"],
     ["/profile", "Profile — Everybody is Cool"],
   ];
