@@ -63,8 +63,8 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export function layoutBytes(layout: Pick<Layout, "playerId" | "placements">): number {
-  return encoder.encode(JSON.stringify({ playerId: layout.playerId, placements: layout.placements })).length;
+export function layoutBytes(layout: Pick<Layout, "playerId" | "placements" | "submittedAt">): number {
+  return encoder.encode(JSON.stringify(layout)).length;
 }
 
 export function createChallenge(input: CreateChallengeInput): StickerChallenge {

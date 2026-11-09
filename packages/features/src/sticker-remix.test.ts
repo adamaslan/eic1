@@ -98,6 +98,20 @@ describe("submitLayout", () => {
     expect(layoutBytes(challenge.layouts.ben)).toBeLessThanOrEqual(MAX_LAYOUT_BYTES);
   });
 
+  it("counts the stored timestamp toward the 2 KiB ceiling", () => {
+    const base = { playerId: "", placements: [PLACE], submittedAt: NOW.toISOString() };
+    const playerId = "x".repeat(MAX_LAYOUT_BYTES - layoutBytes(base) + 1);
+    const challenge = createChallenge({
+      id: "large-layout",
+      hostId: "ana",
+      players: ["ana", playerId],
+      theme: "under the sea",
+      allowedStickers: ["star"],
+      now: NOW,
+    });
+    expect(() => submitLayout(challenge, playerId, [PLACE], NOW)).toThrow(/too large/i);
+  });
+
   it("refuses layouts after reveal", () => {
     const revealed = revealChallenge(submitLayout(openChallenge(), "ben", [PLACE], NOW), "ana", NOW);
     expect(() => submitLayout(revealed, "cy", [PLACE], NOW)).toThrow(/revealed/i);
