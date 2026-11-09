@@ -42,7 +42,7 @@ export default function DesktopLayout() {
   const vault = useSessionStore((state) => state.vault);
   const lock = useSessionStore((state) => state.lock);
   const resuming = useSessionStore((state) => state.resuming);
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
   const now = useClock();
   const graphEnabled = useFeatureEnabled(vault, "graph");
   const tabs = TABS.filter((tab) => (tab.id === "graph" ? graphEnabled : true));
@@ -78,7 +78,10 @@ export default function DesktopLayout() {
           ? "vault"
           : "feed";
   const clock = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const sectionTitle = TABS.find((tab) => tab.id === active)?.label ?? "Feed";
+  const sectionTitle = pathname.startsWith("/chat/") ? "Chat"
+    : pathname.startsWith("/profile") ? "Profile"
+    : pathname.startsWith("/stickers") ? "Avatar stickers"
+    : TABS.find((tab) => tab.id === active)?.label ?? "Feed";
 
   return (
     // The shell is exactly the viewport height and never scrolls itself: the main region
@@ -147,9 +150,9 @@ export default function DesktopLayout() {
       <PlayerAudio />
       <div style={{ order: oneHand ? 3 : 0 }}>
         <Taskbar startLabel="Lock" onStart={lock} clock={clock} startItems={START_ITEMS}>
-          {/* Task button for the open section: a tap returns to it from anywhere. */}
+          {/* Keep the exact current route, including nested screens and query state. */}
           <Link
-            to={active === "home" ? "/" : `/${active}`}
+            to={`${pathname}${search}${hash}`}
             aria-current="page"
             className="flex min-h-[36px] min-w-0 max-w-[220px] items-center truncate bg-[var(--w95-face)] px-2 text-[12px] font-bold text-[var(--w95-ink)] sm:min-h-0"
           >
