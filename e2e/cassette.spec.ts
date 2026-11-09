@@ -9,7 +9,7 @@ test("cassette flips by keyboard, keeps its music link, and starts reels only on
   await page.keyboard.press("Enter");
   await expect(tape.getByRole("status")).toHaveText("Side B · Make it yours");
   await expect(tape.getByRole("button", { name: "Flip to Side A" })).toBeFocused();
-  await expect(tape.getByRole("link", { name: "Open the music library" })).toHaveAttribute("href", "/music-library");
+  await expect(tape.getByRole("link", { name: "Open cassette music library" })).toHaveAttribute("href", "/music-library");
   const reel = tape.locator(".eic-tape-reels i").first();
   await expect(reel).toHaveCSS("animation-play-state", "paused");
   await tape.getByRole("button", { name: "Spin reels" }).click();
