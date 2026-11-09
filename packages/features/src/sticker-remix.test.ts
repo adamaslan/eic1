@@ -119,4 +119,18 @@ describe("revealChallenge", () => {
     const gallery = revealedGallery(revealChallenge(challenge, "ana", NOW));
     expect(gallery.map((entry) => entry.playerId)).toEqual(["ben", "cy"]);
   });
+
+  it("does not treat inherited object properties as submitted player layouts", () => {
+    const challenge = createChallenge({
+      id: "prototype-key",
+      hostId: "ana",
+      players: ["ana", "toString"],
+      theme: "under the sea",
+      allowedStickers: ["star"],
+      now: NOW,
+    });
+    const withLayout = submitLayout(challenge, "ana", [PLACE], NOW);
+    const gallery = revealedGallery(revealChallenge(withLayout, "ana", NOW));
+    expect(gallery.map((entry) => entry.playerId)).toEqual(["ana"]);
+  });
 });

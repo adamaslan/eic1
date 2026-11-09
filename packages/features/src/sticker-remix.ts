@@ -134,6 +134,6 @@ export function revealChallenge(challenge: StickerChallenge, actorId: string, no
 export function revealedGallery(challenge: StickerChallenge): Layout[] {
   if (challenge.status !== "revealed") throw new Error("The gallery opens after the host reveals.");
   return challenge.players
-    .filter((player) => player in challenge.layouts)
+    .filter((player) => Object.prototype.hasOwnProperty.call(challenge.layouts, player))
     .map((player) => challenge.layouts[player]);
 }
