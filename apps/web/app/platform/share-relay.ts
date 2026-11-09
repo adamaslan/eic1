@@ -90,14 +90,18 @@ ${keyDigest}`));
   return { signature: encodeBase64(signature), at, id: provision.id };
 };
 
+class ShareResponseError extends AppError {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
 const relayError = async (response: Response, fallback: string): Promise<AppError> => {
   try {
     const body = (await response.json()) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.length > 0) return new AppError(body.error);
+    if (typeof body.error === "string" && body.error.length > 0) return new ShareResponseError(body.error, response.status);
   } catch {
     // fall through to the fallback
   }
-  return new AppError(fallback);
+  return new ShareResponseError(fallback, response.status);
 };
 
 export async function publishSharedPost(vault: UnlockedVault, bundleText: string, provision: ShareProvision): Promise<PublishedShare> {
@@ -170,6 +174,8 @@ export interface SharedLinkRef {
   createdAt: string;
   /** Persisted before the publish attempt; cleared once the relay confirms the commit. */
   pending?: boolean;
+  /** Retained only for revocation after an expired/revoked response; never reuse this intent. */
+  retired?: boolean;
 }
 
 const SHARED_LINK_RECORD_PREFIX = "eic.sharedLink.";
@@ -182,9 +188,9 @@ const isStringRecord = (value: unknown): value is Record<string, unknown> =>
 
 const asSharedLinkRef = (value: unknown): SharedLinkRef | null => {
   if (!isStringRecord(value)) return null;
-  const { id, url, deleteKey, postId, createdAt, pending } = value;
+  const { id, url, deleteKey, postId, createdAt, pending, retired } = value;
   if ([id, url, deleteKey, postId, createdAt].some((field) => typeof field !== "string")) return null;
-  return { id, url, deleteKey, postId, createdAt, ...(pending === true ? { pending: true } : {}) } as SharedLinkRef;
+  return { id, url, deleteKey, postId, createdAt, ...(pending === true ? { pending: true } : {}), ...(retired === true ? { retired: true } : {}) } as SharedLinkRef;
 };
 
 /**
@@ -235,7 +241,7 @@ export async function loadSharedLink(vault: UnlockedVault, postId: string): Prom
  * generated and persisted. The ref exists in the vault BEFORE any publish attempt.
  */
 export async function retainShareIntent(vault: UnlockedVault, postId: string): Promise<SharedLinkRef> {
-  const pending = (await loadSharedLinks(vault, postId)).filter((ref) => ref.pending);
+  const pending = (await loadSharedLinks(vault, postId)).filter((ref) => ref.pending && !ref.retired);
   if (pending.length > 0) return pending[pending.length - 1];
   const provision = generateShareProvision();
   const base = RELAY_BASE || (globalThis.location?.origin ?? "");
@@ -258,9 +264,9 @@ export async function finalizePublishedShare(vault: UnlockedVault, ref: SharedLi
 
 /**
  * Publishes a bundle with a persisted intent: the delete key is in the vault BEFORE the
- * request, so the outcome can never orphan a live link. A definitive refusal drops the
- * pending intent (nothing committed); a lost connection keeps it, because the publish
- * may have committed - the retry reuses the same id and the link stays revocable here.
+ * request, so the outcome can never orphan a live link. Every failed attempt keeps the
+ * pending intent: even a current refusal cannot prove an earlier attempt never committed.
+ * The delete key must remain available until an explicit successful revoke.
  */
 export async function publishSharedPostFlow(vault: UnlockedVault, bundleText: string, postId: string): Promise<{ ref: SharedLinkRef }> {
   const ref = await retainShareIntent(vault, postId);
@@ -273,7 +279,11 @@ export async function publishSharedPostFlow(vault: UnlockedVault, bundleText: st
         "Connection lost mid-publish - the link may already be live. It stays revocable from this page; sharing again reuses the same link.",
       );
     }
-    await dropSharedLink(vault, postId, ref.id).catch(() => undefined);
+    if (caught instanceof ShareResponseError && caught.status === 410) {
+      // Keep the old delete key, but do not retry a permanently expired/revoked id.
+      await vault.putJson("identity", recordIdFor(ref.id), { ...ref, retired: true });
+    }
+    // Never forget a potentially-live link because a retry failed.
     throw caught;
   }
   await finalizePublishedShare(vault, ref).catch(() => undefined); // the pending ref still revokes
