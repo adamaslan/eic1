@@ -23,3 +23,21 @@ test('main integration retains all custom-color contrast checks and preset reset
   }
   await expect(dialog.getByText('Picking a preset clears your changes.', {exact: false})).toBeVisible();
 });
+test('mobile landing keeps content within the viewport at every supported enlarged text scale', async ({page}) => {
+  await page.setViewportSize({width:390,height:1100});
+  await create(page);
+  for (const scale of [1.15,1.4]) {
+    await page.getByRole('button',{name:'Display Properties',exact:true}).click();
+    const dialog=page.getByRole('dialog',{name:'Display Properties'});
+    await dialog.getByRole('tab',{name:'Desktop',exact:true}).click();
+    const slider=dialog.locator('input[type=range]');await slider.fill(String(scale));await slider.dispatchEvent('change');
+    await page.keyboard.press('Escape');
+    expect(await page.locator('.w95-zoom').first().evaluate(e=>Number(getComputedStyle(e).zoom))).toBe(scale);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    for (const selector of ['.eic-playground h1','.eic-demo-desk','.eic-remix-window']) {
+      const box=await page.locator(selector).boundingBox();expect(box).not.toBeNull();expect(box!.x+box!.width).toBeLessThanOrEqual(390);
+    }
+    await expect(page.getByRole('button',{name:'Vaporwave'})).toBeVisible();
+    await expect(page.locator('.eic-feature-card')).toHaveCount(14);
+  }
+});
