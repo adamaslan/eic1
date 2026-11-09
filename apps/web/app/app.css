@@ -347,7 +347,7 @@ html[data-motion="off"] .w95-pet:hover {
 .eic-remix-switches button { padding:8px; min-height:36px; border:2px outset var(--w95-light); font-size:11px; cursor:pointer; background:var(--w95-face); }
 .eic-remix-switches button[aria-pressed=true] { border-style:inset; background:var(--w95-hilite); }
 .eic-remix-note { font-size:10px; line-height:1.5; margin-top:10px; }
-.eic-mini-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:20px 5px 0; }
+.eic-mini-row { display:grid; align-items:start; grid-template-columns:1fr 1fr; gap:16px; margin:20px 5px 0; }
 .eic-mixtape { padding:10px; background:#f8a7cc; color:#221c2c; border:2px solid #221c2c; border-radius:9px; box-shadow:4px 5px 0 #221c2c; transform:rotate(-4deg); }
 .eic-tape-label { display:block; background:#fff9db; font:700 10px monospace; padding:3px 6px; border:1px solid #221c2c; }
 .eic-tape-reels { display:flex; align-items:center; justify-content:space-around; margin:8px 0; background:#332338; border-radius:20px; padding:5px; color:#fff; }
@@ -379,3 +379,27 @@ html[data-motion="off"] .w95-pet:hover {
 }
 @media (prefers-reduced-motion:reduce) { .eic-feature-card:hover { transform:none; } }
 html[data-motion=off] .eic-feature-card:hover { transform:none; }
+
+/* The cassette is a local visual toy, separate from audio playback. */
+.eic-mixtape { min-width:0; padding:8px; }
+.eic-tape-stage { perspective:700px; }
+.eic-tape-body { display:grid; transform-style:preserve-3d; transition:transform 300ms ease-in-out; }
+.eic-mixtape[data-side=b] .eic-tape-body { transform:rotateY(180deg); }
+.eic-tape-face { grid-area:1/1; min-width:0; padding:6px; border:1px solid #221c2c; border-radius:5px; background:#f8a7cc; backface-visibility:hidden; }
+.eic-tape-back { transform:rotateY(180deg); background:#b8dcff; }
+.eic-tape-scribble { display:block; font:italic 10px Georgia,serif; overflow-wrap:anywhere; }
+.eic-tape-reels i { flex-shrink:0; animation:eic-reel-spin 2s linear infinite; animation-play-state:paused; }
+.eic-mixtape[data-spinning=true] .eic-tape-reels i { animation-play-state:running; }
+.eic-tape-status { margin:9px 0 6px; font:700 10px monospace; }
+.eic-tape-controls { display:flex; flex-wrap:wrap; gap:6px; }
+.eic-tape-controls button { flex:1 1 64px; min-width:44px; min-height:44px; padding:5px; cursor:pointer; border:2px outset #fff9db; background:#fff9db; color:#221c2c; font:700 10px monospace; overflow-wrap:anywhere; }
+.eic-tape-controls button:focus-visible { outline:3px solid #221c2c; outline-offset:2px; }
+.eic-tape-controls button[aria-pressed=true] { border-style:inset; }
+.eic-tape-motion-note { font-size:9px; line-height:1.4; margin:6px 0; }
+@keyframes eic-reel-spin { to { transform:rotate(360deg); } }
+html[data-motion=off] .eic-tape-body { transition:none; }
+html[data-motion=off] .eic-tape-reels i { animation:none; }
+@media (prefers-reduced-motion:reduce) {
+ .eic-tape-body { transition:none; }
+ .eic-tape-reels i { animation:none; }
+}
