@@ -52,6 +52,8 @@ export interface StoreEntry {
   generation: string;
 }
 
+export class RelayRateLimitError extends AppError {}
+
 export interface ListPage {
   keys: string[];
   /** Present when more keys remain; pass back as `cursor` to continue. */
@@ -193,7 +195,7 @@ export async function admitRelayPublish(
     // The counter increment above is committed BEFORE the cap check on purpose:
     // a validly-signed over-cap request is still accounted and still costs its ops.
     if (next.windowCount > opts.maxPublishesPerWindow) {
-      const err = new AppError("That publisher is over the relay's rate limit.");
+      const err = new RelayRateLimitError("That publisher is over the relay's rate limit.");
       (err as AppError & { ops?: RelayOps }).ops = ops;
       throw err;
     }
