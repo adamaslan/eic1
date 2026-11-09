@@ -40,7 +40,7 @@ export function LandingPlayground({ unlocked = false }: { unlocked?: boolean }) 
             </button>)}
           </div>
           <div className="eic-remix-switches">
-            <button type="button" aria-pressed={theme.motion === "party"} onClick={() => set({ motion: theme.motion === "party" ? "off" : "party" })}>{theme.motion === "party" ? "✦ Party on" : theme.motion === "off" ? "Ⅱ Still" : "✦ Try Party"}</button>
+            <button type="button" aria-label="Party mode" aria-pressed={theme.motion === "party"} onClick={() => set({ motion: theme.motion === "party" ? "off" : "party" })}>{theme.motion === "party" ? "✦ Party on" : theme.motion === "off" ? "Ⅱ Still" : "✦ Try Party"}</button>
             <button type="button" aria-pressed={theme.soft} onClick={() => set({ soft: !theme.soft })}>◕ Soft corners</button>
             <button type="button" onClick={() => display(true)}>🎨 All the knobs</button>
           </div>
