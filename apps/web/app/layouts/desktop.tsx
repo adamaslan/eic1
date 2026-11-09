@@ -42,11 +42,14 @@ export default function DesktopLayout() {
   const vault = useSessionStore((state) => state.vault);
   const lock = useSessionStore((state) => state.lock);
   const resuming = useSessionStore((state) => state.resuming);
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
   const now = useClock();
   const graphEnabled = useFeatureEnabled(vault, "graph");
   const tabs = TABS.filter((tab) => (tab.id === "graph" ? graphEnabled : true));
   const party = useThemeStore((state) => state.theme.motion === "party");
+  const transitionStyle = useThemeStore((state) => state.theme.transition);
+  const oneHand = useThemeStore((state) => state.theme.oneHand);
+  const marquee = useThemeStore((state) => state.theme.marquee);
 
   // Locking or switching vaults must stop the music and drop private playlist state,
   // not just leave the player running against a locked vault.
@@ -75,6 +78,10 @@ export default function DesktopLayout() {
           ? "vault"
           : "feed";
   const clock = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const sectionTitle = pathname.startsWith("/chat/") ? "Chat"
+    : pathname.startsWith("/profile") ? "Profile"
+    : pathname.startsWith("/stickers") ? "Avatar stickers"
+    : TABS.find((tab) => tab.id === active)?.label ?? "Feed";
 
   return (
     // The shell is exactly the viewport height and never scrolls itself: the main region
@@ -82,7 +89,22 @@ export default function DesktopLayout() {
 // content can never slide underneath it (the old fixed taskbar overlapped the bottom
 // of slightly-taller-than-viewport pages with no way to scroll clear).
     <div className="w95-desktop flex h-screen h-dvh flex-col">
-      <header className="p-2 pb-0">
+      {/* Desktop icons: decorative shortcuts that repeat the tab row, so they are hidden from
+          assistive tech and skipped by Tab. Not draggable (see the ideas doc). */}
+      <header className="p-2 pb-0" style={{ order: oneHand ? 2 : 0 }}>
+        <div className="mb-1 hidden gap-2 sm:flex" aria-hidden="true">
+          {[
+            ["/tools/journal", "📓", "Journal"],
+            ["/draw", "🖌️", "Paint"],
+            ["/tools/music", "🎵", "Music"],
+            ["/connections", "💌", "Friends"],
+          ].map(([to, glyph, label]) => (
+            <Link key={to} to={to} tabIndex={-1} className="flex w-16 flex-col items-center text-center text-[11px] text-white [text-shadow:1px_1px_0_#000]">
+              <span aria-hidden="true" className="text-[22px]">{glyph}</span>
+              {label}
+            </Link>
+          ))}
+        </div>
         <div className="mb-1 flex items-center gap-2"><Avatar /><Link to="/profile" className="text-[12px] text-white underline [text-shadow:1px_1px_0_#000]">My profile</Link><Link to="/stickers" className="text-[12px] text-white underline [text-shadow:1px_1px_0_#000]">Avatar stickers</Link></div>
         {/* One row that scrolls sideways on phones instead of stacking into a wall of tabs. */}
         <nav aria-label="Main navigation" className="-mx-2 flex snap-x gap-1 overflow-x-auto px-2 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
@@ -112,23 +134,39 @@ export default function DesktopLayout() {
           ))}
         </nav>
       </header>
-      <main className="min-h-0 flex-1 overflow-y-auto p-2">
+      <main className="min-h-0 flex-1 overflow-y-auto p-2" style={{ order: oneHand ? 1 : 0 }}>
         {/* Enter-only page transition: no AnimatePresence, so the old route never lingers.
             Keyed by section, not full path, so /chat/a -> /chat/b keeps its instance. */}
         <motion.div
           key={pathname.split("/")[1] ?? ""}
           className="w95-zoom"
-          initial={party ? { opacity: 0, y: 14, scale: 0.98 } : { opacity: 0.4, y: 4 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={party ? { type: "spring", stiffness: 300, damping: 22 } : { duration: 0.15, ease: "easeOut" }}
+          initial={transitionStyle === "none" ? false : transitionStyle === "slide" ? { opacity: 0, x: 40 } : party ? { opacity: 0, y: 14, scale: 0.98 } : { opacity: 0.4, y: 4 }}
+          animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
+          transition={transitionStyle === "slide" ? { type: "spring", stiffness: 320, damping: 30 } : party ? { type: "spring", stiffness: 300, damping: 22 } : { duration: 0.15, ease: "easeOut" }}
         >
           <Outlet />
         </motion.div>
       </main>
       <PlayerAudio />
-      <Taskbar startLabel="Lock" onStart={lock} clock={clock} startItems={START_ITEMS}>
-        <span className="self-center truncate text-[12px] text-[var(--w95-ink)]">Everybody is Cool</span>
-      </Taskbar>
+      <div style={{ order: oneHand ? 3 : 0 }}>
+        <Taskbar startLabel="Lock" onStart={lock} clock={clock} startItems={START_ITEMS}>
+          {/* Keep the exact current route, including nested screens and query state. */}
+          <Link
+            to={`${pathname}${search}${hash}`}
+            aria-current="page"
+            className="flex min-h-[36px] min-w-0 max-w-[220px] items-center truncate bg-[var(--w95-face)] px-2 text-[12px] font-bold text-[var(--w95-ink)] sm:min-h-0"
+          >
+            <Bevel variant="in">
+              <span className="block truncate px-2 py-0.5">{sectionTitle}</span>
+            </Bevel>
+          </Link>
+          {marquee && (
+            <span className="hidden min-w-0 flex-1 self-center overflow-hidden whitespace-nowrap text-[12px] text-[var(--w95-ink)] sm:block" aria-label="Tip">
+              <span className="w95-marquee-track">Tip: press Ctrl+Esc to open Start · type hotdog for a surprise · Display Properties is in the tray</span>
+            </span>
+          )}
+        </Taskbar>
+      </div>
     </div>
   );
 }

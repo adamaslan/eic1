@@ -141,6 +141,11 @@ export const themePresets = {
     wallpaper: "stars",
     colors: { face: "#101810", shade: "#0a3d0a", hilite: "#1f4d1f", light: "#3cff6a", ink: "#3cff6a", desk: "#000000", titleA: "#003300", titleB: "#00a83a", titleText: "#caffd8", accent: "#3cff6a", link: "#9dff7a" },
   },
+  highContrast: {
+    label: "High Contrast",
+    wallpaper: "solid",
+    colors: { face: "#ffffff", shade: "#000000", hilite: "#ffffff", light: "#ffffff", ink: "#000000", desk: "#000000", titleA: "#000000", titleB: "#000000", titleText: "#ffff00", accent: "#ffff00", link: "#0000ff" },
+  },
   midnight: {
     label: "Midnight",
     wallpaper: "stars",
@@ -159,3 +164,31 @@ export const themePresets = {
 } as const satisfies Record<string, ThemePreset>;
 
 export type ThemePresetId = keyof typeof themePresets;
+
+export const fontPacks = {
+  classic: { label: "Tahoma", stack: "Tahoma, 'MS Sans Serif', Verdana, sans-serif" },
+  typewriter: { label: "Typewriter", stack: "'Courier New', Courier, monospace" },
+  bigClear: { label: "Big & Clear", stack: "Verdana, Geneva, sans-serif" },
+} as const;
+
+export type FontPackId = keyof typeof fontPacks;
+
+/** WCAG 2.x contrast ratio between two #rrggbb colours (1 to 21). */
+export function contrastRatio(a: string, b: string): number {
+  const lum = (hex: string) => {
+    const n = Number.parseInt(hex.slice(1), 16);
+    const [r, g, bl] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+      const v = c / 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+export function wcagLevel(ratio: number): "AAA" | "AA" | "fail" {
+  if (ratio >= 7) return "AAA";
+  if (ratio >= 4.5) return "AA";
+  return "fail";
+}

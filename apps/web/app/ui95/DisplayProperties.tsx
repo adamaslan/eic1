@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { themeColorKeys, themePresets, wallpapers, type ThemeColors, type ThemePresetId } from "@veil/tokens";
+import {
+  contrastRatio,
+  fontPacks,
+  themeColorKeys,
+  themePresets,
+  wallpapers,
+  wcagLevel,
+  type FontPackId,
+  type ThemeColors,
+  type ThemePresetId,
+} from "@veil/tokens";
 import {
   decodeThemeCode,
   encodeThemeCode,
@@ -50,9 +60,9 @@ const CURSOR_OPTIONS: Array<{ id: CursorEffect; label: string }> = [
 ];
 
 // A tiny live desktop that previews a palette, like the monitor in the real Win95 dialog.
-function MiniMonitor({ colors, wallpaper }: { colors: ThemeColors; wallpaper: string }) {
+function MiniMonitor({ colors, wallpaper, onPick }: { colors: ThemeColors; wallpaper: string; onPick: () => void }) {
   return (
-    <div className="mx-auto w-[150px]" aria-hidden="true">
+    <button type="button" onClick={onPick} title="Click to edit colours" className="mx-auto block w-[150px] cursor-pointer">
       <Bevel variant="in">
         <div className={`h-[90px] p-2 w95-wall-${wallpaper}`} style={{ backgroundColor: colors.desk }}>
           <div style={{ background: colors.face, border: `1px solid ${colors.ink}` }}>
@@ -64,8 +74,15 @@ function MiniMonitor({ colors, wallpaper }: { colors: ThemeColors; wallpaper: st
           </div>
         </div>
       </Bevel>
-    </div>
+    </button>
   );
+}
+
+// Theme of the week: rotates through the non-classic presets in seven-day UTC buckets measured from the Unix epoch.
+function themeOfTheWeek(now: Date): ThemePresetId {
+  const ids = (Object.keys(themePresets) as ThemePresetId[]).filter((id) => id !== "classic");
+  const week = Math.floor(now.getTime() / (7 * 24 * 3600 * 1000));
+  return ids[week % ids.length];
 }
 
 function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: Array<{ id: T; label: string }>; onChange: (id: T) => void }) {
@@ -190,9 +207,17 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
   return (
     <Window title="Display Properties" icon="🖥️" onClose={onClose}>
       <div className="flex flex-col gap-3">
-        <MiniMonitor colors={colors} wallpaper={theme.wallpaper} />
+        <MiniMonitor colors={colors} wallpaper={theme.wallpaper} onPick={() => setTab("colors")} />
         <Tabs95 tabs={TABS} activeId={tab} onChange={setTab} />
 
+        {tab === "themes" && (
+          <div className="flex flex-col gap-2">
+            <p className="text-[12px]">
+              Theme of the week: <strong>{themePresets[themeOfTheWeek(new Date())].label}</strong>
+            </p>
+            <Button95 onClick={() => choosePreset(themeOfTheWeek(new Date()))}>Try this week's theme</Button95>
+          </div>
+        )}
         {tab === "themes" && (
           <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
             {(Object.keys(themePresets) as ThemePresetId[]).map((id) => {
@@ -220,6 +245,9 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
                 <input type="color" value={colors[key]} onChange={(e) => setColor(key, e.target.value)} className="h-7 w-12 cursor-pointer border border-[var(--w95-ink)] bg-[var(--w95-face)]" />
               </label>
             ))}
+            <ContrastCheck label="Text on window face" fg={colors.ink} bg={colors.face} />
+            <ContrastCheck label="Title text on title bar" fg={colors.titleText} bg={colors.titleA} bgEnd={colors.titleB} />
+            <ContrastCheck label="Links on window face" fg={colors.link} bg={colors.face} />
             <p className="col-span-full text-[11px] text-[var(--w95-muted)]">* changed from the {themePresets[theme.preset].label} preset. Picking a preset clears your changes.</p>
           </div>
         )}
@@ -245,10 +273,31 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             </fieldset>
+            <fieldset className="flex flex-wrap items-center gap-1">
+              <legend className="mb-1 text-[12px]">Font</legend>
+              {(Object.keys(fontPacks) as FontPackId[]).map((id) => (
+                <Button95 key={id} pressed={theme.font === id} onClick={() => set({ font: id })}>
+                  <span style={{ fontFamily: fontPacks[id].stack }}>{fontPacks[id].label}</span>
+                </Button95>
+              ))}
+            </fieldset>
             <label className="flex flex-col gap-1 text-[12px]">
               Text size: {Math.round(theme.scale * 100)}%
               <input type="range" min={0.9} max={1.4} step={0.05} value={theme.scale} onChange={(e) => set({ scale: Number(e.target.value) })} />
             </label>
+            <Segmented
+              label="Title bars"
+              value={theme.titleStyle}
+              options={[
+                { id: "gradient", label: "Gradient" },
+                { id: "flat", label: "Flat" },
+                { id: "stripes", label: "Stripes" },
+              ]}
+              onChange={(titleStyle) => set({ titleStyle })}
+            />
+            <Toggle label="Day and night" hint="Switches to Midnight after 7pm and before 7am on this device." checked={theme.autoDay} onChange={(autoDay) => set({ autoDay })} />
+            <Toggle label="One-hand layout" hint="Puts the tab row and taskbar at the bottom for thumbs." checked={theme.oneHand} onChange={(oneHand) => set({ oneHand })} />
+            <Toggle label="Taskbar tip" hint="A scrolling tip in the taskbar (shown on wider screens)." checked={theme.marquee} onChange={(marquee) => set({ marquee })} />
             <Toggle label="Soft corners" hint="Rounds the bevels a little. Not period-accurate, very comfy." checked={theme.soft} onChange={(soft) => set({ soft })} />
           </div>
         )}
@@ -258,7 +307,41 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
             <Segmented label="Animation" value={theme.motion} options={MOTION_OPTIONS} onChange={(motion) => set({ motion })} />
             <p className="text-[11px] text-[var(--w95-muted)]">Your device's reduce-motion setting always wins over Calm and Party.</p>
             <Segmented label="Cursor" value={theme.cursor} options={CURSOR_OPTIONS} onChange={(cursor) => set({ cursor })} />
+            <Segmented
+              label="Cursor pack"
+              value={theme.cursorPack}
+              options={[
+                { id: "classic", label: "Classic" },
+                { id: "hourglass", label: "Hourglass" },
+                { id: "sticker", label: "Sticker" },
+              ]}
+              onChange={(cursorPack) => set({ cursorPack })}
+            />
+            <Segmented
+              label="Page change"
+              value={theme.transition}
+              options={[
+                { id: "fade", label: "Fade" },
+                { id: "slide", label: "Slide" },
+                { id: "none", label: "None" },
+              ]}
+              onChange={(transition) => set({ transition })}
+            />
+            <Toggle label="Screensaver" hint="Starfield after 5 idle minutes. It never shows your content." checked={theme.screensaver} onChange={(screensaver) => set({ screensaver })} />
+            <Toggle label="Boot splash" hint="A short splash once per browser session." checked={theme.bootSplash} onChange={(bootSplash) => set({ bootSplash })} />
+            <Toggle label="Confetti on save and send" hint="Party mode only." checked={theme.confetti} onChange={(confetti) => set({ confetti })} />
+            <Toggle label="Desk pet" hint="A tiny pet in the tray. Tap it." checked={theme.pet} onChange={(pet) => set({ pet })} />
             <Toggle label="CRT scanlines" hint="Old-monitor glow over the whole desktop." checked={theme.crt} onChange={(crt) => set({ crt })} />
+            <Segmented
+              label="Sound voice"
+              value={theme.soundScheme}
+              options={[
+                { id: "classic", label: "Classic" },
+                { id: "eightBit", label: "8-bit" },
+                { id: "silent", label: "Silent" },
+              ]}
+              onChange={(soundScheme) => set({ soundScheme })}
+            />
             <Toggle label="Click sounds" hint="Tiny synthesized beeps. Off by default." checked={theme.sounds} onChange={(sounds) => set({ sounds })} />
           </div>
         )}
@@ -322,6 +405,26 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
         </p>
       </div>
     </Window>
+  );
+}
+
+// Live contrast check; gradients use the worse endpoint rather than hiding a failing end.
+function ContrastCheck({ label, fg, bg, bgEnd }: { label: string; fg: string; bg: string; bgEnd?: string }) {
+  const ratio = Math.min(contrastRatio(fg, bg), bgEnd ? contrastRatio(fg, bgEnd) : Infinity);
+  const level = wcagLevel(ratio);
+  const verdict = level === "fail" ? "⚠️ fails" : level;
+  return (
+    <p className="col-span-full flex items-center justify-between gap-2 text-[11px]">
+      <span className="flex items-center gap-1">
+        <span aria-hidden="true" className="inline-block h-3 w-6 border border-[var(--w95-ink)]" style={{ background: bgEnd ? `linear-gradient(90deg, ${bg}, ${bgEnd})` : bg, color: fg }}>
+          <span className="block text-center text-[9px] leading-[10px]" style={{ color: fg }}>Aa</span>
+        </span>
+        {label}
+      </span>
+      <span className="tabular-nums" aria-label={`${label} contrast ${ratio.toFixed(1)} to 1, ${verdict}`}>
+        {ratio.toFixed(1)}:1 {verdict}
+      </span>
+    </p>
   );
 }
 

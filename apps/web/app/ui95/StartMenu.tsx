@@ -56,7 +56,7 @@ export function StartMenu({ open, onClose, items }: StartMenuProps) {
           ref={panel}
           id="start-menu"
           aria-label="Start menu"
-          className="absolute bottom-full left-1 z-40 mb-1 w-[230px] max-w-[calc(100vw-8px)]"
+          className="w95-start-sheet absolute bottom-full left-1 z-40 mb-1 w-[230px] max-w-[calc(100vw-8px)] max-h-[calc(100dvh-56px)] overflow-y-auto"
           style={{ transformOrigin: "bottom left" }}
           initial={{ opacity: 0, y: 12, scaleY: 0.6 }}
           animate={{ opacity: 1, y: 0, scaleY: 1 }}
