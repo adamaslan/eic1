@@ -75,19 +75,19 @@ export default function Tools() {
             />
             <span>
               <span className="font-bold">{gate.name}</span>
-              <span className="text-[#404040]"> — {gate.blurb}</span>
+              <span className="text-[var(--w95-muted)]"> — {gate.blurb}</span>
             </span>
           </label>
         ))}
-        <p className="text-[11px] text-[#404040]">Turning a feature off only hides it. Your saved entries, posts, and connections stay in the vault.</p>
+        <p className="text-[11px] text-[var(--w95-muted)]">Turning a feature off only hides it. Your saved entries, posts, and connections stay in the vault.</p>
       </fieldset>
       <ul className="flex flex-col gap-1 text-[12px]">
         {TOOLS.map((tool) => (
           <li key={tool.to} className="bg-white px-1.5 py-1">
-            <Link to={tool.to} className="font-bold text-[#0000cc] underline">
+            <Link to={tool.to} className="font-bold text-[var(--w95-link)] underline">
               {tool.name}
             </Link>
-            <span className="text-[#404040]"> — {tool.blurb}</span>
+            <span className="text-[var(--w95-muted)]"> — {tool.blurb}</span>
           </li>
         ))}
       </ul>

@@ -18,7 +18,7 @@ const SLOT_LABELS: Record<SlotId, string> = {
 const POSITION_NAMES = ["Main box", "Top right box", "Bottom right box"];
 // Includes general so a pick preference migrated from a retired category stays visible and can be cleared.
 const PICK_CATEGORIES = CATEGORIES;
-const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none";
+const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none";
 
 // The signed-in landing: the feed up front, three picks from the user's preferences, and boxes that can trade places.
 export function LandingDashboard() {
@@ -51,13 +51,13 @@ export function LandingDashboard() {
         <div key={position} className={position === 0 ? "md:col-span-2 md:row-span-2" : ""}>
           <Window title={SLOT_LABELS[slot]}>
             <div className="flex flex-col gap-2 text-[12px]">
-              <label className="flex items-center gap-1 text-[11px] text-[#404040]">
+              <label className="flex items-center gap-1 text-[11px] text-[var(--w95-muted)]">
                 <span>{POSITION_NAMES[position]} shows</span>
                 <select
                   disabled={!social.settingsReady}
                   value={slot}
                   onChange={(e) => swap(position, e.target.value as SlotId)}
-                  className="bg-white px-1 py-0.5 text-[11px] text-[#0a0a0a]"
+                  className="bg-white px-1 py-0.5 text-[11px] text-[var(--w95-ink)]"
                 >
                   {SLOT_IDS.map((id) => (
                     <option key={id} value={id}>{SLOT_LABELS[id]}</option>
@@ -94,8 +94,8 @@ function FeedBox({ items, count, large }: { items: Item[]; count: number; large:
   if (photos.length === 0) {
     return (
       <p>
-        No posts yet. <Link to="/compose" className="text-[#0000cc] underline">Post one</Link>, or{" "}
-        <Link to="/connections" className="text-[#0000cc] underline">import a friend's share file</Link>.
+        No posts yet. <Link to="/compose" className="text-[var(--w95-link)] underline">Post one</Link>, or{" "}
+        <Link to="/connections" className="text-[var(--w95-link)] underline">import a friend's share file</Link>.
       </p>
     );
   }
@@ -108,7 +108,7 @@ function FeedBox({ items, count, large }: { items: Item[]; count: number; large:
           </li>
         ))}
       </ul>
-      <Link to="/feed" className="text-[#0000cc] underline">Open the full feed</Link>
+      <Link to="/feed" className="text-[var(--w95-link)] underline">Open the full feed</Link>
     </>
   );
 }
@@ -124,13 +124,13 @@ function PicksBox({ items, social, settings }: { items: Item[]; social: Social; 
         <PicksEditor settings={settings} onSave={async (next) => { await social.update(next); setEditing(false); }} onCancel={() => setEditing(false)} />
       ) : (
         <>
-          <p className="text-[11px] text-[#404040]">
+          <p className="text-[11px] text-[var(--w95-muted)]">
             {hasPrefs
               ? `Matched to ${[...settings.categories, ...settings.keywords].join(", ")}.`
               : "Newest listings. Set your picks to tune these."}
           </p>
           {picks.length === 0 ? (
-            <p>No listings yet. <Link to="/compose" className="text-[#0000cc] underline">Add one</Link>.</p>
+            <p>No listings yet. <Link to="/compose" className="text-[var(--w95-link)] underline">Add one</Link>.</p>
           ) : (
             <ul className="flex flex-col gap-1">
               {picks.map((item) => (
@@ -142,7 +142,7 @@ function PicksBox({ items, social, settings }: { items: Item[]; social: Social; 
           )}
           <div className="flex flex-wrap gap-2">
             <Button95 disabled={!social.settingsReady} onClick={() => setEditing(true)}>Your picks…</Button95>
-            <Link to="/market" className="self-center text-[#0000cc] underline">All listings</Link>
+            <Link to="/market" className="self-center text-[var(--w95-link)] underline">All listings</Link>
           </div>
         </>
       )}
@@ -224,7 +224,7 @@ function MessagesBox({ social }: { social: Social }) {
 
   return (
     <>
-      <p className="text-[11px] text-[#404040]">Notes to yourself, plus news from share files you import. Nobody else can write here.</p>
+      <p className="text-[11px] text-[var(--w95-muted)]">Notes to yourself, plus news from share files you import. Nobody else can write here.</p>
       <form onSubmit={submit} className="flex gap-1">
         <input className={inputClass} value={text} maxLength={500} onChange={(e) => setText(e.target.value)} placeholder="Write a note" aria-label="New note" />
         <Button95 type="submit" disabled={busy || !text.trim()}>Add</Button95>
@@ -236,7 +236,7 @@ function MessagesBox({ social }: { social: Social }) {
         <ul className="flex flex-col gap-1">
           {social.notes.slice(0, 6).map((note) => (
             <li key={note.id} className="bg-white px-1.5 py-1">
-              <span className="text-[#404040]">{timeAgo(note.createdAt, now)} · </span>
+              <span className="text-[var(--w95-muted)]">{timeAgo(note.createdAt, now)} · </span>
               {note.text}
             </li>
           ))}

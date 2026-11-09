@@ -69,11 +69,11 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
         {item.mediaIds.map((mediaId) => (
           <ItemImage key={mediaId} mediaId={mediaId} mime={item.mediaMime} title={item.title} />
         ))}
-        <p className="text-[#404040]">
+        <p className="text-[var(--w95-muted)]">
           {item.category} · {formatPrice(item.priceCents)} · {timeAgo(item.createdAt, new Date())} · ♥ {item.likes}
           <AuthorTag item={item} />
         </p>
-        {item.likedBy.length > 0 && <p className="text-[#404040]">Liked by {item.likedBy.length} of your connections.</p>}
+        {item.likedBy.length > 0 && <p className="text-[var(--w95-muted)]">Liked by {item.likedBy.length} of your connections.</p>}
         <p className="whitespace-pre-wrap">{item.description || "No description."}</p>
         <div className="flex flex-wrap gap-2">
           <Button95
@@ -119,12 +119,12 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
         </div>
         {shareNote && <p role="status" className="text-[11px]">{shareNote}</p>}
         {item.authorId === null && !social.settings.handle && (
-          <p className="text-[11px] text-[#404040]">
-            To share, <Link to="/connections" className="text-[#0000cc] underline">choose a handle</Link> first.
+          <p className="text-[11px] text-[var(--w95-muted)]">
+            To share, <Link to="/connections" className="text-[var(--w95-link)] underline">choose a handle</Link> first.
           </p>
         )}
         {item.authorId === null && item.visibility === "shareable" && (
-          <p className="text-[11px] text-[#404040]">This post goes into the share file you export from Connections.</p>
+          <p className="text-[11px] text-[var(--w95-muted)]">This post goes into the share file you export from Connections.</p>
         )}
         <BackLink type={item.type} />
       </div>
@@ -135,7 +135,7 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
 function BackLink({ type }: { type: "photo" | "listing" | null }) {
   const to = type === "listing" ? "/market" : "/feed";
   return (
-    <Link to={to} className="text-[#0000cc] underline">
+    <Link to={to} className="text-[var(--w95-link)] underline">
       {type === "listing" ? "Back to market" : "Back to feed"}
     </Link>
   );

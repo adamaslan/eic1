@@ -46,6 +46,8 @@ import {
 } from "~/pending-links";
 import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
+import { ThemeRoot } from "~/ui95/ThemeRoot";
+import { DisplayProperties } from "~/ui95/DisplayProperties";
 import { discardResumedVault, useSessionStore } from "~/platform/session";
 import { useAutoLock, useSessionExpiry } from "~/platform/use-auto-lock";
 import { newItemId, vaultResume } from "~/platform/vault-service";
@@ -176,10 +178,11 @@ export default function App() {
   }, [vault]);
 
   return (
-    <>
+    <ThemeRoot>
       <Outlet />
       <PendingLinkHandler vault={vault} />
-    </>
+      <DisplayProperties />
+    </ThemeRoot>
   );
 }
 
@@ -453,7 +456,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
                   <p className="text-[#800000]">Profile preview - NOT signed, not verified. Anyone who handled the link could have written this:</p>
                   <p className="font-bold">{connectProfile.displayName}</p>
                   {connectProfile.bio !== "" && <p className="whitespace-pre-wrap [overflow-wrap:anywhere] max-h-24 overflow-y-auto">{connectProfile.bio}</p>}
-                  <p className="text-[#404040]">Their signed profile - avatar and decorations only if they selected them - can arrive through a later feed sync or share import and is verified then.</p>
+                  <p className="text-[var(--w95-muted)]">Their signed profile - avatar and decorations only if they selected them - can arrive through a later feed sync or share import and is verified then.</p>
                 </div>
               )}
               <p>Add {connectHandle ? `@${connectHandle}` : "them"} as a connection and open your chat?</p>
@@ -469,7 +472,7 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
               {journalShare ? (
                 <>
                   <p className="bg-white px-1.5 py-1 whitespace-pre-wrap [overflow-wrap:anywhere] max-h-40 overflow-y-auto">{journalShare.entry.text}</p>
-                  <p className="text-[#404040]">
+                  <p className="text-[var(--w95-muted)]">
                     @{journalShare.author.handle}, {new Date(journalShare.entry.createdAt).toLocaleString()} -
                     This entry came through their link, not a server. The link text stays in this tab's memory, not browser storage or the address bar, until you save or dismiss it; it will be offered to the vault you unlock next.
                   </p>

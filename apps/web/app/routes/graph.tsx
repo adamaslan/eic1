@@ -380,7 +380,7 @@ export default function Graph() {
   return (
     <div className="flex flex-col gap-3">
       <Window title="Social graph">
-        <div className="flex flex-col gap-2 text-[12px] text-[#0a0a0a]">
+        <div className="flex flex-col gap-2 text-[12px] text-[var(--w95-ink)]">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-bold">Layout:</span>
             {(["radial", "free"] as const).map((option) => (
@@ -416,7 +416,7 @@ export default function Graph() {
                 placeholder="Name or title"
                 value={filter.query}
                 onChange={(event) => setFilter((current) => ({ ...current, query: event.target.value }))}
-                className="w-36 bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none"
+                className="w-36 bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none"
               />
             </label>
             {(["connection", "post", "listing"] as const).map((kind) => (
@@ -464,21 +464,21 @@ export default function Graph() {
           ) : bodyState === "error" ? (
             <p role="alert" className="text-[#800000]">
               {items.status === "error" ? items.message : "This vault could not be read."}{" "}
-              <button type="button" onClick={refresh} className="text-[#0000cc] underline">
+              <button type="button" onClick={refresh} className="text-[var(--w95-link)] underline">
                 Try again
               </button>
             </p>
           ) : bodyState === "empty" ? (
             <p>
               Nothing to map yet. Add a connection or a post and it shows up here.{" "}
-              <Link to="/connections" className="text-[#0000cc] underline">Connections</Link>
+              <Link to="/connections" className="text-[var(--w95-link)] underline">Connections</Link>
               {" · "}
-              <Link to="/compose" className="text-[#0000cc] underline">New post</Link>
+              <Link to="/compose" className="text-[var(--w95-link)] underline">New post</Link>
             </p>
           ) : filterActive && shownGraph.nodes.length <= 1 ? (
             <p>
               Nothing shows with the current filters.{filter.query.trim() !== "" && " No matching names or titles."}{" "}
-              <button type="button" onClick={() => setFilter(emptyGraphFilter)} className="text-[#0000cc] underline">
+              <button type="button" onClick={() => setFilter(emptyGraphFilter)} className="text-[var(--w95-link)] underline">
                 Clear the filter
               </button>
             </p>
@@ -487,11 +487,11 @@ export default function Graph() {
               {shownGraph.nodes.map((node) => {
                 const isSelected = node.id === selectedId;
                 return (
-                  <li key={node.id} className={isSelected ? "bg-[#c0c0c0] px-1.5 py-1" : "bg-white px-1.5 py-1"}>
-                    <Link to={node.href} className="font-bold text-[#0000cc] underline">
+                  <li key={node.id} className={isSelected ? "bg-[var(--w95-face)] px-1.5 py-1" : "bg-white px-1.5 py-1"}>
+                    <Link to={node.href} className="font-bold text-[var(--w95-link)] underline">
                       {(node.kind === "me" || node.kind === "connection") && <Avatar authorId={node.kind === "me" ? undefined : node.id.slice("connection:".length)} label={`${node.label}'s avatar`} />} {node.label}
                     </Link>
-                    <span className="text-[#404040]">
+                    <span className="text-[var(--w95-muted)]">
                       {" "}— {KIND_LABEL[node.kind]}, {degree.get(node.id) ?? 0} {(degree.get(node.id) ?? 0) === 1 ? "link" : "links"}
                     </span>
                     {" "}
@@ -500,7 +500,7 @@ export default function Graph() {
                       aria-pressed={isSelected}
                       aria-label={`Details for ${node.label}`}
                       onClick={() => setSelectedId(isSelected ? null : node.id)}
-                      className="text-[#0000cc] underline outline-none focus:outline-2 focus:outline-dotted focus:outline-[#0a0a0a]"
+                      className="text-[var(--w95-link)] underline outline-none focus:outline-2 focus:outline-dotted focus:outline-[var(--w95-ink)]"
                     >
                       Details
                     </button>
@@ -588,7 +588,7 @@ export default function Graph() {
             </Bevel>
           )}
 
-          <p className="text-[11px] text-[#404040]">
+          <p className="text-[11px] text-[var(--w95-muted)]">
             {filterActive
               ? `Showing ${shownConnections} of ${visibleConnections} ${visibleConnections === 1 ? "person" : "people"} · ${posts} of ${totalPosts} ${totalPosts === 1 ? "post" : "posts"} · ${listings} of ${totalListings} ${totalListings === 1 ? "listing" : "listings"} · ${likes} ${likes === 1 ? "like" : "likes"}.`
               : `${visibleConnections} ${visibleConnections === 1 ? "person" : "people"} · ${posts} ${posts === 1 ? "post" : "posts"} · ${listings} ${listings === 1 ? "listing" : "listings"} · ${likes} ${likes === 1 ? "like" : "likes"}.`}
@@ -605,10 +605,10 @@ export default function Graph() {
 
       {selected && (
         <Window title={`Details — ${KIND_LABEL[selected.kind]}`}>
-          <div className="flex flex-col gap-1 text-[12px] text-[#0a0a0a]">
+          <div className="flex flex-col gap-1 text-[12px] text-[var(--w95-ink)]">
             <p className="font-bold">{selected.label}</p>
             <p>
-              <Link to={selected.href} className="text-[#0000cc] underline">
+              <Link to={selected.href} className="text-[var(--w95-link)] underline">
                 {selected.kind === "me" ? "Open your profile" : selected.kind === "connection" ? "Open profile" : "Open in full"}
               </Link>
             </p>

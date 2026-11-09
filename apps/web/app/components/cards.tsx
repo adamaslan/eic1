@@ -29,7 +29,7 @@ export function AuthorTag({ item }: { item: Item }) {
   const sample = sampleAuthorFor(item.id);
   if (sample) {
     return (
-      <span className="inline-flex items-center gap-1 text-[#404040]">
+      <span className="inline-flex items-center gap-1 text-[var(--w95-muted)]">
         <img
           src={`data:image/png;base64,${sample.avatarData}`}
           alt={`${sample.handle}'s avatar`}
@@ -43,7 +43,7 @@ export function AuthorTag({ item }: { item: Item }) {
     );
   }
   if (!item.authorHandle) return null;
-  return <span className="inline-flex items-center gap-1 text-[#404040]"><Avatar authorId={item.authorId ?? undefined} label={`${item.authorHandle}'s avatar`} />@{item.authorHandle}</span>;
+  return <span className="inline-flex items-center gap-1 text-[var(--w95-muted)]"><Avatar authorId={item.authorId ?? undefined} label={`${item.authorHandle}'s avatar`} />@{item.authorHandle}</span>;
 }
 
 export function PhotoCard({
@@ -85,7 +85,7 @@ export function PhotoCard({
         )}
         <div className="flex items-center justify-between gap-2 px-1 py-1">
           <span className="truncate font-bold">{item.title}</span>
-          <span className="shrink-0 text-[#0000cc]">
+          <span className="shrink-0 text-[var(--w95-link)]">
             {timeAgo(item.createdAt, now)} · {item.likedByMe ? "♥" : "♡"} {item.likes}
           </span>
         </div>
@@ -104,10 +104,10 @@ export function ListingRow({ item, now, onOpen }: { item: Item; now: Date; onOpe
     <Open item={item} onOpen={onOpen}>
       <Card95>
         <div className="flex items-baseline gap-2 px-1 py-0.5">
-          <span className="min-w-0 flex-1 truncate font-bold text-[#0000cc]">{item.title}</span>
+          <span className="min-w-0 flex-1 truncate font-bold text-[var(--w95-link)]">{item.title}</span>
           <span className="shrink-0 font-mono">{formatPrice(item.priceCents)}</span>
         </div>
-        <div className="flex gap-2 px-1 pb-0.5 text-[11px] text-[#404040]">
+        <div className="flex gap-2 px-1 pb-0.5 text-[11px] text-[var(--w95-muted)]">
           <span>{item.category}</span>
           <span>· {timeAgo(item.createdAt, now)}</span>
           <AuthorTag item={item} />

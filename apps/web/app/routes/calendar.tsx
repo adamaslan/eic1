@@ -132,18 +132,18 @@ export default function Calendar() {
           <Button95 onClick={() => shiftMonth(-1)} aria-label="Previous month">◀</Button95>
           <Button95 onClick={goToday}>Today</Button95>
           <Button95 onClick={() => shiftMonth(1)} aria-label="Next month">▶</Button95>
-          <span className="ml-auto text-[11px] text-[#404040]">Events stay in this vault.</span>
+          <span className="ml-auto text-[11px] text-[var(--w95-muted)]">Events stay in this vault.</span>
         </div>
         <div role="grid" aria-label={`${monthLabel(view.year, view.month)} days`} className="text-[12px]">
-          <div role="row" className="grid grid-cols-7 gap-px bg-[#808080]">
+          <div role="row" className="grid grid-cols-7 gap-px bg-[var(--w95-shade)]">
             {WEEKDAY_LABELS.map((label) => (
-              <div key={label} role="columnheader" className="bg-[#c0c0c0] px-1 py-0.5 text-center font-bold">
+              <div key={label} role="columnheader" className="bg-[var(--w95-face)] px-1 py-0.5 text-center font-bold">
                 {label}
               </div>
             ))}
           </div>
           {grid.map((week) => (
-            <div role="row" key={week[0]!.key} className="grid grid-cols-7 gap-px bg-[#808080]">
+            <div role="row" key={week[0]!.key} className="grid grid-cols-7 gap-px bg-[var(--w95-shade)]">
               {week.map((cell) => {
                 const dayEvents = byDay.get(cell.key) ?? [];
                 const selected = cell.key === selectedKey;
@@ -157,7 +157,7 @@ export default function Calendar() {
                     aria-label={`${dayLabel(cell.key)}, ${dayEvents.length === 0 ? "no events" : `${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"}`}`}
                     onClick={() => setSelectedKey(cell.key)}
                     className={`flex min-h-[44px] cursor-pointer flex-col items-start px-1 py-0.5 text-left sm:min-h-[40px] ${
-                      selected ? "bg-[#000080] text-white" : cell.inMonth ? "bg-white text-[#0a0a0a]" : "bg-[#dfdfdf] text-[#808080]"
+                      selected ? "bg-[var(--w95-title-a)] text-white" : cell.inMonth ? "bg-white text-[var(--w95-ink)]" : "bg-[var(--w95-hilite)] text-[var(--w95-shade)]"
                     }`}
                   >
                     <span className={today ? "font-bold underline" : ""}>{cell.day}</span>
@@ -193,7 +193,7 @@ export default function Calendar() {
                     {event.time && <span className="font-bold">{event.time} </span>}
                     {event.title}
                   </p>
-                  {event.note && <p className="whitespace-pre-wrap text-[11px] text-[#404040]">{event.note}</p>}
+                  {event.note && <p className="whitespace-pre-wrap text-[11px] text-[var(--w95-muted)]">{event.note}</p>}
                 </div>
                 <Button95 onClick={() => void remove(event.id)} disabled={deletingId === event.id} aria-label={`Delete ${event.title}`}>
                   {deletingId === event.id ? "…" : "✕"}
@@ -203,7 +203,7 @@ export default function Calendar() {
           </ul>
         )}
 
-        <form onSubmit={save} className="flex flex-col gap-2 border-t border-[#808080] pt-2 text-[12px] text-[#0a0a0a]">
+        <form onSubmit={save} className="flex flex-col gap-2 border-t border-[var(--w95-shade)] pt-2 text-[12px] text-[var(--w95-ink)]">
           <p className="font-bold">Add to {dayLabel(selectedKey)}</p>
           <label htmlFor="calendar-title" className="sr-only">Event title</label>
           <input
@@ -224,7 +224,7 @@ export default function Calendar() {
               onChange={(change) => { setTime(change.target.value); setNotice(null); }}
               className="bg-white px-1.5 py-1 text-[12px] outline-none"
             />
-            <span className="text-[11px] text-[#404040]">optional</span>
+            <span className="text-[11px] text-[var(--w95-muted)]">optional</span>
           </div>
           <label htmlFor="calendar-note" className="sr-only">Note</label>
           <textarea
@@ -243,7 +243,7 @@ export default function Calendar() {
           {error && events !== null && <p role="alert" className="text-[#800000]">{error}</p>}
         </form>
         <p className="mt-2 text-[12px]">
-          <Link to="/tools" className="text-[#0000cc] underline">Back to tools</Link>
+          <Link to="/tools" className="text-[var(--w95-link)] underline">Back to tools</Link>
         </p>
       </Window>
     </div>

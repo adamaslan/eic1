@@ -251,7 +251,7 @@ export default function Chores() {
           >
             ▶
           </Button95>
-          <span className="ml-auto text-[11px] text-[#404040]">Check-offs stay in this vault.</span>
+          <span className="ml-auto text-[11px] text-[var(--w95-muted)]">Check-offs stay in this vault.</span>
         </div>
 
         {chores === null ? (
@@ -270,17 +270,17 @@ export default function Chores() {
             <table className="w-full border-collapse text-[12px]">
               <thead>
                 <tr>
-                  <th className="bg-[#c0c0c0] px-1 py-0.5 text-left font-bold">Chore</th>
+                  <th className="bg-[var(--w95-face)] px-1 py-0.5 text-left font-bold">Chore</th>
                   {week.map((day, index) => (
                     <th
                       key={weekKeys[index]}
-                      className={`px-1 py-0.5 text-center font-bold ${weekKeys[index] === todayKey ? "bg-[#000080] text-white" : "bg-[#c0c0c0]"}`}
+                      className={`px-1 py-0.5 text-center font-bold ${weekKeys[index] === todayKey ? "bg-[var(--w95-title-a)] text-white" : "bg-[var(--w95-face)]"}`}
                     >
                       {WEEKDAY_LABELS[index]}
                       <span className="block text-[10px] font-normal">{day.getDate()}</span>
                     </th>
                   ))}
-                  <th className="bg-[#c0c0c0]" aria-label="Actions" />
+                  <th className="bg-[var(--w95-face)]" aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
@@ -291,7 +291,7 @@ export default function Chores() {
                     <tr key={chore.id}>
                       <th className="bg-white px-1 py-0.5 text-left font-normal">
                         <span className="font-bold">{chore.name}</span>
-                        <span className="block text-[10px] text-[#404040]">{doneThisWeek}/{scheduledThisWeek} this week</span>
+                        <span className="block text-[10px] text-[var(--w95-muted)]">{doneThisWeek}/{scheduledThisWeek} this week</span>
                       </th>
                       {week.map((day, index) => {
                         const key = weekKeys[index]!;
@@ -309,7 +309,7 @@ export default function Chores() {
                                   aria-label={`${done ? "Uncheck" : "Check off"} ${chore.name} for ${WEEKDAY_LABELS[index]} ${day.getDate()}`}
                                   disabled={busyKey === `${chore.id}:${key}`}
                                   onClick={() => void toggle(chore, key)}
-                                  className="h-[32px] w-[32px] cursor-pointer border border-[#808080] bg-[#dfdfdf] text-[14px] leading-none text-[#008000] sm:h-[28px] sm:w-[28px]"
+                                  className="h-[32px] w-[32px] cursor-pointer border border-[var(--w95-shade)] bg-[var(--w95-hilite)] text-[14px] leading-none text-[#008000] sm:h-[28px] sm:w-[28px]"
                                 >
                                   {done ? "✓" : ""}
                                 </button>
@@ -320,14 +320,14 @@ export default function Chores() {
                                     aria-label={`Switch who has ${chore.name} for ${WEEKDAY_LABELS[index]} ${day.getDate()} (now ${assignee})`}
                                     disabled={busyKey === `switch:${chore.id}:${key}`}
                                     onClick={() => void switchPerson(chore, key)}
-                                    className="max-w-[52px] cursor-pointer truncate border border-transparent text-[10px] leading-tight text-[#404040] underline decoration-dotted hover:border-[#808080]"
+                                    className="max-w-[52px] cursor-pointer truncate border border-transparent text-[10px] leading-tight text-[var(--w95-muted)] underline decoration-dotted hover:border-[var(--w95-shade)]"
                                   >
                                     {shortName(assignee)}
                                   </button>
                                 ) : null}
                               </div>
                             ) : (
-                              <span className="text-[#808080]" aria-hidden="true">—</span>
+                              <span className="text-[var(--w95-shade)]" aria-hidden="true">—</span>
                             )}
                           </td>
                         );
@@ -345,19 +345,19 @@ export default function Chores() {
           </div>
         )}
 
-        <form onSubmit={savePerson} className="mt-2 flex flex-col gap-1.5 border-t border-[#808080] pt-2 text-[12px] text-[#0a0a0a]">
+        <form onSubmit={savePerson} className="mt-2 flex flex-col gap-1.5 border-t border-[var(--w95-shade)] pt-2 text-[12px] text-[var(--w95-ink)]">
           <p className="font-bold">People on the chart</p>
           {people === null ? (
             <p className="text-[#800000]" role="alert">{error ?? "The people list could not be read."}</p>
           ) : people.length > 0 ? (
             <p>
               {people.join(", ")}
-              <span className="block text-[10px] text-[#404040]">
+              <span className="block text-[10px] text-[var(--w95-muted)]">
                 Chores rotate through this list week by week. Tap a name in the chart to switch one date. Names added after this week join the rotation next week, so earlier weeks never change.
               </span>
             </p>
           ) : (
-            <p className="text-[#404040]">Add people and each chore rotates through them week by week.</p>
+            <p className="text-[var(--w95-muted)]">Add people and each chore rotates through them week by week.</p>
           )}
           <div className="flex items-center gap-2">
             <label htmlFor="chore-person-name" className="sr-only">Person's name</label>
@@ -376,7 +376,7 @@ export default function Chores() {
           </div>
         </form>
 
-        <form onSubmit={save} className="mt-2 flex flex-col gap-2 border-t border-[#808080] pt-2 text-[12px] text-[#0a0a0a]">
+        <form onSubmit={save} className="mt-2 flex flex-col gap-2 border-t border-[var(--w95-shade)] pt-2 text-[12px] text-[var(--w95-ink)]">
           <p className="font-bold">Add a chore</p>
           <label htmlFor="chore-name" className="sr-only">Chore name</label>
           <input
@@ -406,7 +406,7 @@ export default function Chores() {
           {error && chores !== null && people !== null && <p role="alert" className="text-[#800000]">{error}</p>}
         </form>
         <p className="mt-2 text-[12px]">
-          <Link to="/tools" className="text-[#0000cc] underline">Back to tools</Link>
+          <Link to="/tools" className="text-[var(--w95-link)] underline">Back to tools</Link>
         </p>
       </Window>
     </div>

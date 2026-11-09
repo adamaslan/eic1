@@ -544,13 +544,13 @@ export default function Music() {
   return (
     <Window title={store.playlistName ? `Music Player — ${store.playlistName}` : "Music Player"}>
       <div className="flex flex-col gap-2 text-[12px]">
-        <p className="text-[#404040]">
+        <p className="text-[var(--w95-muted)]">
           Plays MP3, WAV and more from your device. Songs are never uploaded or copied into the vault: saved playlists
           remember the list only, and you pick the files again to play them.
         </p>
         <div className="flex flex-wrap gap-1">
           <label className="cursor-pointer">
-            <span className="block min-h-[44px] bg-[#c0c0c0] px-3 py-2 text-[12px] shadow-[inset_-1px_-1px_#0a0a0a,inset_1px_1px_#fff] sm:min-h-0 sm:py-1">
+            <span className="block min-h-[44px] bg-[var(--w95-face)] px-3 py-2 text-[12px] shadow-[inset_-1px_-1px_#0a0a0a,inset_1px_1px_#fff] sm:min-h-0 sm:py-1">
               Choose folder…
             </span>
             <input
@@ -563,7 +563,7 @@ export default function Music() {
             />
           </label>
           <label className="cursor-pointer">
-            <span className="block min-h-[44px] bg-[#c0c0c0] px-3 py-2 text-[12px] shadow-[inset_-1px_-1px_#0a0a0a,inset_1px_1px_#fff] sm:min-h-0 sm:py-1">
+            <span className="block min-h-[44px] bg-[var(--w95-face)] px-3 py-2 text-[12px] shadow-[inset_-1px_-1px_#0a0a0a,inset_1px_1px_#fff] sm:min-h-0 sm:py-1">
               Choose files…
             </span>
             <input type="file" className="sr-only" aria-label="Choose music files" accept="audio/*,.mp3,.wav" multiple onChange={load} />
@@ -583,7 +583,7 @@ export default function Music() {
           </Button95>
         </div>
         {store.tracks.length > 0 && (
-          <p className="text-[#404040]">
+          <p className="text-[var(--w95-muted)]">
             {store.tracks.length} track{store.tracks.length === 1 ? "" : "s"}
             {knownDurations.length > 0 && <> · {formatDuration(knownDurations.reduce((a, b) => a + b, 0))} total</>} ·{" "}
             {formatBytes(totalBytes)} of audio
@@ -679,7 +679,7 @@ export default function Music() {
               type="button"
               aria-label={store.muted ? "Unmute" : "Mute"}
               onClick={() => store.setMuted(!store.muted)}
-              className="min-h-[24px] min-w-[28px] bg-[#c0c0c0] shadow-[inset_-1px_-1px_#0a0a0a,inset_1px_1px_#fff] active:shadow-[inset_1px_1px_#0a0a0a,inset_-1px_-1px_#fff]"
+              className="min-h-[24px] min-w-[28px] bg-[var(--w95-face)] shadow-[inset_-1px_-1px_#0a0a0a,inset_1px_1px_#fff] active:shadow-[inset_1px_1px_#0a0a0a,inset_-1px_-1px_#fff]"
             >
               {store.muted || store.volume === 0 ? "🔇" : "🔊"}
             </button>
@@ -694,16 +694,16 @@ export default function Music() {
           </label>
         </div>
 
-        {queuedTitles.length > 0 && <p className="text-[#404040]">Up next: {queuedTitles.join(" → ")}</p>}
+        {queuedTitles.length > 0 && <p className="text-[var(--w95-muted)]">Up next: {queuedTitles.join(" → ")}</p>}
         {store.note && (
           <p role="status" className="text-[#800000]">
             {store.note}
           </p>
         )}
-        {resumeHint && store.tracks.length === 0 && <p className="text-[#000080]">{resumeHint}</p>}
+        {resumeHint && store.tracks.length === 0 && <p className="text-[var(--w95-title-a)]">{resumeHint}</p>}
 
         {/* Saved playlists (metadata only) */}
-        <div className="border-2 border-b-[#dfdfdf] border-r-[#dfdfdf] border-l-[#0a0a0a] border-t-[#0a0a0a] bg-[#c0c0c0] p-1.5">
+        <div className="border-2 border-b-[var(--w95-hilite)] border-r-[var(--w95-hilite)] border-l-[var(--w95-ink)] border-t-[var(--w95-ink)] bg-[var(--w95-face)] p-1.5">
           <div className="flex flex-wrap items-center gap-1">
             <input
               aria-label="Playlist name"
@@ -720,9 +720,9 @@ export default function Music() {
           {saved.length > 0 && (
             <ul aria-label="Saved playlists" className="mt-1 bg-white">
               {saved.map((p) => (
-                <li key={p.name} className="flex items-center gap-1 border-b border-[#dfdfdf] px-1 py-0.5">
+                <li key={p.name} className="flex items-center gap-1 border-b border-[var(--w95-hilite)] px-1 py-0.5">
                   <span className="min-w-0 flex-1 truncate">
-                    {p.name} <span className="text-[#404040]">({p.tracks.length})</span>
+                    {p.name} <span className="text-[var(--w95-muted)]">({p.tracks.length})</span>
                   </span>
                   <Button95 onClick={() => startOpen(p.name)}>Open…</Button95>
                   <Button95 onClick={() => void onRename(p.name)}>Rename</Button95>
@@ -740,12 +740,12 @@ export default function Music() {
             Shrink songs…
           </Button95>
           {showShrink && (
-            <div className="mt-1 border-2 border-b-[#dfdfdf] border-r-[#dfdfdf] border-l-[#0a0a0a] border-t-[#0a0a0a] bg-[#c0c0c0] p-1.5">
+            <div className="mt-1 border-2 border-b-[var(--w95-hilite)] border-r-[var(--w95-hilite)] border-l-[var(--w95-ink)] border-t-[var(--w95-ink)] bg-[var(--w95-face)] p-1.5">
               {!compressTarget ? (
                 <p role="alert">This browser cannot re-encode audio. Try Chrome, Edge or Safari 14.1 or later.</p>
               ) : (
                 <>
-                  <p className="text-[#404040]">
+                  <p className="text-[var(--w95-muted)]">
                     Converts on this device to {compressTarget.label}. Smaller files trade a little sound quality -
                     lossy, not transparent; the estimate shows before you commit. Nothing is uploaded and your
                     original files are never changed: "Use" swaps the playlist to the smaller copy and "Original"
@@ -768,13 +768,13 @@ export default function Music() {
                       const done = shrunk[t.id];
                       const estimate = t.duration ? estimateCompressedBytes(t.duration, bitrate) : null;
                       return (
-                        <li key={t.id} className="flex flex-wrap items-center gap-1 border-b border-[#dfdfdf] px-1 py-0.5">
+                        <li key={t.id} className="flex flex-wrap items-center gap-1 border-b border-[var(--w95-hilite)] px-1 py-0.5">
                           <span className="min-w-0 flex-1 truncate">
-                            {t.title} <span className="text-[#404040]">({formatBytes(t.file.size)})</span>
+                            {t.title} <span className="text-[var(--w95-muted)]">({formatBytes(t.file.size)})</span>
                           </span>
                           {originals[t.id] ? (
                             <>
-                              <span className="text-[#404040]">(shrunk copy in use)</span>
+                              <span className="text-[var(--w95-muted)]">(shrunk copy in use)</span>
                               <Button95 onClick={() => revertToOriginal(i)}>Original</Button95>
                             </>
                           ) : done ? (
@@ -857,18 +857,18 @@ export default function Music() {
                         store.setPlaying(true);
                       }}
                       className={`min-w-0 flex-1 truncate px-1.5 py-1 text-left min-h-[44px] sm:min-h-0 ${
-                        i === store.index ? "bg-[#000080] text-white" : "text-[#0a0a0a]"
+                        i === store.index ? "bg-[var(--w95-title-a)] text-white" : "text-[var(--w95-ink)]"
                       }`}
                     >
                       {i + 1}. {track.starred ? "★ " : ""}
                       {track.title}
-                      <span className={i === store.index ? "text-[#c0c0c0]" : "text-[#404040]"}>
+                      <span className={i === store.index ? "text-[#c0c0c0]" : "text-[var(--w95-muted)]"}>
                         {" "}
                         {formatDuration(track.duration)}
                         {plays > 0 ? ` · played ${plays}×` : ""}
                       </span>
                     </button>
-                    <span className={`flex shrink-0 ${i === store.index ? "bg-[#000080]" : ""}`}>
+                    <span className={`flex shrink-0 ${i === store.index ? "bg-[var(--w95-title-a)]" : ""}`}>
                       <Button95 aria-label={`Star ${track.title}`} pressed={track.starred} onClick={() => store.toggleStar(i)} className="min-h-0 min-w-[28px]">
                         {track.starred ? "★" : "☆"}
                       </Button95>
@@ -892,7 +892,7 @@ export default function Music() {
           </div>
         )}
 
-        <p className="text-[#404040]">
+        <p className="text-[var(--w95-muted)]">
           Sharing sends the actual songs plus a playlist.json through your own share sheet or as one .eicmusic file you
           send yourself - up to {formatBytes(MAX_MUSIC_BUNDLE_BYTES)} of audio. The receiver imports it in eic and plays
           the real files. Folder picking and playing with the screen locked depend on your browser and phone and are not
