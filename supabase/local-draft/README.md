@@ -4,7 +4,7 @@ The current implementation and activation gates are in [docs/supabase-hosted-cha
 
 ## Implemented, not activated
 
-The server-only `supabase-relay-store.ts` implements `RelayAtomicStore` through injected RPC calls. The production migration is `supabase/migrations/20261108163000_eic_relay.sql`: private RLS tables, service-only RPCs, generation-based CAS, immutable retry validation, literal-prefix pagination, disabled configuration, total row/logical-byte caps and per-reader nonce admission. No automatic cleanup is included.
+The server-only `supabase-relay-store.ts` implements `RelayAtomicStore` through injected RPC calls. The reviewed schema draft is `supabase/local-draft/hosted-relay.sql`: private RLS tables, service-only RPCs, generation-based CAS, immutable retry validation, literal-prefix pagination, disabled configuration, total row/logical-byte caps and per-reader nonce admission. No automatic cleanup is included. It is deliberately outside supabase/migrations, so ordinary CLI migration commands do not apply it. Hosted installation, retention scheduling, activation and negative/concurrency proof still require explicit owner approval.
 
 The HTTP handler verifies signed publish/read/chunk requests before store access, with an explicit nonempty signing-key allowlist, exact-origin CORS, streamed 2 MiB request cap and generic errors. CORS is not authentication. `supabase/functions/eic-relay/entry.ts` supplies the Deno listener, disabled-config gate and runtime-only Supabase credentials. RPC success handling includes PostgREST's empty HTTP204 replies for void functions.
 
