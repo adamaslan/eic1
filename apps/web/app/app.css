@@ -271,8 +271,7 @@ html[data-motion="party"] [role="alert"] {
   from { transform: translateX(0); }
   to { transform: translateX(-100%); }
 }
-html[data-motion="off"] .w95-marquee-track,
-html[data-motion="still"] .w95-marquee-track {
+html[data-motion="off"] .w95-marquee-track {
   animation: none;
   padding-left: 0;
 }
