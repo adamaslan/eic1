@@ -5,7 +5,7 @@ import {encodeBase64} from '@veil/core';
 const modulePath=process.env.EIC_PGLITE_MODULE; if(!modulePath?.startsWith('/')) throw Error('Set EIC_PGLITE_MODULE');
 const {PGlite}=await import(/* @vite-ignore */ modulePath);
 it('real entry accepts PostgREST204 VOID success and commits nonempty publish',async()=>{
- const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role;');await db.exec(await readFile('supabase/migrations/20261108163000_eic_relay.sql','utf8'));
+ const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role;');await db.exec(await readFile('supabase/local-draft/hosted-relay.sql','utf8'));
  const key=await generateSigningKeyPair(),pubkey=encodeBase64(key.publicKey);await db.query('update eic_relay.config set enabled=true,public_keys=$1,origins=$2',[[pubkey],['https://eic.example']]);
  const args:Record<string,string[]>={eic_relay_config:[],eic_relay_get:['p_key'],eic_relay_cas:['p_key','p_data','p_expected'],eic_relay_put:['p_key','p_data'],eic_relay_delete:['p_key']};let handler:any;const original=globalThis.fetch;
  (globalThis as any).Deno={env:{get:(key:string)=>key==='SUPABASE_URL'?'https://local.example':'local-fixture'},serve:(h:any)=>handler=h};
