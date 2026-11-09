@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { RelayStoreUnavailableError } from "./supabase-relay-store";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRelayHttpHandler, RELAY_HTTP_MAX_BYTES, type RelayHttpOptions } from "./relay-http";
 import type { RelayAtomicStore } from "./relay-adapter";
 const opts = (): RelayHttpOptions => ({ enabled: true, origins: ["https://eic.example"], keys: ["allowed-key"], maxPublishesPerWindow: 5, windowMs: 60000, now: () => new Date() });
@@ -52,4 +53,18 @@ describe("unwired signed relay HTTP boundary", () => {
     const options = opts(); const { handle, store } = fixture(options); options.origins.push("https://evil.invalid"); options.keys.length = 0;
     expect((await handle(req("{}", { "content-type": "application/json", origin: "https://evil.invalid" }))).status).toBe(403); untouched(store);
   });
+});
+
+
+afterEach(() => vi.restoreAllMocks());
+import * as adapter from "./relay-adapter";
+import { AppError } from "@veil/core";
+it.each([[new Error("postgres://private"),503], [new RelayStoreUnavailableError("Invalid relay store response."),503], [new AppError("bad signature"),400], [new adapter.RelayRateLimitError("rate exceeded"),429]])("separates storage outages from invalid requests", async (error, status) => {
+  vi.spyOn(adapter, "admitRelayPublish").mockRejectedValue(error);
+  const { handle } = fixture();
+  const response = await handle(new Request("https://local.invalid/publish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ manifest: "x", files: [] }) }));
+  expect(response.status).toBe(status);
+  const body = await response.text();
+  expect(body).not.toContain("postgres");
+  expect(body).not.toContain("fresh signed request");
 });
