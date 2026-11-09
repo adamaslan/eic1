@@ -1,3 +1,5 @@
+export { MAX_PLAYERS as MAX_STORY_PLAYERS, MAX_TURNS, MAX_SCENE_GRAPHEMES, MAX_STORY_BYTES, validateScene, storyBytes, createStory, nextPlayerId, submitTurn, finishStory } from "./emoji-story";
+export type { StoryTurn, EmojiStory, CreateStoryInput } from "./emoji-story";
 export * from "./demo-items";
 export * from "./selectors";
 export * from "./use-clock";
@@ -27,4 +29,3 @@ export * from "./profile-assets";
 export * from "./profile-avatars";
 
 export { loadDisplayAvatar } from "./display-avatar";
-export * from "./emoji-story";
