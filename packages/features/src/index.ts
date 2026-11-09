@@ -1,3 +1,4 @@
+export * from "./two-truths";
 export * from "./demo-items";
 export * from "./selectors";
 export * from "./use-clock";
