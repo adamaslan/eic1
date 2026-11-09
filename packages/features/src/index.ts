@@ -1,3 +1,4 @@
+export * from "./two-truths";
 export * from "./demo-items";
 export * from "./selectors";
 export * from "./use-clock";
@@ -27,4 +28,3 @@ export * from "./profile-assets";
 export * from "./profile-avatars";
 
 export { loadDisplayAvatar } from "./display-avatar";
-export * from "./two-truths";
