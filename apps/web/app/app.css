@@ -316,8 +316,8 @@ html[data-motion="off"] .w95-pet:hover {
 
 /* Playable landing: the controls above operate the real theme store. Fixed ink/paper
    pairs keep the art readable even when a custom desktop palette is extreme. */
-.eic-playground { display:grid; grid-template-columns:1fr 1fr; gap:28px; align-items:center; padding:38px 10px 26px; }
-.eic-playground-copy { color:white; text-shadow:0 2px 0 #0004; }
+.eic-playground { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:28px; align-items:center; padding:38px 10px 26px; }
+.eic-playground-copy { min-width:0; color:white; text-shadow:0 2px 0 #0004; }
 .eic-eyebrow { font:700 10px/1.4 monospace; letter-spacing:.17em; margin-bottom:16px; background:#161127; color:#f2ff92; display:inline-block; padding:6px 10px; transform:rotate(-2deg); }
 .eic-playground h1 { font:900 clamp(58px,7vw,94px)/.88 Arial,sans-serif; letter-spacing:-.075em; margin:0 0 22px; color:#fff; -webkit-text-stroke:1px #272039; text-shadow:4px 4px 0 #292039; }
 .eic-playground h1 span { color:#f3ff8c; font-style:italic; }
@@ -368,12 +368,15 @@ html[data-motion="off"] .w95-pet:hover {
 .eic-card-blurb { font-size:11px; line-height:1.5; }
 .eic-card-cta { font-size:10px; text-decoration:underline; color:var(--w95-link); margin-top:6px; }
 @media (max-width:700px) {
- .eic-playground { grid-template-columns:1fr; gap:30px; padding:22px 4px; }
- .eic-playground h1 { font-size:76px; }
+ .eic-playground { grid-template-columns:minmax(0,1fr); gap:30px; padding:22px 4px; }
+ .eic-playground h1 { font-size:min(76px,calc(19.5vw / var(--w95-scale,1))); }
  .eic-hero-description { max-width:none; font-size:15px; }
  .eic-sticker-strip { margin-top:18px; }
  .eic-sticker-strip img { width:39px; height:39px; }
- .eic-mini-row { gap:12px; }
+ .eic-mini-row { gap:12px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .eic-demo-tag { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+ .eic-eyebrow,.eic-local-note { max-width:100%; overflow-wrap:anywhere; }
+ .eic-mixtape,.eic-doodle { min-width:0; overflow-wrap:anywhere; }
 }
 @media (prefers-reduced-motion:reduce) { .eic-feature-card:hover { transform:none; } }
 html[data-motion=off] .eic-feature-card:hover { transform:none; }
