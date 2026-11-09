@@ -116,12 +116,12 @@ describe("publish intent retention", () => {
     expect(seen[0]).toBe(seen[1]); // same id + same key: the retry is an idempotent no-op server-side
   });
 
-  it("a definitive refusal drops the pending intent and stores nothing", async () => {
+  it("a refused retry keeps its delete key because an earlier attempt may have committed", async () => {
     const vault = fakeVault();
     await loadOrCreateShareIdentity(vault);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "The share service is full right now. Try again later." }), { status: 503 })));
     await expect(publishSharedPostFlow(vault, bundle(), "post-1")).rejects.toThrow("full");
-    expect(await loadSharedLink(vault, "post-1")).toBeNull();
+    expect((await loadSharedLink(vault, "post-1"))?.pending).toBe(true);
   });
 
   it("finalize failure keeps the pending ref, which still revokes the live link", async () => {
@@ -191,4 +191,25 @@ describe("publishSharedPost proof", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "boom" }), { status: 500 })));
     await expect(revokeSharedPost("abc123", "key")).rejects.toThrow("boom");
   });
+});
+
+it.each([409,500,503])("retains revocation keys after ambiguous HTTP %s", async (status) => {
+  const vault = fakeVault(); await loadOrCreateShareIdentity(vault);
+  const before = await retainShareIntent(vault, "post-1");
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "refused" }), { status })));
+  await expect(publishSharedPostFlow(vault, "{}", "post-1")).rejects.toThrow();
+  expect((await loadSharedLink(vault, "post-1"))?.deleteKey).toBe(before.deleteKey);
+  vi.unstubAllGlobals();
+});
+
+it("keeps an expired link revocable but starts a fresh intent next time", async () => {
+  const vault = fakeVault(); await loadOrCreateShareIdentity(vault);
+  const before = await retainShareIntent(vault, "post-1");
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "expired" }), { status: 410 })));
+  await expect(publishSharedPostFlow(vault, "{}", "post-1")).rejects.toThrow();
+  const refs = await loadSharedLinks(vault, "post-1");
+  expect(refs.find((r) => r.id === before.id)?.deleteKey).toBe(before.deleteKey);
+  const next = await retainShareIntent(vault, "post-1");
+  expect(next.id).not.toBe(before.id);
+  vi.unstubAllGlobals();
 });
