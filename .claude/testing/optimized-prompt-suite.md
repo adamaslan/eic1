@@ -2,6 +2,23 @@
 
 Skills in `.claude/skills/` for eic1. Each was distilled from the opt-prompts sets (1–4). This file is the index for the suite; add a row when a skill is added.
 
+## Source and synchronization
+
+This is the eic1 project copy. The corresponding homebase proposal is
+[homebase PR #77](https://github.com/adamaslan/homebase/pull/77), reviewed here at
+commit `b650aa5ed568c3875b92c62828ba5a5a1fc48f73`. Its index has the same ten skill
+names. Neither copy establishes that the original opt-prompts sets are available,
+nor that either repository is the user's chosen canonical source.
+
+Keep eic1-specific changes here and document any intentional difference when
+synchronizing the two copies. Compare the actual files before copying changes;
+do not silently overwrite a newer project-specific version. A cross-repository
+canonical-source choice is still open. These documents are guidance, not permission
+to change accounts, spend money, migrate data or override the user's instructions.
+
+The frontmatter check below is structural only. Live skill invocation remains
+unverified; no successful invocation is claimed by this PR.
+
 ## Skills
 
 | Skill | Use when |
