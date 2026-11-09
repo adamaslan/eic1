@@ -66,7 +66,7 @@ test('landscape Start menu fits viewport and scrolls to every shortcut',async({p
 test('Party mode visible label matches stable accessible name and shows state separately',async({page})=>{
   await page.goto('/');const toggle=page.getByRole('button',{name:'Party mode',exact:true});
   for(const state of ['Calm','Party on','Still']){
-    await expect(page.getByRole('link',{name:`♫ Press play · ${musicCatalog.length} songs`,exact:true})).toHaveAttribute('href','/music-library');await expect(page.getByText('42b / SIDE A',{exact:true})).toBeVisible();await expect(toggle).toHaveText('Party mode');await expect(page.getByRole('status',{name:'Motion setting'})).toHaveText(state);await toggle.click();
+    await expect(page.getByRole('link',{name:`♫ Press play · ${musicCatalog.length} songs`,exact:true})).toHaveAttribute('href','/music-library');await expect(page.getByText('nycpony / SIDE A',{exact:true})).toBeVisible();await expect(toggle).toHaveText('Party mode');await expect(page.getByRole('status',{name:'Motion setting'})).toHaveText(state);await toggle.click();
   }
 });
 test('title contrast checks both gradient endpoints and reports the worse pair',async({page})=>{

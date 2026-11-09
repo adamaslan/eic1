@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test("cassette flips by keyboard, keeps its music link, and starts reels only on request", async ({ page }) => {
   await page.goto("/");
   const tape = page.getByRole("region", { name: "Two-sided mixtape" });
-  await expect(tape.getByRole("status")).toHaveText("Side A · Original songs");
+  await expect(tape.getByRole("status")).toHaveText("Side A · featuring part1 je suis en delay");
   const flip = tape.getByRole("button", { name: "Flip to Side B" });
   await flip.focus();
   await page.keyboard.press("Enter");
