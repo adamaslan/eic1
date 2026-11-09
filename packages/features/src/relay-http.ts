@@ -1,4 +1,6 @@
-import { admitRelayPublish, serveRelayRead, serveRelayChunk, type RelayAtomicStore, type RelayReadRequest } from "./relay-adapter";
+import { AppError } from "@veil/core";
+import { RelayStoreUnavailableError } from "./supabase-relay-store";
+import { RelayRateLimitError, admitRelayPublish, serveRelayRead, serveRelayChunk, type RelayAtomicStore, type RelayReadRequest } from "./relay-adapter";
 import type { RelayPublishRequest } from "./chat-relay";
 
 export const RELAY_HTTP_MAX_BYTES = 2 * 1024 * 1024;
@@ -30,7 +32,7 @@ async function boundedJson(request: Request): Promise<unknown> {
     }
     text += decoder.decode();
     return JSON.parse(text);
-  } finally { reader.releaseLock(); }
+  } catch { throw new BadRequest(); } finally { reader.releaseLock(); }
 }
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -88,9 +90,13 @@ export function createRelayHttpHandler(store: RelayAtomicStore, options: RelayHt
       }
       const { manifest } = await serveRelayRead(store, body, { allowlist: keys, now: options.now() });
       return reply(200, { manifest });
-    } catch {
-      // No DB errors, exception strings, signatures, request bodies or secrets in response/logs.
-      return reply(400, { error: "Relay request failed. Keep your local message and retry with a fresh signed request." });
+    } catch (error) {
+      // Backend details and signed request material never leave the gateway.
+      if (error instanceof RelayRateLimitError) return reply(429, { error: "Relay rate limit reached. Keep your local message and try later." });
+      if (error instanceof BadRequest || (error instanceof AppError && !(error instanceof RelayStoreUnavailableError))) {
+        return reply(400, { error: "Relay request rejected. Keep your local message." });
+      }
+      return reply(503, { error: "Encrypted relay is unavailable. Keep your local message and try later." });
     }
   };
 }
