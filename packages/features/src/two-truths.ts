@@ -1,7 +1,7 @@
 /**
- * Two truths and a lie: one round per circle. The author holds the lie index locally;
+ * Two truths and a lie: one round per circle. Full rounds, including the lie index, must stay on the author's device;
  * guessers see only the three statements until the author reveals. Pure logic: no I/O,
- * no network, no vault record kinds. Callers decide where (if anywhere) a round is stored.
+ * no network, no vault record kinds. Only publicView output may be shared with guessers. This module does not encrypt records.
  */
 
 export const MAX_STATEMENT_CHARS = 160;
@@ -36,7 +36,7 @@ function isChoice(value: unknown): value is 0 | 1 | 2 {
   return value === 0 || value === 1 || value === 2;
 }
 
-/** Serialized size of one guess record, as it would be stored or sent. */
+/** UTF-8 size of the guess submission envelope, not the stored guesses map entry. */
 export function guessBytes(guesserId: string, index: 0 | 1 | 2): number {
   return encoder.encode(JSON.stringify({ guesserId, index })).length;
 }
@@ -80,10 +80,11 @@ export function submitGuess(round: TwoTruthsRound, guesserId: string, index: 0 |
   if (guessBytes(guesserId, index) > MAX_GUESS_BYTES) {
     throw new Error(`A guess must fit in ${MAX_GUESS_BYTES} bytes.`);
   }
-  const isNew = !(guesserId in round.guesses);
+  const isNew = !Object.hasOwn(round.guesses, guesserId);
   if (isNew && Object.keys(round.guesses).length >= MAX_GUESSERS) {
     throw new Error("This round is full; no more guessers can join.");
   }
+  // Retained for API compatibility; guesses do not currently store timestamps.
   void now;
   return { ...round, guesses: { ...round.guesses, [guesserId]: index } };
 }
