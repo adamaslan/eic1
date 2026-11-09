@@ -41,3 +41,23 @@ test('mobile landing keeps content within the viewport at every supported enlarg
     await expect(page.locator('.eic-feature-card')).toHaveCount(14);
   }
 });
+test('landing Party toggle has a stable accessible name across all motion states',async({page})=>{
+  await page.goto('/');const toggle=page.getByRole('button',{name:'Party mode',exact:true});
+  await expect(toggle).toHaveAttribute('aria-pressed','false');await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed','true');await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed','false');
+});
+test('taskbar keeps nested chat route instead of linking away to Feed',async({page})=>{
+  await create(page);await page.goto('/chat/synthetic-counterpart');
+  const task=page.locator('footer a[aria-current=page]');
+  await expect(task).toHaveAttribute('href','/chat/synthetic-counterpart');await expect(task).toHaveText('Chat');
+  await task.click();await expect(page).toHaveURL(/\/chat\/synthetic-counterpart$/);
+});
+test('landscape Start menu fits viewport and scrolls to every shortcut',async({page})=>{
+  await page.setViewportSize({width:600,height:320});await create(page);await page.goto('/feed');
+  await page.getByRole('button',{name:'Start',exact:true}).click();const menu=page.locator('#start-menu');
+  await expect(menu).toBeVisible();await expect.poll(async()=>Math.round((await menu.boundingBox())!.y)).toBeGreaterThanOrEqual(0);await expect.poll(async()=>{const box=(await menu.boundingBox())!;return Math.round(box.y+box.height)}).toBeLessThanOrEqual(320);
+  expect(await menu.evaluate(e=>getComputedStyle(e).overflowY)).toBe('auto');
+  await menu.getByRole('link',{name:'Home',exact:true}).scrollIntoViewIfNeeded();await expect(menu.getByRole('link',{name:'Home',exact:true})).toBeInViewport();
+  await menu.getByRole('button',{name:'Party mode',exact:false}).scrollIntoViewIfNeeded();await expect(menu.getByRole('button',{name:'Party mode',exact:false})).toBeInViewport();
+});
