@@ -3,17 +3,17 @@
 -- Server-only RPCs: anon/authenticated cannot call them or read the private table.
 begin;
 create schema eic_relay;
-revoke all on schema eic_relay from public, anon, authenticated;
+revoke all on schema eic_relay from public, anon, authenticated, service_role;
 create sequence eic_relay.generation_seq;
 create table eic_relay.objects (
-  key text collate "C" primary key check (length(key) between 1 and 1024),
+  key text collate "C" primary key check (octet_length(key) between 1 and 1024),
   data text not null check (octet_length(data) <= 1100000),
   generation bigint not null default nextval('eic_relay.generation_seq'),
   updated_at timestamptz not null default now()
 );
 alter table eic_relay.objects enable row level security;
-revoke all on all tables in schema eic_relay from public, anon, authenticated;
-revoke all on all sequences in schema eic_relay from public, anon, authenticated;
+revoke all on all tables in schema eic_relay from public, anon, authenticated, service_role;
+revoke all on all sequences in schema eic_relay from public, anon, authenticated, service_role;
 
 create function public.eic_relay_get(p_key text) returns jsonb
 language sql security definer set search_path = pg_catalog as $$
@@ -74,7 +74,7 @@ language sql security definer set search_path = pg_catalog as $$
 $$;
 revoke all on function public.eic_relay_get(text), public.eic_relay_cas(text,text,text),
  public.eic_relay_put(text,text), public.eic_relay_list(text,text,integer), public.eic_relay_delete(text)
- from public, anon, authenticated;
+ from public, anon, authenticated, service_role;
 grant execute on function public.eic_relay_get(text), public.eic_relay_cas(text,text,text),
  public.eic_relay_put(text,text), public.eic_relay_list(text,text,integer), public.eic_relay_delete(text)
  to service_role;
