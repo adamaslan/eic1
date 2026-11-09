@@ -2,6 +2,7 @@ import { Link } from "react-router";
 import { PROFILE_AVATARS } from "@veil/features";
 import { themePresets, type ThemePresetId } from "@veil/tokens";
 import { useThemeStore } from "~/platform/theme-store";
+import musicCatalog from "~/data/music-library.json";
 import { Window } from "~/ui95/Window";
 
 const LOOKS: ThemePresetId[] = ["vaporwave", "bubblegum", "midnight", "lime", "hotdog", "classic"];
@@ -21,7 +22,7 @@ export function LandingPlayground({ unlocked = false }: { unlocked?: boolean }) 
         <p className="eic-hero-description">A mixtape, a doodle, a tiny desktop that feels like you. Make a mess. Make it yours.</p>
         <div className="eic-hero-actions">
           <Link to={unlocked ? "/draw" : "/unlock"} aria-label={unlocked ? "Make something" : "Create or open your vault"} className="eic-big-button">{unlocked ? "Make something ↗" : "Make your own world ↗"}</Link>
-          <Link to="/music-library" className="eic-music-link">♫ Press play · 42 songs</Link>
+          <Link to="/music-library" className="eic-music-link">♫ Press play · {musicCatalog.length} songs</Link>
         </div>
         <p className="eic-local-note">No account. Private vault on this device. Sharing is manual.</p>
         <div className="eic-sticker-strip" aria-label="Original hand-drawn avatars">
@@ -40,11 +41,12 @@ export function LandingPlayground({ unlocked = false }: { unlocked?: boolean }) 
             </button>)}
           </div>
           <div className="eic-remix-switches">
-            <button type="button" aria-label="Party mode" aria-pressed={theme.motion === "party"} onClick={() => set({ motion: theme.motion === "party" ? "off" : "party" })}>{theme.motion === "party" ? "✦ Party on" : theme.motion === "off" ? "Ⅱ Still" : "✦ Try Party"}</button>
+            <button type="button" aria-label="Party mode" aria-pressed={theme.motion === "party"} onClick={() => set({ motion: theme.motion === "party" ? "off" : "party" })}>Party mode</button>
+            <span role="status" aria-label="Motion setting" className="self-center text-[11px]">{theme.motion === "party" ? "Party on" : theme.motion === "off" ? "Still" : "Calm"}</span>
             <button type="button" aria-pressed={theme.soft} onClick={() => set({ soft: !theme.soft })}>◕ Soft corners</button>
             <button type="button" onClick={() => display(true)}>🎨 All the knobs</button>
           </div>
-          <p className="eic-remix-note">Saved only on this device. Sound stays off unless you turn it on. Your device's reduced-motion setting always wins.</p>
+          <p className="eic-remix-note">Party mode switches between Party and Still. Choose Calm in All the knobs. Saved only on this device. Sound stays off unless you turn it on. Your device's reduced-motion setting always wins.</p>
         </Window>
         <div className="eic-mini-row">
           <div className="eic-mixtape"><span className="eic-tape-label">42b / SIDE A</span><div className="eic-tape-reels"><i /><span>♫</span><i /></div><Link to="/music-library">Original songs. Zero login. ↗</Link></div>
