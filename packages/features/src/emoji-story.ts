@@ -1,7 +1,7 @@
 /**
  * Emoji-only story relay: friends take turns adding one short emoji scene, then the story is
- * finished and revealed. Pure logic: no I/O, no network, no vault record kinds. Turns are
- * compare-and-set on the expected index, so a stale device cannot overwrite a turn.
+ * finished and revealed. Pure logic: no I/O, no network, no vault record kinds. The expected-index guard validates one supplied snapshot only. Persistence must
+ * atomically compare and replace the stored version to prevent concurrent overwrites.
  */
 
 export const MAX_PLAYERS = 6;
@@ -57,12 +57,16 @@ export function storyBytes(story: EmojiStory): number {
   return encoder.encode(JSON.stringify(story)).length;
 }
 
+function assertStorySize(story: EmojiStory): void {
+  if (storyBytes(story) > MAX_STORY_BYTES) throw new Error(`A story must fit in ${MAX_STORY_BYTES} bytes.`);
+}
+
 export function createStory(input: CreateStoryInput): EmojiStory {
   const players = input.players;
   if (players.length > MAX_PLAYERS) throw new Error(`A story can have at most ${MAX_PLAYERS} players.`);
   if (new Set(players).size !== players.length) throw new Error("Each player must be unique.");
   if (!players.includes(input.hostId)) throw new Error("The host must be one of the players.");
-  return {
+  const story: EmojiStory = {
     id: input.id,
     hostId: input.hostId,
     players: [...players],
@@ -70,6 +74,8 @@ export function createStory(input: CreateStoryInput): EmojiStory {
     status: "open",
     createdAt: input.now.toISOString(),
   };
+  assertStorySize(story);
+  return story;
 }
 
 /** Turns go round the players in order. Null once the story is finished. */
@@ -80,7 +86,8 @@ export function nextPlayerId(story: EmojiStory): string | null {
 
 /**
  * Adds one scene. `expectedIndex` must equal the number of turns already stored; if another
- * device wrote first, the call is refused rather than overwriting that turn.
+ * snapshot contains an earlier write, this call is refused. Cross-device atomicity
+ * requires a storage compare-and-set; two calls with the same stale snapshot can both succeed.
  */
 export function submitTurn(
   story: EmojiStory,
@@ -98,10 +105,11 @@ export function submitTurn(
   const scene = validateScene(rawScene);
   const turns = [...story.turns, { index: story.turns.length, playerId, scene }];
   const next: EmojiStory = { ...story, turns };
-  if (turns.length >= MAX_TURNS) {
-    return { ...next, status: "finished", finishedAt: now.toISOString() };
-  }
-  return next;
+  const result: EmojiStory = turns.length >= MAX_TURNS
+    ? { ...next, status: "finished", finishedAt: now.toISOString() }
+    : next;
+  assertStorySize(result);
+  return result;
 }
 
 /** The host ends the story early. Needs at least one turn so an empty story is never published. */
@@ -109,5 +117,7 @@ export function finishStory(story: EmojiStory, actorId: string, now: Date): Emoj
   if (actorId !== story.hostId) throw new Error("Only the host can finish the story.");
   if (story.status === "finished") throw new Error("This story is already finished.");
   if (story.turns.length === 0) throw new Error("Add at least one turn before finishing.");
-  return { ...story, status: "finished", finishedAt: now.toISOString() };
+  const result: EmojiStory = { ...story, status: "finished", finishedAt: now.toISOString() };
+  assertStorySize(result);
+  return result;
 }
