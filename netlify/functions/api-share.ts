@@ -45,8 +45,8 @@ export default async (request: Request, context?: RequestContext): Promise<Respo
   const url = new URL(request.url);
   // Path after the redirect: /api/share or /api/share/<id>
   const idMatch = /^\/api\/share\/([^/]+)$/.exec(url.pathname);
-  const store = await blobStore();
   try {
+    const store = await blobStore();
     if (request.method === "POST" && url.pathname === "/api/share") {
       const body = await request.text();
       const proof = {
