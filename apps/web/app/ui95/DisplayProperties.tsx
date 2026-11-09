@@ -78,7 +78,7 @@ function MiniMonitor({ colors, wallpaper, onPick }: { colors: ThemeColors; wallp
   );
 }
 
-// Theme of the week: rotates through the non-classic presets by ISO week, shipped in the app.
+// Theme of the week: rotates through the non-classic presets in seven-day UTC buckets measured from the Unix epoch.
 function themeOfTheWeek(now: Date): ThemePresetId {
   const ids = (Object.keys(themePresets) as ThemePresetId[]).filter((id) => id !== "classic");
   const week = Math.floor(now.getTime() / (7 * 24 * 3600 * 1000));
@@ -246,7 +246,7 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
               </label>
             ))}
             <ContrastCheck label="Text on window face" fg={colors.ink} bg={colors.face} />
-            <ContrastCheck label="Title text on title bar" fg={colors.titleText} bg={colors.titleA} />
+            <ContrastCheck label="Title text on title bar" fg={colors.titleText} bg={colors.titleA} bgEnd={colors.titleB} />
             <ContrastCheck label="Links on window face" fg={colors.link} bg={colors.face} />
             <p className="col-span-full text-[11px] text-[var(--w95-muted)]">* changed from the {themePresets[theme.preset].label} preset. Picking a preset clears your changes.</p>
           </div>
@@ -408,15 +408,15 @@ function DisplayPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-// Live WCAG check for one colour pair, so a custom palette can't quietly become unreadable.
-function ContrastCheck({ label, fg, bg }: { label: string; fg: string; bg: string }) {
-  const ratio = contrastRatio(fg, bg);
+// Live contrast check; gradients use the worse endpoint rather than hiding a failing end.
+function ContrastCheck({ label, fg, bg, bgEnd }: { label: string; fg: string; bg: string; bgEnd?: string }) {
+  const ratio = Math.min(contrastRatio(fg, bg), bgEnd ? contrastRatio(fg, bgEnd) : Infinity);
   const level = wcagLevel(ratio);
   const verdict = level === "fail" ? "⚠️ fails" : level;
   return (
     <p className="col-span-full flex items-center justify-between gap-2 text-[11px]">
       <span className="flex items-center gap-1">
-        <span aria-hidden="true" className="inline-block h-3 w-6 border border-[var(--w95-ink)]" style={{ background: bg, color: fg }}>
+        <span aria-hidden="true" className="inline-block h-3 w-6 border border-[var(--w95-ink)]" style={{ background: bgEnd ? `linear-gradient(90deg, ${bg}, ${bgEnd})` : bg, color: fg }}>
           <span className="block text-center text-[9px] leading-[10px]" style={{ color: fg }}>Aa</span>
         </span>
         {label}
