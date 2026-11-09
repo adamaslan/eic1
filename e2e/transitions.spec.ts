@@ -104,7 +104,7 @@ test("compose listing -> market loads populated with the new listing", async ({ 
   await page.getByRole("link", { name: "Home" }).click();
   await page.goBack();
   await expect(page.getByText("Saved - encrypted in this vault.")).toHaveCount(0);
-  await page.getByRole("link", { name: "Market" }).click();
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Market", exact: true }).click();
   await expect(page.getByText(title)).toBeVisible();
   await expect(page.getByText("Saved - encrypted in this vault.")).toHaveCount(0);
   expectCleanRuntime(watched);
