@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MotionConfig, useReducedMotion } from "motion/react";
 import { fontPacks } from "@veil/tokens";
-import { resolveColors, useThemeStore, type CursorPack, type ThemeSettings } from "~/platform/theme-store";
+import { useThemeStore, type CursorPack, type ThemeSettings } from "~/platform/theme-store";
 import { playBlip } from "~/platform/sounds";
 import { colorsAt, decorativeMotionOff, nextThemeBoundary } from "~/platform/theme-behavior";
 
