@@ -132,3 +132,27 @@ describe("finishStory", () => {
     expect(() => finishStory(openStory(), "ana", NOW)).toThrow(/at least one turn/i);
   });
 });
+
+
+describe("stored-size boundaries", () => {
+  it("refuses oversized initial metadata and a turn that crosses the stored byte cap", () => {
+    expect(() => createStory({ id: "x".repeat(MAX_STORY_BYTES), hostId: "ana", players: PLAYERS, now: NOW })).toThrow(/4096|bytes/i);
+    const story = openStory();
+    story.id = "x".repeat(MAX_STORY_BYTES - storyBytes(story) + story.id.length);
+    expect(storyBytes(story)).toBe(MAX_STORY_BYTES);
+    expect(() => submitTurn(story, "ana", "🐱", 0, NOW)).toThrow(/4096|bytes/i);
+    expect(story.turns).toEqual([]);
+  });
+  it.each(["🐱" + " ".repeat(MAX_STORY_BYTES) + "🐱", "👨" + "‍👩".repeat(MAX_STORY_BYTES)])("rejects oversized scene bytes despite few graphemes", (scene) => {
+    expect(() => submitTurn(openStory(), "ana", scene, 0, NOW)).toThrow(/4096|bytes/i);
+  });
+  it("counts the final timestamp when finishing at the exact byte boundary", () => {
+    const story = submitTurn(openStory(), "ana", "🐱", 0, NOW);
+    const finished = finishStory(story, "ana", NOW);
+    const pad = MAX_STORY_BYTES - storyBytes(finished);
+    story.id += "x".repeat(pad);
+    expect(storyBytes(finishStory(story, "ana", NOW))).toBe(MAX_STORY_BYTES);
+    story.id += "x";
+    expect(() => finishStory(story, "ana", NOW)).toThrow(/4096|bytes/i);
+  });
+});
