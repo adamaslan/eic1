@@ -563,8 +563,8 @@ export default function Draw() {
 
   return (
     <Window title="untitled - Paint">
-      <form onSubmit={handleSave} className="flex flex-col gap-2 text-[12px] text-[#0a0a0a]" noValidate>
-        <p className="text-[#404040]">
+      <form onSubmit={handleSave} className="flex flex-col gap-2 text-[12px] text-[var(--w95-ink)]" noValidate>
+        <p className="text-[var(--w95-muted)]">
           Small canvas, flat colors: drawings stay a few KB, saved as {format === "png" ? "PNG" : "JPG"}.
         </p>
         <div className="flex flex-col gap-2">
@@ -679,7 +679,7 @@ export default function Draw() {
           </div>
         </div>
         {pickedNotice && (
-          <p role="status" className="text-[11px] text-[#404040]">
+          <p role="status" className="text-[11px] text-[var(--w95-muted)]">
             {pickedNotice}
           </p>
         )}
@@ -688,12 +688,12 @@ export default function Draw() {
             <textarea
               aria-label="Text to place"
               rows={2}
-              className="w-48 resize-y bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none"
+              className="w-48 resize-y bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none"
               placeholder="Type text… Enter adds a new line"
               value={textValue}
               onChange={(event) => setTextValue(event.target.value)}
             />
-            <label className={classic ? "hidden" : "flex items-center gap-1 text-[11px] text-[#404040]"}>
+            <label className={classic ? "hidden" : "flex items-center gap-1 text-[11px] text-[var(--w95-muted)]"}>
               Wrap
               <input
                 type="range"
@@ -710,7 +710,7 @@ export default function Draw() {
             <Button95 onClick={placeText} disabled={saving || !textAnchor || textValue.trim() === ""}>
               Place text
             </Button95>
-            <span className="text-[11px] text-[#404040]">
+            <span className="text-[11px] text-[var(--w95-muted)]">
               Crosshairs aim where the text starts - click the canvas to set the spot. Newlines and wrapping shape the
               body; it lands in the selected color.
             </span>
@@ -722,7 +722,7 @@ export default function Draw() {
             )}
           </div>
         )}
-        <label className="flex items-center gap-1 text-[11px] text-[#404040]">
+        <label className="flex items-center gap-1 text-[11px] text-[var(--w95-muted)]">
           <input type="checkbox" checked={classic} onChange={(event) => {
               setClassic(event.target.checked);
               if (event.target.checked && !["brush", "eraser", "text"].includes(tool)) selectTool("brush");
@@ -769,7 +769,7 @@ export default function Draw() {
           <Button95 onClick={fillBackground} disabled={saving}>
             Fill background
           </Button95>
-          <span className="basis-full text-[11px] text-[#404040]">
+          <span className="basis-full text-[11px] text-[var(--w95-muted)]">
             Changing paper does not repaint existing pixels. Erasing uses the selected paper color, so older erased areas keep their previous color; use Fill background to repaint the whole canvas.
           </span>
         </div>
@@ -787,18 +787,18 @@ export default function Draw() {
                     void refreshSize(option.id);
                   }}
                 />
-                {option.label} <span className="text-[11px] text-[#404040]">({option.hint})</span>
+                {option.label} <span className="text-[11px] text-[var(--w95-muted)]">({option.hint})</span>
               </label>
             ))}
           </fieldset>
-          <span role="status" className="text-[11px] text-[#404040]">
+          <span role="status" className="text-[11px] text-[var(--w95-muted)]">
             {sizeBytes === null ? "" : `About ${formatKb(sizeBytes)} saved`}
           </span>
         </div>
         {preview && (
-          <fieldset className="flex flex-col gap-1 border border-[#808080] p-2">
+          <fieldset className="flex flex-col gap-1 border border-[var(--w95-shade)] p-2">
             <legend className="px-1 text-[11px] font-bold">Save preview</legend>
-            <p className="text-[11px] text-[#404040]">
+            <p className="text-[11px] text-[var(--w95-muted)]">
               Exactly what saves to your vault - and what someone you share the post with sees. Nothing leaves this
               device from this preview.
             </p>
@@ -816,7 +816,7 @@ export default function Draw() {
                     borderBottom: "2px solid #ffffff",
                   }}
                 />
-                <figcaption className="text-[10px] text-[#404040]">full 192px, shown at 96 ({formatKb(preview.bytes)})</figcaption>
+                <figcaption className="text-[10px] text-[var(--w95-muted)]">full 192px, shown at 96 ({formatKb(preview.bytes)})</figcaption>
               </figure>
               <figure className="flex flex-col items-center gap-0.5">
                 <img
@@ -831,7 +831,7 @@ export default function Draw() {
                     borderBottom: "2px solid #ffffff",
                   }}
                 />
-                <figcaption className="text-[10px] text-[#404040]">post card 128px, shown at 48</figcaption>
+                <figcaption className="text-[10px] text-[var(--w95-muted)]">post card 128px, shown at 48</figcaption>
               </figure>
               <Button95 onClick={closePreview}>Close preview</Button95>
             </div>
@@ -840,7 +840,7 @@ export default function Draw() {
         <label className="flex flex-col gap-0.5">
           <span className="font-bold">Title</span>
           <input
-            className="w-full bg-white px-1.5 py-1 text-[12px] text-[#0a0a0a] outline-none"
+            className="w-full bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
           />
