@@ -100,7 +100,10 @@ describe("submitLayout", () => {
 
   it("counts the stored timestamp toward the 2 KiB ceiling", () => {
     const base = { playerId: "", placements: [PLACE], submittedAt: NOW.toISOString() };
-    const playerId = "x".repeat(MAX_LAYOUT_BYTES - layoutBytes(base) + 1);
+    const baseBytes = new TextEncoder().encode(JSON.stringify(base)).byteLength;
+    const playerId = "x".repeat(MAX_LAYOUT_BYTES - baseBytes + 1);
+    const oversized = { ...base, playerId };
+    expect(new TextEncoder().encode(JSON.stringify(oversized)).byteLength).toBeGreaterThan(MAX_LAYOUT_BYTES);
     const challenge = createChallenge({
       id: "large-layout",
       hostId: "ana",
