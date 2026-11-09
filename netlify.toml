@@ -7,6 +7,13 @@ publish = "apps/web/build/client"
 [build.environment]
 NODE_VERSION = "24"
 
+# Share relay: single-post shares published at the sender's explicit tap. The functions
+# in netlify/functions serve /s/<id> (the readable preview page iMessage crawls and
+# recipients open) and /api/share (publish/fetch/revoke) over the shared-posts blob
+# store; each function declares its own route via its exported `config.path`.
+[functions]
+directory = "netlify/functions"
+
 [[redirects]]
 from = "/*"
 to = "/index.html"

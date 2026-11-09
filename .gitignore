@@ -8,4 +8,6 @@ build/
 !.env.example
 playwright-report/
 test-results/
+*.tsbuildinfo
+e2e/logs/
 supabase/functions/eic-relay/index.ts

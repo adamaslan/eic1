@@ -56,3 +56,24 @@ export function readPostShareLink(hash: string): string | null {
     throw new AppError("That share link is damaged. Ask your friend for a fresh one.");
   }
 }
+
+export const RELAY_LINK_PREFIX = "#relay=";
+/**
+ * Relay links carry only the share's id: the post itself stays on the share service
+ * until the app fetches it, so the link stays short no matter how big the photo is.
+ */
+export const buildRelayLink = (id: string, baseUrl: string): string =>
+  `${baseUrl}${RELAY_LINK_PREFIX}${id}`;
+
+/**
+ * Reads the share id from a relay link. Returns null when the hash is not a relay link;
+ * throws AppError when it looks like one but the id is malformed.
+ */
+export function readRelayLinkId(hash: string): string | null {
+  if (!hash.startsWith(RELAY_LINK_PREFIX)) return null;
+  const id = hash.slice(RELAY_LINK_PREFIX.length);
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(id)) {
+    throw new AppError("That share link is damaged. Ask your friend for a fresh one.");
+  }
+  return id;
+}

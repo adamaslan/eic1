@@ -23,6 +23,9 @@ export default [
   route("stickers", "routes/stickers.tsx"),
   route("music-library", "routes/music-library.tsx"),
   route("unlock", "routes/unlock.tsx"),
+  // Read-only shared-post view sits outside the desktop layout: reading a shared link
+  // must not require a vault. Saving prompts for one explicitly.
+  route("shared/:id", "routes/shared.tsx"),
   route("*", "routes/not-found.tsx"),
   route("showcase", "routes/home.tsx"),
 ] satisfies RouteConfig;
