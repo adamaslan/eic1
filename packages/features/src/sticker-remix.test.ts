@@ -85,6 +85,14 @@ describe("submitLayout", () => {
     expect(() => submitLayout(openChallenge(), "ben", [{ ...PLACE, scale: 9 }], NOW)).toThrow(/scale/i);
   });
 
+  it.each(["x", "y", "rotation"] as const)("rejects non-finite %s without changing the challenge", (field) => {
+    const challenge = openChallenge();
+    for (const value of [NaN, Infinity, -Infinity]) {
+      expect(() => submitLayout(challenge, "ben", [{ ...PLACE, [field]: value }], NOW)).toThrow(/finite/i);
+      expect(challenge.layouts).toEqual({});
+    }
+  });
+
   it("keeps each layout within the 2 KiB ceiling", () => {
     const challenge = submitLayout(openChallenge(), "ben", [PLACE], NOW);
     expect(layoutBytes(challenge.layouts.ben)).toBeLessThanOrEqual(MAX_LAYOUT_BYTES);
