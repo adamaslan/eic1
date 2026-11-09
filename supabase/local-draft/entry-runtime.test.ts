@@ -1,0 +1,15 @@
+import {it,expect} from 'vitest';
+import {readFile} from 'node:fs/promises';
+import {generateSigningKeyPair,signPayload} from '@veil/crypto';
+import {encodeBase64} from '@veil/core';
+const modulePath=process.env.EIC_PGLITE_MODULE; if(!modulePath?.startsWith('/')) throw Error('Set EIC_PGLITE_MODULE');
+const {PGlite}=await import(/* @vite-ignore */ modulePath);
+it('real entry accepts PostgREST204 VOID success and commits nonempty publish',async()=>{
+ const db=new PGlite();await db.exec('create role anon;create role authenticated;create role service_role;');await db.exec(await readFile('supabase/local-draft/hosted-relay.sql','utf8'));
+ const key=await generateSigningKeyPair(),pubkey=encodeBase64(key.publicKey);await db.query('update eic_relay.config set enabled=true,public_keys=$1,origins=$2',[[pubkey],['https://eic.example']]);
+ const args:Record<string,string[]>={eic_relay_config:[],eic_relay_get:['p_key'],eic_relay_cas:['p_key','p_data','p_expected'],eic_relay_put:['p_key','p_data'],eic_relay_delete:['p_key']};let handler:any;const original=globalThis.fetch;
+ (globalThis as any).Deno={env:{get:(key:string)=>key==='SUPABASE_URL'?'https://local.example':'local-fixture'},serve:(h:any)=>handler=h};
+ globalThis.fetch=async(url:any,options:any)=>{const name=String(url).split('/').pop()!,body=JSON.parse(options.body),keys=args[name];const result=await db.query(`select public.${name}(${keys.map((_,i)=>'$'+(i+1)).join(',')}) as value`,keys.map(k=>body[k]));if(name==='eic_relay_put'||name==='eic_relay_delete')return new Response(null,{status:204});return new Response(JSON.stringify(result.rows[0].value));};
+ try{await import('../functions/eic-relay/entry');const chunk=JSON.stringify({format:'eic-feed-chunk',version:1,kind:'chat',envelopes:[]});const sha256=encodeBase64(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(chunk))));const unsigned={format:'eic-feed',version:1,authorId:'fixture',feedUrl:'https://relay.example/feeds/fixture',pubkey,seq:1,builtAt:new Date().toISOString(),chunks:[{id:'chat-peer.json',kind:'chat',bytes:new TextEncoder().encode(chunk).byteLength,sha256}]};const signature=encodeBase64(await signPayload(key.secretKey,new TextEncoder().encode(JSON.stringify(unsigned))));const manifest=JSON.stringify({...unsigned,signature});const request={manifest,files:[{path:'feed.json',text:manifest},{path:'chunks/chat-peer.json',text:chunk}]};const res=await handler(new Request('https://edge.example/publish',{method:'POST',headers:{'content-type':'application/json',origin:'https://eic.example'},body:JSON.stringify(request)}));console.log('entry result',res.status,await res.text());const rows=await db.query('select key,data from eic_relay.objects');console.log('stored keys',rows.rows.map((r:any)=>r.key));expect(res.status).toBe(200);expect(rows.rows.some((r:any)=>r.key.endsWith('/chunks/chat-peer.json'))).toBe(true);expect(rows.rows.some((r:any)=>r.key.endsWith('/feed.json'))).toBe(true);
+ }finally{globalThis.fetch=original;await db.close();}
+});
