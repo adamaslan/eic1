@@ -16,8 +16,7 @@
  * - size: MAX_RELAY_BUNDLE_BYTES
  * - escaping: every rendered field is HTML-escaped
  * - retention (proposed config, not an owner-set preference): entries carry createdAt;
- *   a read that finds an EXPIRED entry deletes it on sight (ordinary reads are never
- *   destructive); sweepExpired is available for a later, separately-decided cron
+ *   a read that finds an EXPIRED entry deletes it on sight; active entries are unchanged; sweepExpired is available for a later, separately-decided cron
  * - revocation: the creator alone gets a delete key at publish; presenting it deletes
  */
 
@@ -25,9 +24,9 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 export const MAX_RELAY_BUNDLE_BYTES = 4 * 1024 * 1024;
 export const SHARE_RETENTION_DAYS = 90;
-// Abuse bounds (proposed config). Approximate by design: the blob store has no
-// compare-and-swap, so concurrent writers can drift these slightly - they exist to stop
-// bulk abuse, not to be exact accounting.
+// Global storage bounds remain approximate: post creation and shared accounting are
+// not one transaction. ETag CAS below makes per-client rate claims conditional, but
+// does not turn multi-object storage accounting into an atomic budget guarantee.
 export const MAX_SHARE_COUNT = 500;
 export const MAX_SHARE_STORE_BYTES = 250 * 1024 * 1024;
 export const PUBLISH_RATE_LIMIT = 10; // publishes per client per window
@@ -182,24 +181,30 @@ const rateKeyFor = (clientKey: string) => `rl/${createHash("sha256").update(clie
 /** Fixed-window per-client publish limit. clientKey is a transport identifier (IP). */
 export async function checkPublishRate(store: ShareStore, clientKey: string, now: Date): Promise<void> {
   const key = rateKeyFor(clientKey);
-  const entry = await store.get(key);
-  let windowStart = now.getTime();
-  let count = 0;
-  if (entry) {
-    try {
-      const parsed = JSON.parse(entry.body) as { start?: unknown; count?: unknown };
-      if (typeof parsed.start === "number" && typeof parsed.count === "number" && now.getTime() - parsed.start < PUBLISH_RATE_WINDOW_MS) {
-        windowStart = parsed.start;
-        count = parsed.count;
-      }
-    } catch {
-      // damaged counter: start a fresh window
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const entry = await store.get(key);
+    let windowStart = now.getTime();
+    let count = 0;
+    if (entry) {
+      if (!entry.etag) throw new ShareError("Share rate accounting is unavailable.", 503);
+      try {
+        const parsed = JSON.parse(entry.body) as { start?: unknown; count?: unknown };
+        if (typeof parsed.start !== "number" || !Number.isFinite(parsed.start) ||
+            typeof parsed.count !== "number" || !Number.isInteger(parsed.count) || parsed.count < 0) {
+          throw new Error("Invalid counter");
+        }
+        if (now.getTime() - parsed.start < PUBLISH_RATE_WINDOW_MS) {
+          windowStart = parsed.start;
+          count = parsed.count;
+        }
+      } catch { throw new ShareError("Share rate accounting is unavailable.", 503); }
     }
+    if (count >= PUBLISH_RATE_LIMIT) throw new ShareError("Too many shares from this connection. Try again later.", 429);
+    const result = await store.put(key, JSON.stringify({ start: windowStart, count: count + 1 }), {},
+      entry ? { onlyIfMatch: entry.etag } : { onlyIfNew: true });
+    if (result.modified) return;
   }
-  if (count >= PUBLISH_RATE_LIMIT) {
-    throw new ShareError("Too many shares from this connection. Try again later.", 429);
-  }
-  await store.put(key, JSON.stringify({ start: windowStart, count: count + 1 }), {});
+  throw new ShareError("Share rate accounting is busy. Try again later.", 503);
 }
 
 const b64ToBytes = (value: string): Uint8Array => new Uint8Array(Buffer.from(value, "base64"));
@@ -363,6 +368,9 @@ export async function createShare(
   if (bodyBytes > MAX_RELAY_BUNDLE_BYTES) {
     throw new ShareError("That post is too large to share as a link.", 413);
   }
+  // Charge bounded attempts before parsing and signature verification. Invalid attempts
+  // consume quota too; storage/accounting failures remain fail-closed.
+  if (clientKey) await checkPublishRate(store, clientKey, now);
   parseSharedBundle(body); // validate before storing; the stored bytes are the raw bundle
   // Nothing unsigned or tampered becomes a share page or a message card.
   if (!(await verifyShareSignature(body))) {
@@ -371,7 +379,6 @@ export async function createShare(
   await verifyPublishProof(body, proof, provision, now);
   // A live revoke marker for this id+key blocks the create before any write.
   await checkRevokeMarker(store, provision, now);
-  if (clientKey) await checkPublishRate(store, clientKey, now);
   // Count is derived live from the listing (self-healing); bytes stay incremental and
   // are reconciled by sweepExpired, because list() exposes no sizes in blobs v11. The
   // count/bytes caps remain SOFT: onlyIfNew makes each create atomic per key, but the
