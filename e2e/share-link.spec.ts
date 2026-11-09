@@ -76,7 +76,7 @@ test("post share link imports into a second vault and reopening stays idempotent
   await pageB.getByRole("button", { name: "Import", exact: true }).click();
   // First contact: the bundle also carries the sender's verified chat key, so a fresh
   // recipient gets the key-saved message (the post imports in the same pass).
-  await expect(pageB.getByRole("status")).toContainText("Chat unlocked with @sender");
+  await expect(pageB.getByRole("status").filter({ hasText: /^Imported from @sender:/ })).toContainText("Chat unlocked with @sender");
   await pageB.getByRole("button", { name: "Close" }).click();
   // The post now lives in the recipient's vault and renders offline.
   await pageB.goto("/market");
@@ -88,7 +88,7 @@ test("post share link imports into a second vault and reopening stays idempotent
   await pageB.goto(link);
   await expect(pageB.getByText("A friend shared a post with you")).toBeVisible();
   await pageB.getByRole("button", { name: "Import", exact: true }).click();
-  await expect(pageB.getByRole("status")).toContainText("Imported from @sender: 0 new");
+  await expect(pageB.getByRole("status").filter({ hasText: /^Imported from @sender:/ })).toContainText("Imported from @sender: 0 new");
   await pageB.getByRole("button", { name: "Close" }).click();
   await pageB.goto("/market");
   await expect(pageB.getByText(title)).toHaveCount(1);

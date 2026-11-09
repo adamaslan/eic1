@@ -4,6 +4,8 @@ import { Link } from "react-router";
 import { AppError, timeAgo } from "@veil/core";
 import {
   CHAT_BODY_MAX,
+  configureRelayFeed, createRelayTransport, signedRelayFetcher,
+  prepareRelayOutbox, attemptRelayOutbox, syncConnection, loadSettings,
   buildChatShareLink,
   listChatThread,
   markThreadRead,
@@ -16,6 +18,7 @@ import { Button95 } from "~/ui95/Button95";
 import { Window } from "~/ui95/Window";
 import { useSessionStore } from "~/platform/session";
 import { useSocial } from "~/platform/use-social";
+import { detectSyncNetwork } from "~/platform/sync-fetcher";
 import { newItemId } from "~/platform/vault-service";
 
 export function meta(_args: Route.MetaArgs) {
@@ -39,6 +42,7 @@ export function ChatThreadView({
   onSend,
   onShareLink,
   onOlderLink,
+  relayControls,
 }: {
   handle: string;
   authorId?: string;
@@ -53,6 +57,7 @@ export function ChatThreadView({
   onSend: (event: FormEvent) => void;
   onShareLink: () => void;
   onOlderLink?: () => void;
+  relayControls?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -61,7 +66,7 @@ export function ChatThreadView({
         <div className="flex flex-col gap-2 text-[12px]">
           <p className="bg-[#ffffe1] px-1.5 py-1">
             Messages are sealed for @{handle} and live in your vault - chat is offline-first, and everything you see
-            renders from local data. Automatic delivery is not connected yet, so hand messages over yourself: Text a
+            renders from local data. {relayControls ? "Use the explicit relay buttons below for online exchange, or hand messages over yourself." : "Automatic delivery is not connected yet, so hand messages over yourself."} Text a
             chat link copies a link that carries your latest sealed messages inside the URL, after the #. Browsers
             keep that part off the wire to the app host, but the link text still passes through your messaging app
             like any text. One tap and eic opens right into this conversation.
@@ -101,6 +106,7 @@ export function ChatThreadView({
         </div>
       </Window>
 
+      {relayControls}
       <Window title="Send a message">
         <form onSubmit={onSend} className="flex flex-col gap-2 text-[12px]">
           <textarea
@@ -136,6 +142,8 @@ export default function Chat({ params }: Route.ComponentProps) {
   const social = useSocial(vault);
   const authorId = params.authorId;
   const connection = social.connections.find((candidate) => candidate.id === authorId);
+  const [relayNotice, setRelayNotice] = useState<string | null>(null);
+  const relayEndpoint = import.meta.env.VITE_EIC_RELAY_ENDPOINT as string | undefined;
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [olderLeftOut, setOlderLeftOut] = useState(0);
@@ -196,6 +204,30 @@ export default function Chat({ params }: Route.ComponentProps) {
     }
   }
 
+  async function relay(action: "configure" | "publish" | "receive") {
+    if (!vault || !connection || !relayEndpoint) return;
+    setBusy(true); setRelayNotice(null);
+    try {
+      if (action === "configure") {
+        const configured = await configureRelayFeed(vault, relayEndpoint);
+        setRelayNotice(`Relay feed saved. Signing public key: ${configured.publicKey}. The relay owner must allow this key before online exchange. Re-share your signed connection file so friends get your relay feed URL.`);
+      } else {
+        const settings = await loadSettings(vault);
+        if (detectSyncNetwork() !== "wifi" && !settings.syncOnCellular) throw new AppError("Waiting for Wi-Fi. This browser may not know its connection type; turn on cellular sync in Settings to allow this request.");
+        if (action === "publish") {
+          await prepareRelayOutbox(vault, new Date());
+          const result = await attemptRelayOutbox(vault, createRelayTransport(relayEndpoint), new Date());
+          setRelayNotice(result.status === "confirmed" ? "Encrypted snapshot committed to relay. This is not a recipient receipt. Use Send to relay again after adding more local messages." : "Relay confirmation is pending. Exact sealed snapshot is saved; retry without resending the local message.");
+        } else {
+          const result = await syncConnection(vault, connection, { fetch: signedRelayFetcher(vault, relayEndpoint), network: detectSyncNetwork(), retryFailed: true, newId: newItemId, now: new Date() });
+          setRelayNotice(`Received ${result.appliedChat} new encrypted messages. ${result.status}.`);
+          await reload();
+        }
+      }
+    } catch (caught) { setRelayNotice(caught instanceof AppError ? caught.message : "The encrypted relay is unavailable. Local messages and manual handoff are kept."); }
+    finally { setBusy(false); }
+  }
+
   async function shareLink(before: string | null) {
     if (!vault || !connection) return;
     setBusy(true);
@@ -254,6 +286,7 @@ export default function Chat({ params }: Route.ComponentProps) {
       onShareLink={() => void shareLink(null)}
       olderLeftOut={olderLeftOut}
       onOlderLink={olderCursor ? () => void shareLink(olderCursor) : undefined}
+      relayControls={relayEndpoint ? <Window title="Encrypted online relay (explicit actions)"><div className="flex flex-col gap-2 text-[12px]"><p>Messages stay in your vault. Relay stores encrypted snapshots only. No background polling or read receipts. Both signing keys must be allowed by the relay owner.</p><div className="flex flex-wrap gap-2"><Button95 disabled={busy || !connection.pubkey} onClick={() => void relay("configure")}>Set up relay feed</Button95><Button95 disabled={busy || !connection.pubkey} onClick={() => void relay("publish")}>Send to relay / retry</Button95><Button95 disabled={busy || !connection.pubkey} onClick={() => void relay("receive")}>Check for messages</Button95></div>{relayNotice && <p role="status" className="break-words">{relayNotice}</p>}</div></Window> : undefined}
     />
   );
 }
