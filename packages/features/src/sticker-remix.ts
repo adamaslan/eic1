@@ -96,6 +96,9 @@ export function createChallenge(input: CreateChallengeInput): StickerChallenge {
 function validatePlacement(placement: Placement, allowed: BuiltInSticker[]): Placement {
   if (!BUILT_IN_STICKERS.includes(placement.sticker)) throw new Error("Only built-in stickers can be used.");
   if (!allowed.includes(placement.sticker)) throw new Error(`The sticker "${placement.sticker}" is not allowed in this challenge.`);
+  if (![placement.x, placement.y, placement.rotation].every(Number.isFinite)) {
+    throw new Error("Sticker coordinates and rotation must be finite numbers.");
+  }
   if (!Number.isFinite(placement.scale) || placement.scale < 0.5 || placement.scale > 3) {
     throw new Error("Sticker scale must be between 0.5 and 3.");
   }
