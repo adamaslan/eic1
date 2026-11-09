@@ -68,9 +68,9 @@ function LandingCassette() {
       <div className="eic-tape-stage" aria-hidden="true">
         <div className="eic-tape-body">
           <div className="eic-tape-face eic-tape-front">
-            <span className="eic-tape-label">42b / SIDE A</span>
+            <span className="eic-tape-label">nycpony / SIDE A</span>
             <div className="eic-tape-reels"><i /><span>♫</span><i /></div>
-            <span className="eic-tape-scribble">original songs. zero login.</span>
+            <span className="eic-tape-scribble">featuring new 42 song album by nycpony. zero login.</span>
           </div>
           <div className="eic-tape-face eic-tape-back">
             <span className="eic-tape-label">42b / SIDE B</span>
@@ -79,7 +79,7 @@ function LandingCassette() {
           </div>
         </div>
       </div>
-      <p role="status" className="eic-tape-status">{sideB ? "Side B · Make it yours" : "Side A · Original songs"}</p>
+      <p role="status" className="eic-tape-status">{sideB ? "Side B · Make it yours" : "Side A · featuring part1 je suis en delay"}</p>
       <div className="eic-tape-controls">
         <button type="button" onClick={() => setSideB(b => !b)} aria-label={sideB ? "Flip to Side A" : "Flip to Side B"}>Flip to {sideB ? "A" : "B"} ↻</button>
         <button type="button" aria-pressed={spinning} onClick={() => setSpinning(s => !s)}>{spinning ? "Pause reels" : "Spin reels"}</button>
