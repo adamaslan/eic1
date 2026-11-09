@@ -85,7 +85,7 @@ function LandingCassette() {
         <button type="button" aria-pressed={spinning} onClick={() => setSpinning(s => !s)}>{spinning ? "Pause reels" : "Spin reels"}</button>
       </div>
       <p className="eic-tape-motion-note">Visual only. Still and reduced motion pause the animation.</p>
-      <Link to="/music-library" aria-label="Open the music library">Open music · {musicCatalog.length} songs ↗</Link>
+      <Link to="/music-library" aria-label="Open cassette music library">Open music · {musicCatalog.length} songs ↗</Link>
     </section>
   );
 }
