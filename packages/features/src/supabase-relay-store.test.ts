@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSupabaseRelayStore } from "./supabase-relay-store";
+import { RelayStoreUnavailableError, createSupabaseRelayStore } from "./supabase-relay-store";
 
 describe("server-only Supabase relay store boundary", () => {
   it("does nothing on construction, calls only named RPC with parameters", async () => {
@@ -36,4 +36,22 @@ describe("server-only Supabase relay store boundary", () => {
     await expect(store.list("a/", { limit: 1 })).rejects.toThrow("Invalid relay store response");
     await expect(store.list("a/")).rejects.toThrow("Invalid relay store response");
   });
+});
+
+
+it("counts path limits in UTF-8 bytes before calling RPC", async () => {
+  const rpc = vi.fn(); const store = createSupabaseRelayStore({ rpc });
+  await expect(store.get("é".repeat(513))).rejects.toThrow("path");
+  expect(rpc).not.toHaveBeenCalled();
+});
+it("sanitizes rejected RPC transports as store-unavailable errors", async () => {
+  const store = createSupabaseRelayStore({ rpc: vi.fn().mockRejectedValue(new Error("postgres://private")) });
+  await expect(store.get("a")).rejects.toThrow(/^The encrypted relay store is unavailable\.$/);
+});
+
+it("classifies malformed successful RPC payloads as backend faults", async () => {
+  const store = createSupabaseRelayStore({ rpc: vi.fn().mockResolvedValue({ data: { wrong: "shape" }, error: null }) });
+  await expect(store.get("a")).rejects.toBeInstanceOf(RelayStoreUnavailableError);
+  await expect(store.compareAndSet("a", "x", { createOnly: true })).rejects.toBeInstanceOf(RelayStoreUnavailableError);
+  await expect(store.list("a/")).rejects.toBeInstanceOf(RelayStoreUnavailableError);
 });
