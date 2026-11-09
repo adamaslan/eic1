@@ -13,7 +13,7 @@ Client endpoint is build-time VITE_EIC_RELAY_ENDPOINT. Without it, manual-only U
 ## Deploy and verify
 
 1. Fresh catalog inventory for intended project and source review.
-2. Apply supabase/migrations/20261108163000_eic_relay.sql once. Validate RLS/RPC permissions/config disabled.
+2. Only after explicit owner approval, apply the reviewed supabase/local-draft/hosted-relay.sql once. This file is deliberately outside the CLI migrations directory; a routine db push must not apply it. Validate RLS/RPC permissions/config disabled.
 3. Build server bundle from entry.ts with esbuild. index.ts is generated, never edit independently. Deploy only this function, with server credentials supplied by Supabase runtime.
 4. Configure approved public signing keys and exact production/test origins. Keep disabled until hosted negative tests, actual concurrency, storage/read bounds and retention decision are verified.
 5. Build app with endpoint, validate two independent browser vaults: contact exchange, send/pull/decrypt, response in reverse direction, offline/reload/retry/locked behavior, desktop/mobile. Inspect ciphertext-only server rows and browser bundle/response for secrets. No claim online chat is working until actual arrival proof.
