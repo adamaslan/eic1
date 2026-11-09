@@ -13,7 +13,7 @@ const blobStore = async (): Promise<ShareStore> => {
   const store = getStore({ name: "shared-posts", consistency: "strong" });
   return {
     put: async () => {
-      throw new Error("read-only surface");
+      throw new Error("This surface cannot publish; reads may delete expired entries.");
     },
     get: async (key) => {
       const found = await store.getWithMetadata(key, { type: "text" });
@@ -43,7 +43,9 @@ export default async (request: Request): Promise<Response> => {
   if (request.method !== "GET" || !id) {
     return new Response(renderMissingPage(bases), { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
   }
-  const entry = await readShare(await blobStore(), id, new Date());
+  let entry;
+  try { entry = await readShare(await blobStore(), id, new Date()); }
+  catch { return new Response("Shared post service is unavailable. Try again later.", { status: 503, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" } }); }
   if (!entry) {
     return new Response(renderMissingPage(bases), { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
   }
@@ -54,6 +56,7 @@ export default async (request: Request): Promise<Response> => {
       status: 200,
       headers: {
         "content-type": photo.mime,
+        "x-content-type-options": "nosniff",
         "cache-control": "public, max-age=300, must-revalidate",
         // Edge-cache reads so repeat fetches do not re-invoke the function or re-read
         // the blob (read-cost mitigation). Revoke/expiry go stale at the edge for at
@@ -66,6 +69,7 @@ export default async (request: Request): Promise<Response> => {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
+      "x-content-type-options": "nosniff",
       "cache-control": "public, max-age=60, must-revalidate",
       "netlify-cdn-cache-control": "public, max-age=60, durable",
     },
