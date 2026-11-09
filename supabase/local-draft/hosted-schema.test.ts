@@ -33,7 +33,7 @@ const client: RelayRpc = { async rpc(name, args) {
 const store = createSupabaseRelayStore(client);
 beforeAll(async () => {
   await db.exec("create role anon; create role authenticated; create role service_role;");
-  await db.exec(await readFile("supabase/migrations/20261108163000_eic_relay.sql", "utf8"));
+  await db.exec(await readFile("supabase/local-draft/hosted-relay.sql", "utf8"));
 });
 afterAll(async () => { await db.close(); });
 describe("actual local Postgres relay draft", () => {
@@ -169,4 +169,18 @@ describe("actual local Postgres relay draft", () => {
     alice.lock(); bob.lock();
   });
 
+});
+
+
+it("bounds keys by encoded bytes, preserving the exact 1024-byte boundary", async () => {
+  await db.exec("begin");
+  try {
+    await store.putObject("é".repeat(512), "bounded");
+    expect((await store.get("é".repeat(512)))?.data).toBe("bounded");
+    await db.exec("savepoint oversize_key");
+    await expect(db.query("insert into eic_relay.objects(key,data) values ($1,'x')", ["é".repeat(513)])).rejects.toThrow();
+    await db.exec("rollback to savepoint oversize_key");
+    const grants = await db.query("select has_table_privilege('service_role','eic_relay.objects','select') as direct");
+    expect(grants.rows[0].direct).toBe(false);
+  } finally { await db.exec("rollback"); }
 });
