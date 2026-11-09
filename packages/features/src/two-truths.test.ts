@@ -132,3 +132,17 @@ describe("tally", () => {
     expect(() => tally(submitGuess(openRound(), "bob", 2, NOW))).toThrow(/reveal/i);
   });
 });
+
+
+describe("prototype-name guessers", () => {
+  it.each(["constructor", "toString", "hasOwnProperty", "__proto__"])("does not let %s bypass a full round", (id) => {
+    let round = openRound();
+    for (let i = 0; i < MAX_GUESSERS; i++) round = submitGuess(round, `g${i}`, 0, NOW);
+    expect(() => submitGuess(round, id, 0, NOW)).toThrow(/full/i);
+  });
+  it("lets an own prototype-named guesser change their mind at the cap", () => {
+    let round = submitGuess(openRound(), "constructor", 0, NOW);
+    for (let i = 1; i < MAX_GUESSERS; i++) round = submitGuess(round, `g${i}`, 0, NOW);
+    expect(submitGuess(round, "constructor", 1, NOW).guesses.constructor).toBe(1);
+  });
+});
