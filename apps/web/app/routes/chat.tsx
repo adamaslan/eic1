@@ -230,8 +230,13 @@ export default function Chat({ params }: Route.ComponentProps) {
   }
 
   async function relay(action: "configure" | "publish" | "receive") {
-    if (!vault || !connection || !relayEndpoint) return;
-    setBusy(true); setRelayNotice(null);
+    if (!vault || !connection) return;
+    setRelayNotice(null);
+    if (!relayEndpoint) {
+      setRelayNotice("Chat runs on the Supabase relay, and this build has no relay endpoint. Messages are saved on this device but cannot reach your friend until the relay is set up.");
+      return;
+    }
+    setBusy(true);
     try {
       if (action === "configure") {
         const configured = await configureRelayFeed(vault, relayEndpoint);
@@ -311,7 +316,7 @@ export default function Chat({ params }: Route.ComponentProps) {
       onShareLink={() => void shareLink(null)}
       olderLeftOut={olderLeftOut}
       onOlderLink={olderCursor ? () => void shareLink(olderCursor) : undefined}
-      relay={relayEndpoint ? { notice: relayNotice, onSetup: () => void relay("configure"), onRetry: () => void relay("publish"), onCheck: () => void relay("receive") } : undefined}
+      relay={{ notice: relayNotice, onSetup: () => void relay("configure"), onRetry: () => void relay("publish"), onCheck: () => void relay("receive") }}
     />
   );
 }
