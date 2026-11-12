@@ -123,6 +123,47 @@ describe("ChatThreadView", () => {
   });
 });
 
+describe("ChatThreadView v2 relay mode", () => {
+  const relay = { notice: null, onSetup: noop, onRetry: noop, onCheck: noop };
+  const view = (over: Partial<React.ComponentProps<typeof ChatThreadView>> = {}) =>
+    render(
+      <ChatThreadView handle="friend" verified messages={[]} draft="hi" busy={false} error={null} linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} relay={relay} {...over} />,
+    );
+
+  it("removes every v1 handoff control and its explanation", () => {
+    const html = view({ olderLeftOut: 3, onOlderLink: noop });
+    expect(html).not.toContain("Text a chat link");
+    expect(html).not.toContain("older ones");
+    expect(html).not.toContain("hand messages over yourself");
+  });
+
+  it("puts Send, Check, Retry and Set up in the message box", () => {
+    const html = view();
+    for (const label of ["Send", "Check for messages", "Retry relay send", "Set up relay feed"]) {
+      expect(html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g)?.some((b) => b.includes(`>${label}<`)), label).toBe(true);
+    }
+    expect(html).not.toContain("Send to relay");
+  });
+
+  it("disables the relay actions for an unsigned connection and while busy", () => {
+    for (const html of [view({ verified: false }), view({ busy: true })]) {
+      for (const label of ["Check for messages", "Retry relay send", "Set up relay feed"]) {
+        const button = html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g)?.find((b) => b.includes(`>${label}<`));
+        expect(button, label).toContain('disabled=""');
+      }
+    }
+  });
+
+  it("shows the relay notice and keeps v1 UI only when relay is absent", () => {
+    expect(view({ relay: { ...relay, notice: "Relay confirmation is pending." } })).toContain("Relay confirmation is pending.");
+    const v1 = render(
+      <ChatThreadView handle="friend" verified messages={[]} draft="" busy={false} error={null} linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} />,
+    );
+    expect(v1).toContain("Text a chat link");
+    expect(v1).not.toContain("Check for messages");
+  });
+});
+
 describe("ConnectionsList chat entry points", () => {
   it("links each connection to its chat route and shows unread badges", () => {
     const html = render(
