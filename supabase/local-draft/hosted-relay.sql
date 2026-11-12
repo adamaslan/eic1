@@ -80,30 +80,51 @@ grant execute on function public.eic_relay_get(text), public.eic_relay_cas(text,
  to service_role;
 -- All object writes serialize admission under one transaction-scoped lock. Limits
 -- include nonce/state/immutable rows; cannot be bypassed by concurrent publishers.
+-- Expired signed-read nonces are reclaimed inline before a limit refuses a write, so
+-- an all-expired namespace or a full table cannot wedge the relay. A nonce is
+-- reclaimed only after its signed timestamp is more than 10 minutes old, which is
+-- beyond the 5-minute read freshness window the Edge gate enforces, so a reclaimed
+-- nonce can never be replayed. The 10-minute horizon also absorbs DB/Edge clock skew.
 create function eic_relay.enforce_capacity() returns trigger
 language plpgsql security definer set search_path = pg_catalog as $$
-declare used_bytes bigint; used_rows bigint; reader_rows bigint; recent_reads bigint;
+declare used_bytes bigint; used_rows bigint; reader_rows bigint; reader_prefix text; recent_reads bigint;
+  new_bytes bigint := octet_length(NEW.data)+octet_length(NEW.key)+128;
 begin
   perform pg_advisory_xact_lock(715241909);
   if TG_OP='INSERT' and exists(select 1 from eic_relay.objects where key=NEW.key) then return NEW; end if;
+  if starts_with(NEW.key,'replay/') then
+    if split_part(NEW.key,'/',2) !~ '^[a-z2-7]{52}$' then raise exception 'Invalid reader namespace'; end if;
+    reader_prefix := 'replay/'||split_part(NEW.key,'/',2)||'/';
+    select count(*) into reader_rows from eic_relay.objects where starts_with(key,reader_prefix);
+    if reader_rows>=1200 then
+      delete from eic_relay.objects where key in (
+        select key from eic_relay.objects where starts_with(key,reader_prefix) and key<>NEW.key
+          and case when data ~ '^[0-9]+(\.[0-9]+)?$' then abs(extract(epoch from now())*1000 - data::numeric) > 600000 else false end limit 500);
+      select count(*) into reader_rows from eic_relay.objects where starts_with(key,reader_prefix);
+    end if;
+    select count(*) into recent_reads from eic_relay.objects where starts_with(key,reader_prefix) and updated_at>now()-interval '1 minute';
+    if recent_reads>=120 and TG_OP='INSERT' then raise exception 'Reader rate reached'; end if;
+    if reader_rows>=1200 and TG_OP='INSERT' then raise exception 'Reader capacity reached'; end if;
+  end if;
   select coalesce(sum(octet_length(data)+octet_length(key)+128),0),count(*)
     into used_bytes,used_rows from eic_relay.objects;
   if TG_OP='UPDATE' then
     used_bytes := used_bytes-octet_length(OLD.data)-octet_length(OLD.key)-128;
     used_rows := used_rows-1;
   end if;
-  if used_rows+1>10000 or used_bytes+octet_length(NEW.data)+octet_length(NEW.key)+128>33554432 then
-    raise exception 'Relay capacity reached';
-  end if;
-  -- A reader can create at most 1200 outstanding anti-replay rows. No automatic
-  -- deletion in this first migration: full storage blocks rather than growing.
-  if starts_with(NEW.key,'replay/') then
-    if split_part(NEW.key,'/',2) !~ '^[a-z2-7]{52}$' then raise exception 'Invalid reader namespace'; end if;
-    select count(*) into reader_rows from eic_relay.objects
-      where starts_with(key,split_part(NEW.key,'/',1)||'/'||split_part(NEW.key,'/',2)||'/');
-    select count(*) into recent_reads from eic_relay.objects where starts_with(key,split_part(NEW.key,'/',1)||'/'||split_part(NEW.key,'/',2)||'/') and updated_at>now()-interval '1 minute';
-    if recent_reads>=120 and TG_OP='INSERT' then raise exception 'Reader rate reached'; end if;
-    if reader_rows>=1200 and TG_OP='INSERT' then raise exception 'Reader capacity reached'; end if;
+  if used_rows+1>10000 or used_bytes+new_bytes>33554432 then
+    delete from eic_relay.objects where key in (
+      select key from eic_relay.objects where starts_with(key,'replay/') and key<>NEW.key
+        and case when data ~ '^[0-9]+(\.[0-9]+)?$' then abs(extract(epoch from now())*1000 - data::numeric) > 600000 else false end limit 1000);
+    select coalesce(sum(octet_length(data)+octet_length(key)+128),0),count(*)
+      into used_bytes,used_rows from eic_relay.objects;
+    if TG_OP='UPDATE' then
+      used_bytes := used_bytes-octet_length(OLD.data)-octet_length(OLD.key)-128;
+      used_rows := used_rows-1;
+    end if;
+    if used_rows+1>10000 or used_bytes+new_bytes>33554432 then
+      raise exception 'Relay capacity reached';
+    end if;
   end if;
   return NEW;
 end;
