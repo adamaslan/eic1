@@ -25,3 +25,14 @@ Current-main baseline552unit tests; client3focused tests; app strict typecheck/b
 ## Retention decision pending
 
 Proposed only: remove expired signed-read anti-replay markers after10minutes; replaced/unreferenced encrypted snapshots after7days; never current snapshots/local vault messages/other tables. No such cleanup included or executed until owner decides. Caps mean no indefinite growth, but reaching a cap stops online relay until authorized maintenance.
+
+## Chat screen: v1 vs v2
+
+The chat route picks its controls from `VITE_EIC_RELAY_ENDPOINT` at build time.
+
+- **Unset (default):** v1. "Text a chat link" and "Text the N older ones" are the delivery path.
+- **Set:** v2. Those v1 buttons are removed. Send stores the message locally, then commits an encrypted snapshot to the relay. "Check for messages" pulls replies, "Retry relay send" resends the saved snapshot without retyping, and "Set up relay feed" saves the relay feed URL and shows your signing key.
+
+Run "Set up relay feed" **before** exchanging connect links: a friend can only receive from you once their connection carries your relay feed URL. The relay owner must also allow both signing keys.
+
+Turning v2 on before the relay is deployed and enabled leaves chat with no working delivery path, because v1 is hidden. Set the variable only after the deployed disabled/negative tests pass.
