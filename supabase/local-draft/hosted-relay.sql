@@ -99,7 +99,7 @@ begin
     if reader_rows>=1200 then
       delete from eic_relay.objects where key in (
         select key from eic_relay.objects where starts_with(key,reader_prefix) and key<>NEW.key
-          and data ~ '^[0-9]+$' and abs(extract(epoch from now())*1000 - data::numeric) > 600000 limit 500);
+          and case when data ~ '^[0-9]+(\.[0-9]+)?$' then abs(extract(epoch from now())*1000 - data::numeric) > 600000 else false end limit 500);
       select count(*) into reader_rows from eic_relay.objects where starts_with(key,reader_prefix);
     end if;
     select count(*) into recent_reads from eic_relay.objects where starts_with(key,reader_prefix) and updated_at>now()-interval '1 minute';
@@ -115,7 +115,7 @@ begin
   if used_rows+1>10000 or used_bytes+new_bytes>33554432 then
     delete from eic_relay.objects where key in (
       select key from eic_relay.objects where starts_with(key,'replay/') and key<>NEW.key
-        and data ~ '^[0-9]+$' and abs(extract(epoch from now())*1000 - data::numeric) > 600000 limit 1000);
+        and case when data ~ '^[0-9]+(\.[0-9]+)?$' then abs(extract(epoch from now())*1000 - data::numeric) > 600000 else false end limit 1000);
     select coalesce(sum(octet_length(data)+octet_length(key)+128),0),count(*)
       into used_bytes,used_rows from eic_relay.objects;
     if TG_OP='UPDATE' then

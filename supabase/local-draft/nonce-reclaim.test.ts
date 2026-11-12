@@ -66,8 +66,32 @@ describe("nonce reclamation (local PGlite, not hosted)", () => {
     try {
       await seedNonces(READER("j"), 1200, String(Date.now()));
       await db.exec("savepoint cap");
-      await expect(store.compareAndSet(`replay/${READER("j")}/feeds%2Fx/nonce-new`, String(Date.now()), { createOnly: true })).rejects.toThrow();
+      await expect(db.query("select public.eic_relay_cas($1,$2,null)", [`replay/${READER("j")}/feeds%2Fx/nonce-new`, String(Date.now())])).rejects.toThrow(/Reader capacity reached/);
       await db.exec("rollback to savepoint cap");
+    } finally { await db.exec("rollback"); }
+  });
+
+  it("expired nonces with a fractional signed ts are reclaimed too", async () => {
+    await db.exec("begin");
+    try {
+      // The read gate accepts any finite ts and stores String(ts), so "…901.5" is a legal row.
+      await seedNonces(READER("k"), 1200, `${Date.now() - 60 * 60 * 1000}.5`);
+      const fresh = await store.compareAndSet(`replay/${READER("k")}/feeds%2Fx/nonce-new`, String(Date.now()), { createOnly: true });
+      expect(fresh).not.toBeNull();
+    } finally { await db.exec("rollback"); }
+  });
+
+  it("a non-numeric replay row never breaks reclamation or gets reclaimed", async () => {
+    await db.exec("begin");
+    try {
+      await seedNonces(READER("m"), 1200, String(Date.now() - 60 * 60 * 1000));
+      await db.exec(`alter table eic_relay.objects disable trigger relay_capacity;
+        insert into eic_relay.objects(key,data) values ('replay/${READER("m")}/item/odd','not-a-number');
+        alter table eic_relay.objects enable trigger relay_capacity;`);
+      const fresh = await store.compareAndSet(`replay/${READER("m")}/feeds%2Fx/nonce-new`, String(Date.now()), { createOnly: true });
+      expect(fresh).not.toBeNull();
+      const { rows } = await db.query("select count(*)::int as n from eic_relay.objects where key = $1", [`replay/${READER("m")}/item/odd`]);
+      expect(rows[0].n).toBe(1);
     } finally { await db.exec("rollback"); }
   });
 });
