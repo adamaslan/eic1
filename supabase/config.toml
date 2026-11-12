@@ -1,0 +1,5 @@
+# Edge Function settings for the encrypted relay. The browser sends no Supabase JWT;
+# requests are authenticated by the app's own Ed25519 signatures and the allowlist in
+# eic_relay.config. The default JWT gate would reject every relay request with 401.
+[functions.eic-relay]
+verify_jwt = false
