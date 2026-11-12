@@ -6,6 +6,10 @@ import type { RelayAtomicStore, StoreEntry } from '../packages/features/src/rela
 // must not run against the ordinary endpoint-unset production/deploy preview.
 test.skip(process.env.EIC_LOCAL_RELAY_TEST !== '1', 'Opt-in local memory-backed relay fixture, not deployed Supabase evidence');
 test.setTimeout(240000);
+async function opts(page: Page) {
+ const d=page.locator('details:has(summary:text("Relay options"))');
+ if(!(await d.evaluate(el=>(el as HTMLDetailsElement).open))) await d.locator('summary').click();
+}
 async function create(page: Page, handle: string) {
  await page.addInitScript(() => {
   const shared: string[]=[]; (window as unknown as {__shared:string[]}).__shared=shared;
@@ -49,7 +53,7 @@ test('local signed relay: two browser vaults exchange ciphertext, manual explici
  await create(a,'relay-alice');await create(b,'relay-bob');
  const firstA=await connectLink(a),firstB=await connectLink(b);await accept(a,firstB);await accept(b,firstA);
  for(const page of[a,b]){
-  await page.getByRole('button',{name:'Set up relay feed'}).click();
+  await opts(page);await page.getByRole('button',{name:'Set up relay feed'}).click();
   const notice=page.getByText(/Relay feed saved/);await expect(notice).toBeVisible();
   keys.push((await notice.textContent())!.match(/Signing public key: (\S+)\./)![1]);
  }
@@ -58,11 +62,11 @@ test('local signed relay: two browser vaults exchange ciphertext, manual explici
  await a.getByLabel('Message',{exact:true}).fill('synthetic desktop to mobile sealed message');await a.getByRole('button',{name:'Send',exact:true}).click();
  await expect(a.getByRole('button',{name:'Text a chat link'})).toHaveCount(0);
  await expect(a.getByText(/Encrypted snapshot committed/)).toBeVisible();
- await b.getByRole('button',{name:'Check for messages'}).click();await expect(b.getByText('synthetic desktop to mobile sealed message',{exact:true})).toBeVisible();
+ await opts(b);await b.getByRole('button',{name:'Check for messages'}).click();await expect(b.getByText('synthetic desktop to mobile sealed message',{exact:true})).toBeVisible();
  await b.getByLabel('Message',{exact:true}).fill('synthetic mobile reply');await b.getByRole('button',{name:'Send',exact:true}).click();
  await expect(b.getByText(/Encrypted snapshot committed/)).toBeVisible();
- await a.getByRole('button',{name:'Check for messages'}).click();await expect(a.getByText('synthetic mobile reply',{exact:true})).toBeVisible();
- await a.getByRole('button',{name:'Check for messages'}).click();await expect(a.getByText('synthetic mobile reply',{exact:true})).toHaveCount(1);
+ await opts(a);await a.getByRole('button',{name:'Check for messages'}).click();await expect(a.getByText('synthetic mobile reply',{exact:true})).toBeVisible();
+ await opts(a);await a.getByRole('button',{name:'Check for messages'}).click();await expect(a.getByText('synthetic mobile reply',{exact:true})).toHaveCount(1);
  expect(JSON.stringify([...rows])).not.toContain('synthetic desktop');expect(JSON.stringify([...rows])).not.toContain('synthetic mobile reply');
  offline=true;
  await a.getByLabel('Message',{exact:true}).fill('synthetic offline saved message');
@@ -70,9 +74,9 @@ test('local signed relay: two browser vaults exchange ciphertext, manual explici
  await expect(a.getByText(/Relay confirmation is pending/)).toBeVisible();
  await a.reload(); await expect(a.getByText('synthetic offline saved message',{exact:true})).toBeVisible();
  offline=false;
- await a.getByRole('button',{name:'Retry relay send'}).click();
+ await opts(a);await a.getByRole('button',{name:'Retry relay send'}).click();
  await expect(a.getByText(/Encrypted snapshot committed/)).toBeVisible();
- await b.getByRole('button',{name:'Check for messages'}).click();
+ await opts(b);await b.getByRole('button',{name:'Check for messages'}).click();
  await expect(b.getByText('synthetic offline saved message',{exact:true})).toHaveCount(1);
  await a.screenshot({path:'/downloads/eic-relay-local-desktop.png',fullPage:true});await b.screenshot({path:'/downloads/eic-relay-local-mobile.png',fullPage:true});
  await aContext.close();await bContext.close();

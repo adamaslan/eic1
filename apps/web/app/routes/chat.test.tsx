@@ -145,6 +145,17 @@ describe("ChatThreadView v2 relay mode", () => {
     expect(html).not.toContain("Send to relay");
   });
 
+  it("keeps the main screen simple: only Send sits outside the collapsed Relay options", () => {
+    const html = view();
+    const [outside, inside] = html.split("<details");
+    expect(inside).toContain("Relay options");
+    const actions = ["Send", "Check for messages", "Retry relay send", "Set up relay feed"];
+    const present = (markup: string) => actions.filter((label) => markup.includes(`>${label}<`));
+    expect(present(outside)).toEqual(["Send"]);
+    expect(present(inside)).toEqual(["Check for messages", "Retry relay send", "Set up relay feed"]);
+    expect(html).not.toContain("<details open");
+  });
+
   it("disables the relay actions for an unsigned connection and while busy", () => {
     for (const html of [view({ verified: false }), view({ busy: true })]) {
       for (const label of ["Check for messages", "Retry relay send", "Set up relay feed"]) {

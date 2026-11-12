@@ -70,6 +70,7 @@ export function ChatThreadView({
               Messages are sealed for @{handle} and live in your vault; everything you see renders from local data.
               Send also puts an encrypted snapshot on the relay, and Check for messages pulls @{handle}&apos;s replies.
               Nothing runs in the background, and the relay cannot read your messages or tell you when they are read.
+              First time? Open Relay options and Set up relay feed before you share connect links.
             </p>
           ) : (
             <>
@@ -135,15 +136,18 @@ export function ChatThreadView({
             <span className="text-[var(--w95-muted)]">
               {draft.length}/{CHAT_BODY_MAX}
             </span>
-            {relay && (
-              <>
+          </div>
+          {relay?.notice && <p role="status" className="break-words">{relay.notice}</p>}
+          {relay && (
+            <details>
+              <summary className="cursor-pointer text-[var(--w95-muted)]">Relay options</summary>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
                 <Button95 type="button" disabled={busy || !verified} onClick={relay.onCheck}>Check for messages</Button95>
                 <Button95 type="button" disabled={busy || !verified} onClick={relay.onRetry}>Retry relay send</Button95>
                 <Button95 type="button" disabled={busy || !verified} onClick={relay.onSetup}>Set up relay feed</Button95>
-              </>
-            )}
-          </div>
-          {relay?.notice && <p role="status" className="break-words">{relay.notice}</p>}
+              </div>
+            </details>
+          )}
           {error && (
             <p role="alert" className="text-[#800000]">
               {error}
@@ -238,7 +242,7 @@ export default function Chat({ params }: Route.ComponentProps) {
         if (action === "publish") {
           await prepareRelayOutbox(vault, new Date());
           const result = await attemptRelayOutbox(vault, createRelayTransport(relayEndpoint), new Date());
-          setRelayNotice(result.status === "confirmed" ? "Encrypted snapshot committed to relay. This is not a recipient receipt. Sending another message commits a new snapshot." : "Relay confirmation is pending. Exact sealed snapshot is saved; use Retry relay send; do not retype the message.");
+          setRelayNotice(result.status === "confirmed" ? "Encrypted snapshot committed to relay. This is not a recipient receipt. Sending another message commits a new snapshot." : "Relay confirmation is pending. Exact sealed snapshot is saved; open Relay options and use Retry relay send; do not retype the message.");
         } else {
           const result = await syncConnection(vault, connection, { fetch: signedRelayFetcher(vault, relayEndpoint), network: detectSyncNetwork(), retryFailed: true, newId: newItemId, now: new Date() });
           setRelayNotice(`Received ${result.appliedChat} new encrypted messages. ${result.status}.`);
