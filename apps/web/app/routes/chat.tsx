@@ -226,10 +226,10 @@ export default function Chat({ params }: Route.ComponentProps) {
     }
     // v2: the local write above is the source of truth; relaying it is a best-effort follow-up
     // whose failure is shown in the relay notice and never undoes or hides the stored message.
-    if (relayEndpoint) await relay("publish");
+    if (relayEndpoint) await relay("publish", { afterSend: true });
   }
 
-  async function relay(action: "configure" | "publish" | "receive") {
+  async function relay(action: "configure" | "publish" | "receive", options?: { afterSend?: boolean }) {
     if (!vault || !connection || !relayEndpoint) return;
     setBusy(true); setRelayNotice(null);
     try {
@@ -240,8 +240,14 @@ export default function Chat({ params }: Route.ComponentProps) {
         const settings = await loadSettings(vault);
         if (detectSyncNetwork() !== "wifi" && !settings.syncOnCellular) throw new AppError("Waiting for Wi-Fi. This browser may not know its connection type; turn on cellular sync in Settings to allow this request.");
         if (action === "publish") {
-          await prepareRelayOutbox(vault, new Date());
-          const result = await attemptRelayOutbox(vault, createRelayTransport(relayEndpoint), new Date());
+          const prepared = await prepareRelayOutbox(vault, new Date());
+          let result = await attemptRelayOutbox(vault, createRelayTransport(relayEndpoint), new Date());
+          // A send can arrive while an older snapshot is still pending. Confirming that older
+          // snapshot does not deliver the just-saved message, so immediately seal and send a fresh one.
+          if (options?.afterSend && prepared.reusedPending && result.status === "confirmed") {
+            await prepareRelayOutbox(vault, new Date());
+            result = await attemptRelayOutbox(vault, createRelayTransport(relayEndpoint), new Date());
+          }
           setRelayNotice(result.status === "confirmed" ? "Encrypted snapshot committed to relay. This is not a recipient receipt. Sending another message commits a new snapshot." : "Relay confirmation is pending. Exact sealed snapshot is saved; open Relay options and use Retry relay send; do not retype the message.");
         } else {
           const result = await syncConnection(vault, connection, { fetch: signedRelayFetcher(vault, relayEndpoint), network: detectSyncNetwork(), retryFailed: true, newId: newItemId, now: new Date() });
