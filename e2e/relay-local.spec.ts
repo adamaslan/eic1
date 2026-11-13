@@ -74,10 +74,14 @@ test('local signed relay: two browser vaults exchange ciphertext, manual explici
  await expect(a.getByText(/Relay confirmation is pending/)).toBeVisible();
  await a.reload(); await expect(a.getByText('synthetic offline saved message',{exact:true})).toBeVisible();
  offline=false;
- await opts(a);await a.getByRole('button',{name:'Retry relay send'}).click();
+ // Sending after connectivity returns must confirm the older pending snapshot and then
+ // publish a fresh snapshot containing this new message; the older commit alone is not enough.
+ await a.getByLabel('Message',{exact:true}).fill('synthetic after reconnect saved message');
+ await a.getByRole('button',{name:'Send',exact:true}).click();
  await expect(a.getByText(/Encrypted snapshot committed/)).toBeVisible();
  await opts(b);await b.getByRole('button',{name:'Check for messages'}).click();
  await expect(b.getByText('synthetic offline saved message',{exact:true})).toHaveCount(1);
+ await expect(b.getByText('synthetic after reconnect saved message',{exact:true})).toHaveCount(1);
  await a.screenshot({path:'/downloads/eic-relay-local-desktop.png',fullPage:true});await b.screenshot({path:'/downloads/eic-relay-local-mobile.png',fullPage:true});
  await aContext.close();await bContext.close();
 });

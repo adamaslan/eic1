@@ -17,15 +17,16 @@ async function fixture() {
 const recordId = "relay-outbox:local-owner";
 describe("explicit durable sealed relay retries", () => {
   it("prepares once, retries exact bytes and advances only after signed commit readback", async () => {
-    const vault = await fixture(); expect(await prepareRelayOutbox(vault, NOW)).toEqual({ seq: 1 });
+    const vault = await fixture(); expect(await prepareRelayOutbox(vault, NOW)).toEqual({ seq: 1, reusedPending: false });
     const pending = await vault.getJson(recordId);
-    await prepareRelayOutbox(vault, new Date(NOW.getTime() + 1000)); expect(await vault.getJson(recordId)).toEqual(pending);
+    expect(await prepareRelayOutbox(vault, new Date(NOW.getTime() + 1000))).toEqual({ seq: 1, reusedPending: true });
+    expect(await vault.getJson(recordId)).toEqual(pending);
     const snapshot = (pending as { pending: { manifest: string } }).pending;
     const publish = vi.fn().mockRejectedValue(new Error("Response lost after server commit"));
     const read = vi.fn().mockResolvedValue({ manifest: snapshot.manifest });
     expect(await attemptRelayOutbox(vault, { publish, read }, NOW)).toEqual({ status: "confirmed", seq: 1 });
     expect(await vault.getJson(recordId)).toMatchObject({ seq: 1, pending: null });
-    expect(await prepareRelayOutbox(vault, NOW)).toEqual({ seq: 2 });
+    expect(await prepareRelayOutbox(vault, NOW)).toEqual({ seq: 2, reusedPending: false });
   });
   it("ambiguous success and unreachable read keep pending, retry uses a fresh signed nonce", async () => {
     const vault = await fixture(); await prepareRelayOutbox(vault, NOW); const before = await vault.getJson(recordId);
