@@ -35,16 +35,16 @@ async function stateFor(vault: UnlockedVault, ctx: Awaited<ReturnType<typeof con
  * Pending retries reuse those same bytes/sequence, including after reload or ambiguous success.
  * Concurrent tabs use vault CAS. No timers, background work, secrets, URL fetch or UI wiring.
  */
-export async function prepareRelayOutbox(vault: UnlockedVault, now: Date): Promise<{ seq: number }> {
+export async function prepareRelayOutbox(vault: UnlockedVault, now: Date): Promise<{ seq: number; reusedPending: boolean }> {
   const ctx = await context(vault); const { raw, state } = await stateFor(vault, ctx);
-  if (state.pending) return { seq: state.seq };
+  if (state.pending) return { seq: state.seq, reusedPending: true };
   if (state.seq === Number.MAX_SAFE_INTEGER) throw new AppError("Relay sequence limit reached.");
   const seq = state.seq + 1;
   const pending = await buildChatFeedSnapshot(vault, ctx.settings, { now, seq });
   // HTTP candidate is deliberately stricter than the older feed's maximum backlog.
   if (new TextEncoder().encode(JSON.stringify(pending)).byteLength > 2 * 1024 * 1024) throw new AppError("The sealed chat backlog is too large for this relay. Nothing was sent.");
   await vault.putJsonIfUnchanged("settings", ctx.id, { ...state, seq, pending }, raw);
-  return { seq };
+  return { seq, reusedPending: false };
 }
 
 /** Explicit retry of an already saved snapshot. Never clears on HTTP success alone.
