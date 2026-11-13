@@ -5,7 +5,7 @@ import { MemoryStore } from "../../vault/src/memory-store";
 import { defaultSettings, saveSettings, loadSettings } from "./social";
 import { buildChatFeedSnapshot } from "./chat-relay";
 import { loadOrCreateShareIdentity } from "./sharing";
-import { prepareRelayOutbox, attemptRelayOutbox } from "./relay-outbox";
+import { prepareRelayOutbox, attemptRelayOutbox, publishRelaySnapshot } from "./relay-outbox";
 
 const NOW = new Date("2026-11-06T21:00:00Z");
 async function fixture() {
@@ -80,4 +80,35 @@ describe("explicit durable sealed relay retries", () => {
     expect(transport.publish).not.toHaveBeenCalled(); expect(transport.read).not.toHaveBeenCalled();
   });
 
+});
+
+describe("publishRelaySnapshot (shared by Send and Retry)", () => {
+  function relay() {
+    let last: { manifest: string } | null = null;
+    const publish = vi.fn(async (snapshot: { manifest: string }) => { last = snapshot; });
+    const read = vi.fn(async () => ({ manifest: last!.manifest }));
+    return { publish, read };
+  }
+  it("sends one snapshot when nothing was pending", async () => {
+    const vault = await fixture(); const transport = relay();
+    expect(await publishRelaySnapshot(vault, transport as never, () => NOW)).toEqual({ status: "confirmed", seq: 1 });
+    expect(transport.publish).toHaveBeenCalledTimes(1);
+  });
+  it("after an offline attempt, Retry confirms the old snapshot and then sends a fresh one", async () => {
+    const vault = await fixture(); await prepareRelayOutbox(vault, NOW);
+    await attemptRelayOutbox(vault, { publish: async () => { throw new Error("offline"); }, read: async () => { throw new Error("offline"); } }, NOW);
+    expect(await vault.getJson(recordId)).toMatchObject({ seq: 1 });
+    const transport = relay();
+    expect(await publishRelaySnapshot(vault, transport as never, () => NOW)).toEqual({ status: "confirmed", seq: 2 });
+    expect(transport.publish).toHaveBeenCalledTimes(2);
+    expect(await vault.getJson(recordId)).toMatchObject({ seq: 2, pending: null });
+  });
+  it("if the fresh snapshot cannot be confirmed it stays pending for the next retry", async () => {
+    const vault = await fixture(); await prepareRelayOutbox(vault, NOW);
+    let calls = 0; let last = "";
+    const transport = { publish: async (s: { manifest: string }) => { last = s.manifest; },
+      read: async () => { if (++calls > 1) throw new Error("offline"); return { manifest: last }; } };
+    expect(await publishRelaySnapshot(vault, transport as never, () => NOW)).toEqual({ status: "pending", seq: 2 });
+    expect(await vault.getJson(recordId)).toMatchObject({ seq: 2, pending: expect.anything() });
+  });
 });
