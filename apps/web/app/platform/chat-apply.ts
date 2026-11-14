@@ -15,9 +15,16 @@ export function createThreadReload(deps: {
   applyThread: (thread: ChatMessage[]) => void;
   currentAuthorId: () => string | null;
 }): (authorId: string) => Promise<void> {
+  // Request generation: overlapping reloads for the SAME author (mount + broadcast +
+  // contention consume, or an A -> B -> A navigation whose first A load outlives the
+  // second) must apply only the latest request's result. Without this, whichever load
+  // resolves last paints - and an older snapshot can overwrite a newer one.
+  let latest = 0;
   return async (authorId) => {
+    const generation = ++latest;
     await deps.markRead(authorId);
     const thread = await deps.loadThread(authorId);
+    if (generation !== latest) return;
     // The route may have changed during the awaits above: never paint a stale thread.
     if (deps.currentAuthorId() !== authorId) return;
     deps.applyThread(thread);
@@ -41,7 +48,8 @@ export interface ContentionFlag {
 export async function applyCatchUpOutcome(outcome: CatchUpOutcome, deps: {
   active: () => boolean;
   reload: () => Promise<void>;
-  /** Cross-tab hook fired after applied writes are committed (broadcast to other tabs). */
+  /** Cross-tab hook fired after applied writes are committed (broadcast to other tabs).
+   * Owed regardless of this tab's visibility or whether its own UI refresh succeeds. */
   onApplied: (count: number) => void;
   onSkipped: () => void;
   onDeferred: () => void;
@@ -49,16 +57,31 @@ export async function applyCatchUpOutcome(outcome: CatchUpOutcome, deps: {
   onUnchanged: () => void;
   contention?: ContentionFlag;
 }): Promise<void> {
-  if (!deps.active()) return;
+  // The writes are already committed when this hook runs: the announcement belongs to
+  // other tabs, so it fires even when this tab is hidden or its own reload later fails.
+  if (outcome.appliedChat) deps.onApplied(outcome.appliedChat);
+  if (!deps.active()) {
+    // An applied outcome discarded while hidden must not go stale: the cursor already
+    // advanced, so the next poll reads unchanged and a clean flag would skip the reload
+    // forever. Retain the refresh debt until a completed refresh consumes it.
+    if (outcome.appliedChat && deps.contention) deps.contention.dirty = true;
+    return;
+  }
   if (outcome.status === "failed") throw new Error("Relay catch-up unavailable");
   // Refresh BEFORE any status branch returns: partial/deferred results can still have
   // applied earlier chat chunks, and later unchanged polls would never show them.
   if (outcome.appliedChat) {
-    // Clear only after the reload actually completed: a throwing reload must not eat
-    // the flag, or the stale view would have no recovery left.
-    await deps.reload();
+    try {
+      await deps.reload();
+    } catch (error) {
+      // The writes are committed and the cursor already advanced: with a clean flag the
+      // next poll reads unchanged and never reloads, so a failed refresh here must RAISE
+      // the debt, not merely keep a pre-existing one.
+      if (deps.contention) deps.contention.dirty = true;
+      throw error;
+    }
+    // Clear only after the reload actually completed.
     if (deps.contention) deps.contention.dirty = false;
-    deps.onApplied(outcome.appliedChat);
   }
   if (!deps.active()) return;
   if (outcome.status === "partial") { deps.onSkipped(); return; }
