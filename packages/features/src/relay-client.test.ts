@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRelayTransport, relayEndpoint } from "./relay-client";
+import { SubtleCryptoPort } from "@veil/crypto";
+import { createVault, type UnlockedVault } from "@veil/vault";
+import { MemoryStore } from "../../vault/src/memory-store";
+import { configureRelayFeed, createRelayTransport, relayEndpoint } from "./relay-client";
+import { defaultSettings, loadSettings, saveSettings } from "./social";
 import type { RelayReadRequest } from "./relay-adapter";
 const request: RelayReadRequest = { pubkey: "public", feedPath: "feeds/x", ts: 1, nonce: "nonce", signature: "sig" };
 describe("endpoint-bound relay HTTP client", () => {
@@ -21,5 +25,34 @@ describe("endpoint-bound relay HTTP client", () => {
     for (const response of [new Response("x".repeat(2 * 1024 * 1024 + 1)), new Response("{}"), new Response("failed", { status: 503 })]) {
       await expect(createRelayTransport("https://eic.example", async () => response).read(request)).rejects.toThrow();
     }
+  });
+});
+
+describe("configureRelayFeed", () => {
+  const openVault = () => createVault({ store: new MemoryStore(), crypto: new SubtleCryptoPort(), now: () => new Date("2026-10-30T12:00:00Z") }, "pass phrase 1");
+
+  it("patches only feedUrl: a concurrent editor's field survives relay setup", async () => {
+    const vault = await openVault();
+    await saveSettings(vault, { ...defaultSettings(), authorId: "a1", handle: "h1" });
+    // Interleave an editor's handle write between relay setup's settings read and its
+    // CAS attempt; setup must retry and still keep the editor's field.
+    let collided = false;
+    const racing: UnlockedVault = {
+      ...vault,
+      putJsonIfUnchanged: async (kind, id, value, expected) => {
+        if (!collided && kind === "settings") {
+          collided = true;
+          const current = (await vault.getJson(id)) as Record<string, unknown>;
+          await vault.putJsonIfUnchanged(kind, id, { ...current, handle: "edited-during-setup" }, current);
+        }
+        return vault.putJsonIfUnchanged(kind, id, value, expected);
+      },
+    };
+    const { feedUrl } = await configureRelayFeed(racing, "https://eic.example/relay");
+    expect(collided).toBe(true);
+    expect(feedUrl.startsWith("https://eic.example/relay/")).toBe(true);
+    const persisted = await loadSettings(vault);
+    expect(persisted.feedUrl).toBe(feedUrl);
+    expect(persisted.handle).toBe("edited-during-setup");
   });
 });
