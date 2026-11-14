@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SubtleCryptoPort } from "@veil/crypto";
 import { AppError } from "@veil/core";
-import { createVault, type UnlockedVault } from "@veil/vault";
+import { createVault, unlockVault, type UnlockedVault } from "@veil/vault";
 import { MemoryStore } from "../../vault/src/memory-store";
 import { buildShareBundle, importShareBundle } from "./sharing";
 import { defaultSettings, listConnections, saveSettings, type Settings } from "./social";
@@ -57,6 +57,38 @@ describe("chat over pull", () => {
     expect((await listChatThread(alice, "bob-id"))).toHaveLength(1);
   });
 
+  it("two tabs applying the same envelope concurrently store ONE message (deterministic id)", async () => {
+    // Two unlocked instances over one store = two browser tabs on the same vault. Both
+    // can pass the seen-before scan before either writes (manual Check in one tab racing
+    // the auto catch-up in the other); the signature-derived record id must collapse the
+    // race into a single record instead of a duplicate under a fresh id.
+    const store = new MemoryStore();
+    const crypto = new SubtleCryptoPort();
+    const alice = await createVault({ store, crypto, now: () => NOW }, "pass phrase 1");
+    const bob = await open();
+    await saveSettings(alice, settingsFor("alice-id", "alice"));
+    await saveSettings(bob, settingsFor("bob-id", "bob"));
+    await importShareBundle(bob, (await buildShareBundle(alice, settingsFor("alice-id", "alice"), [], NOW)).text, { settings: settingsFor("bob-id", "bob"), newId: deps.newId, now: NOW });
+    await importShareBundle(alice, (await buildShareBundle(bob, settingsFor("bob-id", "bob"), [], NOW)).text, { settings: settingsFor("alice-id", "alice"), newId: deps.newId, now: NOW });
+    const aliceConn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
+    const sent = await sendChatMessage(bob, aliceConn, "race me", deps);
+    const tab2 = await unlockVault({ store, crypto, now: () => NOW }, "pass phrase 1");
+    const [one, two] = await Promise.all([
+      applyInboundChatEnvelope(alice, sent.envelope, deps),
+      applyInboundChatEnvelope(tab2, sent.envelope, deps),
+    ]);
+    const thread = await listChatThread(alice, "bob-id");
+    expect(thread).toHaveLength(1);
+    expect(thread[0]!.body).toBe("race me");
+    expect(one.message!.id).toBe(two.message!.id);
+    // The stored record still answers to the scan-based fast path afterwards.
+    const later = await applyInboundChatEnvelope(tab2, sent.envelope, deps);
+    expect(later.applied).toBe(false);
+    // markThreadRead addresses records by recordIdFor(message.id) - it must hit the row.
+    expect(await markThreadRead(alice, "bob-id", NOW)).toBe(1);
+    expect((await unreadCounts(alice))["bob-id"]).toBeUndefined();
+  });
+
   it("rejects envelopes from unknown connections and tampered envelopes", async () => {
     const { alice, bob } = await pairedVaults();
     const aliceConn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
@@ -78,7 +110,9 @@ describe("chat over pull", () => {
     const { alice, bob } = await pairedVaults();
     const aliceConn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
     await sendChatMessage(bob, aliceConn, "one", deps);
-    await sendChatMessage(bob, aliceConn, "two", deps);
+    // A distinct sentAt keeps the chronological assertion deterministic: the same-second
+    // tiebreak is the (now signature-derived) id, not insertion order.
+    await sendChatMessage(bob, aliceConn, "two", { ...deps, now: () => new Date("2026-10-30T12:00:01Z") });
     for (const m of await listChatThread(bob, "alice-id")) {
       await applyInboundChatEnvelope(alice, m.envelope, deps);
     }
