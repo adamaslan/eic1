@@ -1,26 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Connection, Note, Settings } from "@veil/core";
 import {
+  changedSettingsFields,
   defaultSettings,
   listConnections,
   listNotes,
   loadSettings,
-  saveSettings,
+  saveSettingsFields,
   useVaultItems,
   type ItemsState,
 } from "@veil/features";
 import type { UnlockedVault } from "@veil/vault";
-
-/** Merges an update onto the persisted settings: only fields that differ from what the
- * caller based its edit on (`base`) are written, so stale untouched fields (feedUrl set
- * up in another tab, keywords edited elsewhere) survive the save. */
-export function mergeSettingsUpdate(base: Settings, next: Settings, persisted: Settings): Settings {
-  const merged: Record<string, unknown> = { ...persisted };
-  for (const key of Object.keys(next) as (keyof Settings)[]) {
-    if (!Object.is(next[key], base[key])) merged[key as string] = next[key];
-  }
-  return merged as Settings;
-}
 
 export interface Social {
   items: ItemsState;
@@ -65,13 +55,12 @@ export function useSocial(vault: UnlockedVault | null): Social {
   const update = useCallback(
     async (next: Settings) => {
       if (!vault || !settingsReady) return;
-      // Write back only the fields this screen actually changed, merged onto the FRESH
-      // persisted settings: another tab or relay feed setup may have written since this
-      // cache loaded, and saving the caller's whole stale object would wipe fields like
+      // Write back only the fields this screen actually changed, applied onto the FRESH
+      // record inside the save's CAS loop: another tab or relay feed setup may write at
+      // any moment, and merging onto any pre-load snapshot would revert fields like
       // feedUrl that the caller never touched.
       const base = loaded?.vault === vault && loaded.revision === revision ? loaded.settings : settings;
-      const merged = mergeSettingsUpdate(base, next, await loadSettings(vault));
-      const saved = await saveSettings(vault, merged);
+      const saved = await saveSettingsFields(vault, changedSettingsFields(base, next));
       setLoaded((current) => current?.vault === vault && current.revision > revision
         ? current
         : { vault, revision, settings: saved });
