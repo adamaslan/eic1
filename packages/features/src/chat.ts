@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AppError, decodeBase64, encodeBase64, type Bytes } from "@veil/core";
-import { openSyncEnvelope, sealSyncEnvelope, type SyncEnvelope } from "@veil/crypto";
+import { openSyncEnvelope, sealSyncEnvelope, sha256Hex, type SyncEnvelope } from "@veil/crypto";
 import type { UnlockedVault } from "@veil/vault";
 import { loadOrCreateShareIdentity } from "./sharing";
 import { listConnections, loadSettings } from "./social";
@@ -51,6 +51,15 @@ export interface ChatDeps {
 
 function recordIdFor(messageId: string): string {
   return `chat:${messageId}`;
+}
+
+// Cross-tab idempotency key: two tabs can both pass the check-then-act scan below (each
+// saw no existing row before either wrote) and would duplicate the message under fresh
+// ids. Deriving the inbound id from the envelope signature makes both write the SAME
+// record, so the loser overwrites an identical row instead of duplicating. markThreadRead
+// addresses records via recordIdFor(message.id), so the message id itself must be this one.
+function inboundMessageId(signature: string): string {
+  return `in-${sha256Hex(`eic-chat-inbound:${signature}`)}`;
 }
 
 async function listAllMessages(vault: UnlockedVault): Promise<ChatMessage[]> {
@@ -126,7 +135,9 @@ export async function sendChatMessage(
 export async function applyInboundChatEnvelope(
   vault: UnlockedVault,
   envelope: unknown,
-  deps: ChatDeps,
+  // Kept for signature compatibility with the sync paths; the inbound id no longer
+  // comes from deps.newId (see inboundMessageId).
+  _deps: ChatDeps,
 ): Promise<{ applied: boolean; message: ChatMessage | null }> {
   const e = envelope as Partial<SyncEnvelope> | null;
   if (!e || typeof e.authorId !== "string" || typeof e.signature !== "string") {
@@ -157,7 +168,7 @@ export async function applyInboundChatEnvelope(
   }
   const message: ChatMessage = {
     v: 1,
-    id: deps.newId(),
+    id: inboundMessageId(e.signature),
     threadAuthorId: sender.id,
     direction: "in",
     body: payload.body,
