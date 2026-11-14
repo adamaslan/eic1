@@ -1,8 +1,17 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { SubtleCryptoPort } from "@veil/crypto";
+import { createVault } from "@veil/vault";
+import { MemoryStore } from "../packages/vault/src/memory-store";
+import { buildChatShareLink, buildConnectLink, importConnectCard, readConnectLink } from "../packages/features/src/chat-link";
+import { defaultSettings, listConnections, saveSettings } from "../packages/features/src/social";
+import { sendChatMessage } from "../packages/features/src/chat";
 
 /**
- * The cute phone-text flow, end to end at a real phone viewport: a connect link adds a
- * connection with no JSON file, and a chat link opens eic straight into the conversation.
+ * Current relay-only chat contract at a real phone viewport. Signed connect links
+ * still add connections; an endpoint-unset build must never claim remote delivery.
+ * Incoming legacy fragments are exercised below through the real root/pending-slot UI;
+ * package unit tests separately cover decoding/crypto details.
+ * signed two-vault delivery is covered by the opt-in memory-backed relay E2E fixture.
  * navigator.share/clipboard are stubbed so the test can capture the link a user would text.
  */
 
@@ -43,135 +52,95 @@ async function lastSharedLink(page: Page): Promise<string> {
   return match![0];
 }
 
-test("connect link + chat link: tap opens straight into the conversation", async ({ browser }, testInfo) => {
+test("signed connect links open the right chat; endpoint-unset sends stay local", async ({ browser }, testInfo) => {
   const aliceContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const bobContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const alice = await aliceContext.newPage();
-  const bob = await bobContext.newPage();
-  await alice.clock.install();
-  await stubShareCapture(alice);
-  await stubShareCapture(bob);
-
-  await Promise.all([createVaultWithHandle(alice, "alice"), createVaultWithHandle(bob, "bob")]);
-
-  // 1. Alice texts her connect link; bob taps it, confirms, lands in the chat with her.
-  await alice.getByRole("button", { name: "Text my connect link" }).click();
-  await expect(alice.getByText(/Connect link shared/)).toBeVisible();
-  const aliceConnectLink = await lastSharedLink(alice);
-  await bob.goto(aliceConnectLink);
-  await expect(bob.getByText("A friend wants to connect")).toBeVisible();
-  await bob.screenshot({ path: testInfo.outputPath("1-connect-confirm.png") });
-  await bob.getByRole("button", { name: "Add and open chat" }).click();
-  await expect(bob).toHaveURL(/\/chat\/.+/);
-  await expect(bob.getByText("Chat with @alice")).toBeVisible();
-  const bobChatWithAlice = bob.url();
-
-  // 2. Bob texts his connect link back; alice taps it and lands in the chat with him.
-  await bob.goto("/connections");
-  await bob.getByRole("button", { name: "Text my connect link" }).click();
-  await expect(bob.getByText(/Connect link shared/)).toBeVisible();
-  const bobConnectLink = await lastSharedLink(bob);
-  await alice.goto(bobConnectLink);
-  await alice.getByRole("button", { name: "Add and open chat" }).click();
-  await expect(alice).toHaveURL(/\/chat\/.+/);
-  await expect(alice.getByText("Chat with @bob")).toBeVisible();
-  const aliceChatWithBob = alice.url();
-
-  // 3. Bob writes a message and texts the chat link.
-  await bob.goto(bobChatWithAlice);
-  await bob.getByLabel("Message").fill("hi alice - one tap and you are right here 💌");
-  await bob.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(bob.getByText("hi alice - one tap and you are right here 💌")).toBeVisible();
-  await bob.getByRole("button", { name: "Text a chat link" }).click();
-  await expect(bob.getByText(/Shared through your phone's share sheet/)).toBeVisible();
-  await bob.screenshot({ path: testInfo.outputPath("2-bob-chat-mobile.png"), fullPage: true });
-  const chatLink = await lastSharedLink(bob);
-  expect(chatLink).toContain("#chat=");
-
-  // More than the previous one-hour session, but within the new fixed eight hours.
-  for (let halfHour = 0; halfHour < 4; halfHour += 1) {
-    await alice.clock.fastForward(30 * 60_000);
-    await alice.mouse.click(380, 700);
-  }
-
-  // 4. Alice taps the link in her text thread: eic opens straight into the conversation.
-  await alice.goto(chatLink);
-  await expect(alice).toHaveURL(aliceChatWithBob);
-  await expect(alice.getByText("hi alice - one tap and you are right here 💌")).toBeVisible();
-  await alice.screenshot({ path: testInfo.outputPath("3-alice-chat-opened.png"), fullPage: true });
-
-  // 5. A second tap of the same link is idempotent: still one copy of the message.
-  await alice.goto(chatLink);
-  await expect(alice).toHaveURL(aliceChatWithBob);
-  await expect(alice.getByText("hi alice - one tap and you are right here 💌")).toHaveCount(1);
-
-  await aliceContext.close();
-  await bobContext.close();
+  try {
+    const alice = await aliceContext.newPage(), bob = await bobContext.newPage();
+    await stubShareCapture(alice); await stubShareCapture(bob);
+    await Promise.all([createVaultWithHandle(alice, "alice"), createVaultWithHandle(bob, "bob")]);
+    await alice.getByRole("button", { name: "Text my connect link" }).click();
+    await expect(alice.getByText(/Connect link shared/)).toBeVisible();
+    const aliceLink = await lastSharedLink(alice);
+    await bob.goto(aliceLink);
+    await expect(bob.getByText("A friend wants to connect")).toBeVisible();
+    await bob.getByRole("button", { name: "Add and open chat" }).click();
+    await expect(bob.getByText("Chat with @alice")).toBeVisible();
+    await expect(bob.getByText(/This build has no relay endpoint/)).toBeVisible();
+    await expect(bob.getByRole("button", { name: "Text a chat link" })).toHaveCount(0);
+    await bob.getByLabel("Message", { exact: true }).fill("synthetic endpoint-unset local message");
+    await bob.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(bob.getByText("synthetic endpoint-unset local message", { exact: true })).toHaveCount(1);
+    await expect(bob.getByText(/cannot reach your friend until the relay is set up/)).toBeVisible();
+    await bob.reload();
+    await expect(bob.getByText("synthetic endpoint-unset local message", { exact: true })).toHaveCount(1);
+    const options = bob.locator('details').filter({ has: bob.getByText("Relay options", { exact: true }) });
+    await options.locator("summary").click();
+    for (const name of ["Set up relay feed", "Check for messages", "Retry relay send"]) {
+      await bob.getByRole("button", { name, exact: true }).click();
+      await expect(bob.getByText(/This build has no relay endpoint/)).toBeVisible();
+    }
+    await bob.screenshot({ path: testInfo.outputPath("endpoint-unset-mobile.png"), fullPage: true });
+    await bob.goto("/connections");
+    await bob.getByRole("button", { name: "Text my connect link" }).click();
+    await expect(bob.getByText(/Connect link shared/)).toBeVisible();
+    await alice.goto(await lastSharedLink(bob));
+    await alice.getByRole("button", { name: "Add and open chat" }).click();
+    await expect(alice.getByText("Chat with @bob")).toBeVisible();
+    await expect(alice.getByText("synthetic endpoint-unset local message", { exact: true })).toHaveCount(0);
+    await expect(alice.getByRole("button", { name: "Text a chat link" })).toHaveCount(0);
+  } finally { await aliceContext.close(); await bobContext.close(); }
 });
 
-test("chat link before connecting: kept, then opens on its own once connected", async ({ browser }) => {
-  // The core one-tap flow for a brand-new friend: the chat link arrives first, cannot apply
-  // yet (sender not a connection), and must NOT be consumed - after the connect link lands,
-  // the stashed chat link applies without a re-tap.
-  const bobContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const carolContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const bob = await bobContext.newPage();
-  const carol = await carolContext.newPage();
-  await stubShareCapture(bob);
-  await stubShareCapture(carol);
-  await Promise.all([createVaultWithHandle(bob, "bob"), createVaultWithHandle(carol, "carol")]);
 
-  // Carol texts bob her connect link so he has her key and can seal messages to her.
-  await carol.getByRole("button", { name: "Text my connect link" }).click();
-  await expect(carol.getByText(/Connect link shared/)).toBeVisible();
-  const carolConnectLink = await lastSharedLink(carol);
-  await bob.goto(carolConnectLink);
-  await bob.getByRole("button", { name: "Add and open chat" }).click();
-  await expect(bob).toHaveURL(/\/chat\/.+/);
+test("incoming legacy chat fragment: stranger stash binds after resume, connect opens it, second tap is idempotent", async ({ page }, testInfo) => {
+  await stubShareCapture(page);
+  await createVaultWithHandle(page, "carol");
+  await page.getByRole("button", { name: "Text my connect link" }).click();
+  await expect(page.getByText(/Connect link shared/)).toBeVisible();
+  const recipientLink = await lastSharedLink(page);
 
-  // Bob writes carol a message and texts BOTH his connect link and the chat link.
-  await bob.getByLabel("Message").fill("hi carol - no file, just a tap 💌");
-  await bob.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(bob.getByText("hi carol - no file, just a tap 💌")).toBeVisible();
-  await bob.getByRole("button", { name: "Text a chat link" }).click();
-  await expect(bob.getByText(/Shared through your phone's share sheet/)).toBeVisible();
-  const chatLink = await lastSharedLink(bob);
-  expect(chatLink).toContain("#chat=");
-  await bob.goto("/connections");
-  await bob.getByRole("button", { name: "Text my connect link" }).click();
-  await expect(bob.getByText(/Connect link shared/)).toBeVisible();
-  const bobConnectLink = await lastSharedLink(bob);
+  // Only the retired outgoing UI is bypassed. Use the exported production builder to
+  // seal a real synthetic message to this browser vault's signed public key.
+  const now = new Date();
+  const sender = await createVault({ store: new MemoryStore(), crypto: new SubtleCryptoPort(), now: () => now }, "synthetic-legacy-sender-only");
+  try {
+    const settings = { ...defaultSettings(), authorId: "legacy-bob", handle: "bob" };
+    await saveSettings(sender, settings);
+    await importConnectCard(sender, readConnectLink(new URL(recipientLink).hash)!, { settings, newId: () => "legacy-connect", now });
+    const connection = (await listConnections(sender))[0];
+    expect(connection).toBeTruthy();
+    const message = "synthetic incoming compatibility message";
+    await sendChatMessage(sender, connection, message, { newId: () => "legacy-message", now: () => now });
+    const baseUrl = `${new URL(page.url()).origin}/`;
+    const { link } = await buildChatShareLink(sender, connection, baseUrl);
+    const connectLink = await buildConnectLink(sender, baseUrl, now);
+    expect(link).toContain("#chat=");
+    expect(link).not.toContain(message);
 
-  // Carol taps the chat link first: honest not-a-connection message, and the link is kept.
-  await carol.goto(chatLink);
-  await expect(carol.getByText(/not a connection yet/)).toBeVisible();
-  // Regression: the tap is a fresh page load, so the slot starts unbound (forAuthorId null)
-  // while the vault rehydrates - it MUST bind to carol's vault once the handler reads it,
-  // or the cross-vault guard never engages on the primary tap path.
-  const slot = await carol.evaluate(() => sessionStorage.getItem("eic.pendingLink.v2.chat"));
-  expect(slot, "chat link kept in its slot").toBeTruthy();
-  // Binding is async: the vault finishes resuming after the tap stashed the link, then the
-  // slot binds. Poll so the assertion checks the guarantee, not the timing.
-  await expect
-    .poll(
-      async () =>
-        carol.evaluate(() => {
-          const raw = sessionStorage.getItem("eic.pendingLink.v2.chat");
-          return raw ? (JSON.parse(raw).forAuthorId as string | null) : null;
-        }),
-      { message: "slot bound to the resumed vault, not left null" },
-    )
-    .toBeTruthy();
-  await carol.getByRole("button", { name: "Close" }).click();
-
-  // Then the connect link: one confirm, and the waiting chat link applies on its own -
-  // the message appears without carol re-tapping the first link.
-  await carol.goto(bobConnectLink);
-  await carol.getByRole("button", { name: "Add and open chat" }).click();
-  await expect(carol).toHaveURL(/\/chat\/.+/);
-  await expect(carol.getByText("Chat with @bob")).toBeVisible();
-  await expect(carol.getByText("hi carol - no file, just a tap 💌")).toBeVisible();
-
-  await bobContext.close();
-  await carolContext.close();
+    // Fresh navigation exercises hash watcher + session slot + vault rehydration.
+    await page.goto(link);
+    await expect(page.getByText(/not a connection yet/)).toBeVisible();
+    await expect.poll(() => page.evaluate(() => {
+      const raw = sessionStorage.getItem("eic.pendingLink.v2.chat");
+      return raw ? JSON.parse(raw).forAuthorId : null;
+    }), { message: "stranger fragment binds to the resumed recipient vault" }).toBeTruthy();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.goto(connectLink);
+    await page.getByRole("button", { name: "Add and open chat" }).click();
+    await expect(page).toHaveURL(/\/chat\/legacy-bob$/);
+    await expect(page.getByText("Chat with @bob")).toBeVisible();
+    await expect(page.getByText(message, { exact: true })).toHaveCount(1);
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem("eic.pendingLink.v2.chat"))).toBeNull();
+    await page.goto(link);
+    await expect(page).toHaveURL(/\/chat\/legacy-bob$/);
+    await expect(page.getByText(message, { exact: true })).toHaveCount(1);
+    await expect(page.locator(".fixed.inset-0.z-50")).toHaveCount(0);
+    // The route and window entrance animations change opacity after the overlay is gone.
+    // Wait only finite animations, not any decorative infinite animation.
+    await page.evaluate(() => Promise.all(document.getAnimations().filter(animation =>
+      animation.effect?.getComputedTiming().iterations !== Infinity
+    ).map(animation => animation.finished.catch(() => {}))));
+    await page.screenshot({ path: testInfo.outputPath("incoming-legacy-mobile.png"), fullPage: true });
+  } finally { sender.lock(); }
 });
