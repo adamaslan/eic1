@@ -68,8 +68,11 @@ function relayFixture() {
 async function settle(fx: ReturnType<typeof relayFixture>) {
  await expect.poll(async()=>{
   if(fx.state.inFlight!==0)return false;
+  // A request can start AND finish inside the 400ms window with both inFlight samples
+  // reading zero; pin the request counter too, so a non-quiet window cannot pass.
+  const requests=fx.state.relayRequests;
   await new Promise(r=>setTimeout(r,400));
-  return fx.state.inFlight===0;
+  return fx.state.inFlight===0&&fx.state.relayRequests===requests;
  },{timeout:15000,intervals:[100,450]}).toBe(true);
 }
 
