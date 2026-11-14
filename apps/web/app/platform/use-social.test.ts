@@ -32,11 +32,11 @@ vi.mock("react", () => ({
 }));
 vi.mock("@veil/features", async (original) => ({
   ...await original<typeof import("@veil/features")>(),
-  loadSettings: vi.fn(), listNotes: vi.fn(), listConnections: vi.fn(), saveSettings: vi.fn(),
+  loadSettings: vi.fn(), listNotes: vi.fn(), listConnections: vi.fn(), saveSettingsFields: vi.fn(),
   useVaultItems: () => ({ state: { status: "ready", items: [] }, reload: vi.fn() }),
 }));
-import { defaultSettings, listConnections, listNotes, loadSettings, saveSettings } from "@veil/features";
-import { mergeSettingsUpdate, useSocial } from "./use-social";
+import { changedSettingsFields, defaultSettings, listConnections, listNotes, loadSettings, saveSettingsFields } from "@veil/features";
+import { useSocial } from "./use-social";
 
 const vault = {} as UnlockedVault;
 const settings: Settings = { ...defaultSettings(), authorId: "keep-id", handle: "keep-handle" };
@@ -50,7 +50,7 @@ beforeEach(() => {
   vi.mocked(loadSettings).mockResolvedValue(settings);
   vi.mocked(listNotes).mockResolvedValue([]);
   vi.mocked(listConnections).mockResolvedValue([]);
-  vi.mocked(saveSettings).mockImplementation(async (_vault, next) => next);
+  vi.mocked(saveSettingsFields).mockImplementation(async (_vault, fields) => ({ ...settings, ...fields }));
 });
 
 describe("settings readiness", () => {
@@ -59,7 +59,7 @@ describe("settings readiness", () => {
     await flush();
     const social = render();
     let resolve!: (settings: Settings) => void;
-    vi.mocked(saveSettings).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    vi.mocked(saveSettingsFields).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
     const saving = social.update({ ...settings, keywords: ["old save"] });
     const refreshed = { ...settings, keywords: ["refreshed"] };
     vi.mocked(loadSettings).mockResolvedValueOnce(refreshed);
@@ -79,14 +79,14 @@ describe("settings readiness", () => {
     let social = render();
     expect(social.settingsReady).toBe(false);
     await social.update(defaultSettings());
-    expect(saveSettings).not.toHaveBeenCalled();
+    expect(saveSettingsFields).not.toHaveBeenCalled();
     resolve(settings);
     await flush();
     social = render();
     expect(social.settingsReady).toBe(true);
     expect(social.settings).toEqual(settings);
     await social.update({ ...social.settings, keywords: ["bike"] });
-    expect(saveSettings).toHaveBeenCalledWith(vault, expect.objectContaining({ authorId: "keep-id", handle: "keep-handle" }));
+    expect(saveSettingsFields).toHaveBeenCalledWith(vault, { keywords: ["bike"] });
   });
 
   it.each(["notes", "connections"])("loads settings even when %s fail", async (source) => {
@@ -97,7 +97,8 @@ describe("settings readiness", () => {
     expect(social.settingsReady).toBe(true);
     expect(social.settings).toEqual(settings);
     await social.update(settings);
-    expect(saveSettings).toHaveBeenCalledWith(vault, settings);
+    // Nothing differs from the caller's base: the patch is empty, nothing is written.
+    expect(saveSettingsFields).toHaveBeenCalledWith(vault, {});
   });
 
   it("does not wait for a pending notes source", async () => {
@@ -114,7 +115,7 @@ describe("settings readiness", () => {
     const social = render();
     expect(social.settingsReady).toBe(false);
     await social.update(defaultSettings());
-    expect(saveSettings).not.toHaveBeenCalled();
+    expect(saveSettingsFields).not.toHaveBeenCalled();
     expect(listNotes).toHaveBeenCalled();
     expect(listConnections).toHaveBeenCalled();
   });
@@ -127,7 +128,7 @@ describe("settings readiness", () => {
     const social = render(other);
     expect(social.settingsReady).toBe(false);
     await social.update(defaultSettings());
-    expect(saveSettings).not.toHaveBeenCalled();
+    expect(saveSettingsFields).not.toHaveBeenCalled();
     await flush();
     resolve({ ...settings, authorId: "stale-id" });
     await flush();
@@ -136,25 +137,34 @@ describe("settings readiness", () => {
   });
 });
 
-describe("mergeSettingsUpdate", () => {
-  it("writes only the caller's changed fields onto the fresh persisted settings", () => {
+describe("changedSettingsFields", () => {
+  it("includes only fields whose value differs from the caller's base", () => {
     const base = { ...settings, feedUrl: null };
-    // The caller toggled one flag from its stale cached copy.
+    // The caller toggled one flag from its stale cached copy; everything else is
+    // unchanged even if the persisted record moved on since the base was cached.
     const next = { ...base, syncOnCellular: !base.syncOnCellular };
-    // Meanwhile another tab set up the relay feed and changed keywords.
-    const persisted = { ...settings, feedUrl: "https://relay.example/feed/me", keywords: ["other tab"] };
-    const merged = mergeSettingsUpdate(base, next, persisted);
-    expect(merged.syncOnCellular).toBe(next.syncOnCellular);
-    expect(merged.feedUrl).toBe("https://relay.example/feed/me");
-    expect(merged.keywords).toEqual(["other tab"]);
-    expect(merged.authorId).toBe("keep-id");
+    expect(changedSettingsFields(base, next)).toEqual({ syncOnCellular: next.syncOnCellular });
   });
 
   it("keeps an intentional feedUrl change the caller made", () => {
     const base = { ...settings, feedUrl: "https://old.example/a" };
     const next = { ...base, feedUrl: "https://new.example/b" };
-    const persisted = { ...settings, feedUrl: "https://old.example/a" };
-    expect(mergeSettingsUpdate(base, next, persisted).feedUrl).toBe("https://new.example/b");
+    expect(changedSettingsFields(base, next)).toEqual({ feedUrl: "https://new.example/b" });
+  });
+
+  it("compares array fields by content: a rebuilt-but-equal keywords array is unchanged", () => {
+    // PicksEditor builds a fresh keywords array on every submit; identity comparison
+    // would count it as changed and overwrite keywords another tab saved meanwhile.
+    const base = { ...settings, keywords: ["a", "b"] };
+    const next = { ...base, keywords: ["a", "b"] };
+    expect(next.keywords).not.toBe(base.keywords);
+    expect(changedSettingsFields(base, next)).toEqual({});
+  });
+
+  it("counts genuinely edited keywords as changed", () => {
+    const base = { ...settings, keywords: ["a"] };
+    const next = { ...base, keywords: ["a", "c"] };
+    expect(changedSettingsFields(base, next)).toEqual({ keywords: ["a", "c"] });
   });
 });
 
@@ -165,12 +175,13 @@ describe("cross-tab settings writes", () => {
     const social = render();
     expect(social.settingsReady).toBe(true);
     // Relay feed setup (or another tab) writes feedUrl after this screen cached settings.
+    // The save must patch ONLY the toggled field inside the CAS loop, so the concurrent
+    // feedUrl is never even read into the write.
     const persisted = { ...settings, feedUrl: "https://relay.example/feed/me" };
     vi.mocked(loadSettings).mockResolvedValue(persisted);
     await social.update({ ...social.settings, syncOnCellular: !social.settings.syncOnCellular });
-    expect(saveSettings).toHaveBeenCalledWith(vault, expect.objectContaining({
-      feedUrl: "https://relay.example/feed/me",
+    expect(saveSettingsFields).toHaveBeenCalledWith(vault, {
       syncOnCellular: !settings.syncOnCellular,
-    }));
+    });
   });
 });
