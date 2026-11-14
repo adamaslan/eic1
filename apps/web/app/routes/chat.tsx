@@ -25,6 +25,11 @@ export function meta(_args: Route.MetaArgs) {
   return [{ title: "Chat — Everybody is Cool" }];
 }
 
+export const MISSING_RELAY_NOTICE = "This build has no relay endpoint. Messages are saved on this device but cannot reach your friend until the relay is set up.";
+export function relayDisplayNotice(endpoint: string | undefined, notice: string | null): string | null {
+  return endpoint ? notice : MISSING_RELAY_NOTICE;
+}
+
 const inputClass = "w-full bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none";
 
 // Pure presentational half, exported for render tests. The route component below owns vault access.
@@ -68,7 +73,7 @@ export function ChatThreadView({
           {relay ? (
             <p className="bg-[#ffffe1] px-1.5 py-1">
               Messages are sealed for @{handle} and live in your vault; everything you see renders from local data.
-              Send also puts an encrypted snapshot on the relay, and Check for messages pulls @{handle}&apos;s replies.
+              When a relay endpoint is configured, Send also puts an encrypted snapshot on the relay, and Check for messages pulls @{handle}&apos;s replies.
               Nothing runs in the background, and the relay cannot read your messages or tell you when they are read.
               First time? Open Relay options and Set up relay feed before you share connect links.
             </p>
@@ -233,7 +238,7 @@ export default function Chat({ params }: Route.ComponentProps) {
     if (!vault || !connection) return;
     setRelayNotice(null);
     if (!relayEndpoint) {
-      setRelayNotice("Chat runs on the Supabase relay, and this build has no relay endpoint. Messages are saved on this device but cannot reach your friend until the relay is set up.");
+      setRelayNotice(MISSING_RELAY_NOTICE);
       return;
     }
     setBusy(true);
@@ -322,7 +327,7 @@ export default function Chat({ params }: Route.ComponentProps) {
       onShareLink={() => void shareLink(null)}
       olderLeftOut={olderLeftOut}
       onOlderLink={olderCursor ? () => void shareLink(olderCursor) : undefined}
-      relay={{ notice: relayNotice, onSetup: () => void relay("configure"), onRetry: () => void relay("publish"), onCheck: () => void relay("receive") }}
+      relay={{ notice: relayDisplayNotice(relayEndpoint, relayNotice), onSetup: () => void relay("configure"), onRetry: () => void relay("publish"), onCheck: () => void relay("receive") }}
     />
   );
 }
