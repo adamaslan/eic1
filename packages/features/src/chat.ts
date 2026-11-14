@@ -177,7 +177,22 @@ export async function applyInboundChatEnvelope(
     envelope,
     envelopeSignature: e.signature,
   };
-  await vault.putJson(CHAT_KIND as never, recordIdFor(message.id), message);
+  const recordId = recordIdFor(message.id);
+  try {
+    // Atomic insert-if-absent: two racing receivers can both pass the absent scan above.
+    // The loser must not overwrite the winner's record - that would reset a readAt the
+    // winner (or the user) already stamped. The vault CAS enforces expected=null inside
+    // the same store transaction, so this check-and-write cannot interleave.
+    await vault.putJsonIfUnchanged(CHAT_KIND as never, recordId, message, null);
+  } catch (error) {
+    if (!(error instanceof AppError)) throw error;
+    // Conflict: the other receiver won. Return its record as-is so readAt survives.
+    const winner = (await vault.getJson(recordId)) as ChatMessage | null;
+    if (winner && winner.envelopeSignature === e.signature) {
+      return { applied: false, message: winner };
+    }
+    throw error;
+  }
   return { applied: true, message };
 }
 
