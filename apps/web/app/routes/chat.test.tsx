@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import type { ChatMessage } from "@veil/features";
 import type { Connection } from "@veil/core";
-import { ChatThreadView } from "./chat";
+import { ChatThreadView, MISSING_RELAY_NOTICE, relayDisplayNotice } from "./chat";
 import { ConnectionsList } from "./connections";
 
 const render = (element: React.ReactNode) => renderToStaticMarkup(<MemoryRouter>{element}</MemoryRouter>);
@@ -172,6 +172,20 @@ describe("ChatThreadView v2 relay mode", () => {
     );
     expect(v1).toContain("Text a chat link");
     expect(v1).not.toContain("Check for messages");
+  });
+});
+
+describe("missing relay endpoint", () => {
+  it("shows the delivery warning immediately without a relay action", () => {
+    expect(relayDisplayNotice(undefined, null)).toBe(MISSING_RELAY_NOTICE);
+    expect(relayDisplayNotice("", null)).toBe(MISSING_RELAY_NOTICE);
+    const html = render(<ChatThreadView handle="friend" verified messages={[]} draft="" busy={false} error={null} linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} relay={{ notice: relayDisplayNotice(undefined, null), onSetup: noop, onRetry: noop, onCheck: noop }} />);
+    expect(html).toContain("cannot reach your friend");
+    expect(html).toContain("When a relay endpoint is configured");
+  });
+  it("preserves configured endpoint success and retry notices", () => {
+    expect(relayDisplayNotice("https://example.test", null)).toBeNull();
+    expect(relayDisplayNotice("https://example.test", "Pending retry")).toBe("Pending retry");
   });
 });
 
