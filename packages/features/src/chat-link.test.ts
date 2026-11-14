@@ -60,7 +60,8 @@ describe("chat links", () => {
     const { alice, bob } = await pairedVaults();
     const bobConn = await connectionFor(bob, "alice-id");
     await sendChatMessage(bob, bobConn, "first hello", deps);
-    await sendChatMessage(bob, bobConn, "second hello 📡", deps);
+    // Distinct sentAt: the same-second sort tiebreak is the signature-derived id, not insertion order.
+    await sendChatMessage(bob, bobConn, "second hello 📡", { ...deps, now: () => new Date(deps.now().getTime() + 1000) });
 
     const { link, messageCount, leftOut } = await buildChatShareLink(bob, bobConn, BASE);
     expect(messageCount).toBe(2);
