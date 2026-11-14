@@ -3,7 +3,7 @@ import type { UnlockedVault } from "@veil/vault";
 import { publisherPath, type RelayPublishRequest } from "./chat-relay";
 import { signRelayRead, type RelayReadRequest } from "./relay-adapter";
 import { loadOrCreateShareIdentity } from "./sharing";
-import { loadSettings, saveSettings } from "./social";
+import { loadSettings, saveSettingsFields } from "./social";
 import type { SyncFetcher } from "./sync";
 
 export function relayEndpoint(value: string): string {
@@ -56,7 +56,9 @@ export async function configureRelayFeed(vault: UnlockedVault, endpoint: string)
   const settings = await loadSettings(vault);
   if (!settings.authorId || !settings.handle) throw new AppError("Choose your handle in Settings first.");
   if (settings.feedUrl && settings.feedUrl !== feedUrl) throw new AppError("This vault already has a different feed URL. It was not replaced.");
-  await saveSettings(vault, { ...settings, feedUrl });
+  // Patch only feedUrl, applied onto the fresh record inside the CAS loop: a full-object
+  // save here would revert fields an editor changed between the read above and the write.
+  await saveSettingsFields(vault, { feedUrl });
   return { publicKey, feedUrl };
 }
 
