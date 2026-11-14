@@ -3,6 +3,10 @@ import { createRelayTransport, relayEndpoint } from "./relay-client";
 import type { RelayReadRequest } from "./relay-adapter";
 const request: RelayReadRequest = { pubkey: "public", feedPath: "feeds/x", ts: 1, nonce: "nonce", signature: "sig" };
 describe("endpoint-bound relay HTTP client", () => {
+  it("allows plain http for IPv4 and IPv6 loopback only", () => {
+    for (const value of ["http://localhost:5174/r", "http://127.0.0.1:54321/r", "http://[::1]:54321/r"]) expect(() => relayEndpoint(value)).not.toThrow();
+    expect(() => relayEndpoint("http://[::2]:54321/r")).toThrow();
+  });
   it("rejects credentials, fragments, insecure remote origins and query strings", () => {
     for (const value of ["https://user:pass@eic.example/relay", "http://eic.example/relay", "https://eic.example/#x", "https://eic.example/?x"]) expect(() => relayEndpoint(value)).toThrow();
   });

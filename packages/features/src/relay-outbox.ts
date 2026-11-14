@@ -74,3 +74,16 @@ export async function attemptRelayOutbox(vault: UnlockedVault, transport: RelayO
     return { status: "confirmed", seq: state.seq };
   } catch { return { status: "pending", seq: state.seq }; }
 }
+
+/** Send/Retry entry point: seal-or-reuse, attempt, and make sure the newest messages go out.
+ * Messages saved while an older snapshot is still pending (offline sends) are not in that older
+ * snapshot, so confirming it alone would report success while they never reach the relay. When a
+ * reused pending snapshot confirms, immediately seal and send a fresh one. A failure of the second
+ * attempt leaves it pending for the next explicit retry; nothing is cleared early. */
+export async function publishRelaySnapshot(vault: UnlockedVault, transport: RelayOutboxTransport, now: () => Date): Promise<RelayOutboxResult> {
+  const prepared = await prepareRelayOutbox(vault, now());
+  const result = await attemptRelayOutbox(vault, transport, now());
+  if (!prepared.reusedPending || result.status !== "confirmed") return result;
+  await prepareRelayOutbox(vault, now());
+  return attemptRelayOutbox(vault, transport, now());
+}

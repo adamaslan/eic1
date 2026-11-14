@@ -8,7 +8,7 @@ import type { SyncFetcher } from "./sync";
 
 export function relayEndpoint(value: string): string {
   const url = new URL(value);
-  if ((url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) || url.username || url.password || url.search || url.hash) throw new AppError("Invalid encrypted relay endpoint.");
+  if ((url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) || url.username || url.password || url.search || url.hash) throw new AppError("Invalid encrypted relay endpoint.");
   return url.href.replace(/\/+$/, "");
 }
 
