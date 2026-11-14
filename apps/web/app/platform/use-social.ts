@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Connection, Note, Settings } from "@veil/core";
 import {
+  changedSettingsFields,
   defaultSettings,
   listConnections,
   listNotes,
   loadSettings,
-  saveSettings,
+  saveSettingsFields,
   useVaultItems,
   type ItemsState,
 } from "@veil/features";
@@ -54,12 +55,17 @@ export function useSocial(vault: UnlockedVault | null): Social {
   const update = useCallback(
     async (next: Settings) => {
       if (!vault || !settingsReady) return;
-      const settings = await saveSettings(vault, next);
+      // Write back only the fields this screen actually changed, applied onto the FRESH
+      // record inside the save's CAS loop: another tab or relay feed setup may write at
+      // any moment, and merging onto any pre-load snapshot would revert fields like
+      // feedUrl that the caller never touched.
+      const base = loaded?.vault === vault && loaded.revision === revision ? loaded.settings : settings;
+      const saved = await saveSettingsFields(vault, changedSettingsFields(base, next));
       setLoaded((current) => current?.vault === vault && current.revision > revision
         ? current
-        : { vault, revision, settings });
+        : { vault, revision, settings: saved });
     },
-    [vault, revision, settingsReady],
+    [vault, revision, settingsReady, loaded, settings],
   );
   const refresh = useCallback(() => {
     reload();

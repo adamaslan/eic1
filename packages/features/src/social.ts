@@ -80,6 +80,53 @@ export async function saveSettings(vault: UnlockedVault, settings: Settings): Pr
   throw new AppError("Settings changed while saving. Try again.");
 }
 
+/**
+ * Value-correct field diff: only fields whose VALUE differs from what the caller based
+ * its edit on are included. Arrays compare by content, so a fresh-but-equal array (an
+ * editor that rebuilds its keywords array on every submit) does not count as changed.
+ */
+export function changedSettingsFields(base: Settings, next: Settings): Partial<Settings> {
+  const fields: Record<string, unknown> = {};
+  for (const key of Object.keys(next) as (keyof Settings)[]) {
+    const a = base[key];
+    const b = next[key];
+    if (Array.isArray(a) || Array.isArray(b)) {
+      if (JSON.stringify(a) !== JSON.stringify(b)) fields[key as string] = b;
+    } else if (!Object.is(b, a)) {
+      fields[key as string] = b;
+    }
+  }
+  return fields as Partial<Settings>;
+}
+
+/**
+ * Applies a field patch onto the FRESH record inside each CAS attempt: fields a
+ * concurrent writer saved between the editor's load and this save are never read into
+ * the write at all (a merge onto a pre-load snapshot would revert them). Feature flags
+ * stay owned by setFeatureEnabled. Same-field concurrent edits remain inherent
+ * last-writer-wins.
+ */
+export async function saveSettingsFields(vault: UnlockedVault, fields: Partial<Settings>): Promise<Settings> {
+  for (let attempt = 0; attempt < SETTINGS_CAS_RETRIES; attempt++) {
+    const raw = await vault.getJson(SETTINGS_RECORD_ID);
+    const parsed = raw === null ? null : SettingsSchema.safeParse(raw);
+    const current = parsed && parsed.success ? parsed.data : defaultSettings();
+    const clean = SettingsSchema.parse({
+      ...current,
+      ...fields,
+      features: current.features,
+      keywords: normalizeKeywords(fields.keywords ?? current.keywords),
+    });
+    try {
+      await vault.putJsonIfUnchanged("settings", SETTINGS_RECORD_ID, clean, raw);
+      return clean;
+    } catch {
+      // Another writer saved settings first; retry against the fresh record.
+    }
+  }
+  throw new AppError("Settings changed while saving. Try again.");
+}
+
 /** Lowercases, trims, drops blanks and duplicates, and keeps at most MAX_KEYWORDS. */
 export function normalizeKeywords(keywords: string[]): string[] {
   const seen = new Set<string>();

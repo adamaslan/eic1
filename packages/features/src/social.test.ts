@@ -15,6 +15,7 @@ import {
   normalizeKeywords,
   removeConnection,
   saveSettings,
+  saveSettingsFields,
   selectPicks,
   setConnectionHidden,
   toggleLike,
@@ -322,5 +323,52 @@ describe("connection write/read consistency", () => {
     release();
     await write;
     await expect(read).resolves.toHaveLength(0);
+  });
+});
+
+describe("saveSettingsFields", () => {
+  it("applies the patch onto the fresh record inside the CAS retry: a concurrent writer's unrelated fields survive", async () => {
+    const vault = await open();
+    await saveSettings(vault, { ...defaultSettings(), authorId: "a1", handle: "h1" });
+    // Wrap the vault so the FIRST CAS attempt collides with a concurrent relay-setup
+    // write (feedUrl) that lands between the loop's read and its write; later attempts
+    // pass through untouched.
+    let collided = false;
+    const racing: UnlockedVault = {
+      ...vault,
+      putJsonIfUnchanged: async (kind, id, value, expected) => {
+        if (!collided && kind === "settings") {
+          collided = true;
+          // The concurrent writer saves feedUrl against the record this attempt read.
+          const current = (await vault.getJson(id)) as Record<string, unknown>;
+          await vault.putJsonIfUnchanged(kind, id, { ...current, feedUrl: "https://relay.example/feed/me" }, current);
+          // This attempt then delegates with its now-stale expectation and conflicts.
+        }
+        return vault.putJsonIfUnchanged(kind, id, value, expected);
+      },
+    };
+    const saved = await saveSettingsFields(racing, { handle: "renamed" });
+    expect(collided).toBe(true);
+    expect(saved.handle).toBe("renamed");
+    expect(saved.feedUrl).toBe("https://relay.example/feed/me");
+    const persisted = await loadSettings(vault);
+    expect(persisted.handle).toBe("renamed");
+    expect(persisted.feedUrl).toBe("https://relay.example/feed/me");
+  });
+
+  it("never writes feature flags, even when the patch carries them", async () => {
+    const vault = await open();
+    await saveSettings(vault, defaultSettings());
+    await setFeatureEnabled(vault, "feed", false);
+    const saved = await saveSettingsFields(vault, { handle: "h2", features: { feed: true } });
+    expect(saved.handle).toBe("h2");
+    expect(saved.features.feed).toBe(false);
+  });
+
+  it("normalizes patched keywords", async () => {
+    const vault = await open();
+    await saveSettings(vault, defaultSettings());
+    const saved = await saveSettingsFields(vault, { keywords: ["  Tea ", "TEA", "", "books"] });
+    expect(saved.keywords).toEqual(["tea", "books"]);
   });
 });

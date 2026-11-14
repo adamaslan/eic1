@@ -170,7 +170,9 @@ export default function Connections() {
       if (!vault || !social.settingsReady) return "";
       const endpoint = import.meta.env.VITE_EIC_RELAY_ENDPOINT as string | undefined;
       // Prepare the signed feed before sharing the card. Never replace an external feed.
-      if (endpoint && !(await loadSettings(vault)).feedUrl) await configureRelayFeed(vault, endpoint);
+      // Refresh the cached settings afterwards: configureRelayFeed writes feedUrl, and a
+      // settings action built from the stale cached snapshot would overwrite it.
+      if (endpoint && !(await loadSettings(vault)).feedUrl) { await configureRelayFeed(vault, endpoint); social.refresh(); }
       const link = await buildConnectLink(vault, `${window.location.origin}/`, new Date());
       const text = `eic 💌 ${link}`;
       if (typeof navigator.share === "function") {
