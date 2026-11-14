@@ -1,5 +1,5 @@
 import { Avatar } from "~/components/avatar";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { AppError, timeAgo } from "@veil/core";
 import {
@@ -20,6 +20,15 @@ import { useSessionStore } from "~/platform/session";
 import { useSocial } from "~/platform/use-social";
 import { detectSyncNetwork } from "~/platform/sync-fetcher";
 import { runForegroundCatchUp, startForegroundRelay } from "~/platform/foreground-relay";
+import {
+  applyCatchUpOutcome,
+  createThreadReload,
+  handleLockLost,
+  listenForApplied,
+  withCatchUpLock,
+  type AppliedChannel,
+  type ContentionFlag,
+} from "~/platform/chat-apply";
 import { newItemId } from "~/platform/vault-service";
 
 export function meta(_args: Route.MetaArgs) {
@@ -190,15 +199,29 @@ export default function Chat({ params }: Route.ComponentProps) {
   const [error, setError] = useState<string | null>(null);
   const [linkNotice, setLinkNotice] = useState<string | null>(null);
 
+  // Guards the thread paint against route changes that happen DURING an awaited reload:
+  // this screen stays mounted across /chat/:authorId param changes, so an in-flight load
+  // for chat A must never overwrite chat B's visible thread.
+  const authorIdRef = useRef(authorId);
+  authorIdRef.current = authorId;
+  const threadReload = useMemo(() => createThreadReload({
+    markRead: async (id) => { if (vault) await markThreadRead(vault, id, new Date()); },
+    loadThread: async (id) => (vault ? listChatThread(vault, id) : []),
+    applyThread: setMessages,
+    currentAuthorId: () => authorIdRef.current,
+  }), [vault]);
   const reload = useCallback(async () => {
-    if (!vault || !authorId) return;
-    await markThreadRead(vault, authorId, new Date());
-    setMessages(await listChatThread(vault, authorId));
-  }, [vault, authorId]);
+    const id = authorIdRef.current;
+    if (!vault || !id) return;
+    await threadReload(id);
+  }, [vault, threadReload]);
 
+  // authorId is an explicit dep: reload itself is param-stable (it reads authorIdRef at
+  // call time), so without this the effect would not refire on chat A -> chat B navigation
+  // and B would keep showing A's cached thread.
   useEffect(() => {
     void reload();
-  }, [reload]);
+  }, [reload, authorId]);
 
   const foregroundBusy = useRef(false);
   const busyRef = useRef(busy);
@@ -206,11 +229,41 @@ export default function Chat({ params }: Route.ComponentProps) {
   const connectionId = connection?.id ?? null;
   const connectionFeedUrl = connection?.feedUrl ?? null;
   const connectionVerified = connection?.pubkey != null;
+  // Cross-tab announce/listen pair: the tab whose pass applied chat writes posts after
+  // committing; tabs that lost the catch-up lock refresh on the announcement instead of
+  // racing an immediate reload that lands before the winner's writes. Created and closed
+  // inside one effect so StrictMode's mount cycle leaves a live channel behind.
+  const appliedChannelRef = useRef<AppliedChannel | null>(null);
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel("eic-chat-applied");
+    appliedChannelRef.current = channel;
+    return () => { appliedChannelRef.current = null; channel.close(); };
+  }, []);
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+  // Set on any lock loss; cleared only by a reload that pulled the winner's writes.
+  const contentionRef = useRef<ContentionFlag>({ dirty: false });
+  useEffect(() => {
+    const channel = appliedChannelRef.current;
+    if (!channel || !connectionId) return;
+    return listenForApplied(channel, connectionId, () => {
+      // Clear only after the refresh actually completes; a failed reload keeps the flag
+      // so a later unchanged outcome retries instead of going durably stale.
+      void reloadRef.current()
+        .then(() => { contentionRef.current.dirty = false; })
+        .catch(() => undefined);
+    });
+  }, [connectionId]);
   useEffect(() => {
     if (!vault || !connectionVerified || !connectionId || !connectionFeedUrl || !relayEndpoint) return;
-    const active = () => document.visibilityState === "visible" && navigator.onLine
+    // Effect-lifetime flag: this component stays mounted across /chat/:authorId param
+    // changes, so an in-flight pass for chat A must not run A's captured reload after
+    // the user opened chat B. Cleanup flips this before the next effect's pass starts.
+    let effectAlive = true;
+    const active = () => effectAlive && document.visibilityState === "visible" && navigator.onLine
       && useSessionStore.getState().vault === vault;
-    return startForegroundRelay({
+    const stop = startForegroundRelay({
       active,
       subscribe: wake => {
         document.addEventListener("visibilitychange", wake);
@@ -227,8 +280,8 @@ export default function Chat({ params }: Route.ComponentProps) {
         foregroundBusy.current = true;
         try {
           // Cross-tab singleflight: two tabs on this chat must not both apply the same
-          // incoming batch (check-then-act insert would duplicate with fresh local ids).
-          // The tab that loses the lock skips this tick; its next tick runs in a minute.
+          // incoming batch. Inbound record ids derive from the envelope signature, so even
+          // a lost race collapses to one record - the lock just keeps it from happening.
           const pass = async () => {
             const result = await runForegroundCatchUp({
               vault,
@@ -239,34 +292,38 @@ export default function Chat({ params }: Route.ComponentProps) {
               newId: newItemId,
               now: new Date(),
             });
-            if (!active() || result === null) return;
-            if (result.status === "failed") throw new Error("Relay catch-up unavailable");
-            if (result.status === "partial") {
+            if (result === null) return;
+            await applyCatchUpOutcome(result, {
+              active,
+              reload,
+              onApplied: () => appliedChannelRef.current?.postMessage({ connectionId }),
               // Skipped chunks: backoff alone would silently hide this. Keep polling
               // (a changed manifest restarts the fetch retry budget) and surface recovery.
-              setRelayNotice(AUTO_NOTICE_SKIPPED);
-              return;
-            }
-            if (result.status === "deferred") {
+              onSkipped: () => setRelayNotice(AUTO_NOTICE_SKIPPED),
               // Honest pause, not a silent skip (Safari/Firefox report the network as unknown).
-              setRelayNotice(detectSyncNetwork() === "wifi" ? AUTO_NOTICE_WAITING_WIFI : AUTO_NOTICE_WAITING_UNKNOWN);
-              return;
-            }
-            if (result.appliedChat) {
-              await reload();
-              if (active()) setRelayNotice(`Received ${result.appliedChat} new encrypted messages automatically.`);
-            } else if (active()) {
+              onDeferred: () => setRelayNotice(detectSyncNetwork() === "wifi" ? AUTO_NOTICE_WAITING_WIFI : AUTO_NOTICE_WAITING_UNKNOWN),
+              onReceived: (count) => setRelayNotice(`Received ${count} new encrypted messages automatically.`),
               // Successful poll with nothing new: clear an earlier auto-owned waiting/skipped
               // notice only; never wipe manual Send/Check guidance sharing this slot.
-              setRelayNotice((prev) => (prev !== null && AUTO_NOTICES.includes(prev) ? null : prev));
-            }
+              onUnchanged: () => setRelayNotice((prev) => (prev !== null && AUTO_NOTICES.includes(prev) ? null : prev)),
+              contention: contentionRef.current,
+            });
           };
-          const locks = navigator.locks;
-          if (!locks) { await pass(); return; }
-          await locks.request(`eic-chat-catch-up:${connectionId}:${connectionFeedUrl}`, { ifAvailable: true }, async (held) => { if (held) await pass(); });
+          await withCatchUpLock(navigator.locks ?? null, `eic-chat-catch-up:${connectionId}:${connectionFeedUrl}`, {
+            pass,
+            onLockLost: () => handleLockLost(
+              appliedChannelRef.current,
+              navigator.locks ?? null,
+              `eic-chat-catch-up:${connectionId}:${connectionFeedUrl}`,
+              active,
+              reload,
+              contentionRef.current,
+            ),
+          });
         } finally { foregroundBusy.current = false; }
       },
     });
+    return () => { effectAlive = false; stop(); };
   }, [vault, connectionId, connectionFeedUrl, connectionVerified, relayEndpoint, reload]);
 
   if (!connection) {
