@@ -6,6 +6,7 @@ import {
   KeyRotationError,
   MAX_SHARE_FILE_BYTES,
   buildConnectLink,
+  configureRelayFeed, loadSettings,
   buildChatInviteBundle,
   buildChatInviteLink,
   buildShareBundle,
@@ -167,6 +168,9 @@ export default function Connections() {
   function copyConnectLink() {
     void run(async () => {
       if (!vault || !social.settingsReady) return "";
+      const endpoint = import.meta.env.VITE_EIC_RELAY_ENDPOINT as string | undefined;
+      // Prepare the signed feed before sharing the card. Never replace an external feed.
+      if (endpoint && !(await loadSettings(vault)).feedUrl) await configureRelayFeed(vault, endpoint);
       const link = await buildConnectLink(vault, `${window.location.origin}/`, new Date());
       const text = `eic 💌 ${link}`;
       if (typeof navigator.share === "function") {
