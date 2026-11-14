@@ -11,6 +11,17 @@ import {
 } from "@veil/features";
 import type { UnlockedVault } from "@veil/vault";
 
+/** Merges an update onto the persisted settings: only fields that differ from what the
+ * caller based its edit on (`base`) are written, so stale untouched fields (feedUrl set
+ * up in another tab, keywords edited elsewhere) survive the save. */
+export function mergeSettingsUpdate(base: Settings, next: Settings, persisted: Settings): Settings {
+  const merged: Record<string, unknown> = { ...persisted };
+  for (const key of Object.keys(next) as (keyof Settings)[]) {
+    if (!Object.is(next[key], base[key])) merged[key as string] = next[key];
+  }
+  return merged as Settings;
+}
+
 export interface Social {
   items: ItemsState;
   settings: Settings;
@@ -54,12 +65,18 @@ export function useSocial(vault: UnlockedVault | null): Social {
   const update = useCallback(
     async (next: Settings) => {
       if (!vault || !settingsReady) return;
-      const settings = await saveSettings(vault, next);
+      // Write back only the fields this screen actually changed, merged onto the FRESH
+      // persisted settings: another tab or relay feed setup may have written since this
+      // cache loaded, and saving the caller's whole stale object would wipe fields like
+      // feedUrl that the caller never touched.
+      const base = loaded?.vault === vault && loaded.revision === revision ? loaded.settings : settings;
+      const merged = mergeSettingsUpdate(base, next, await loadSettings(vault));
+      const saved = await saveSettings(vault, merged);
       setLoaded((current) => current?.vault === vault && current.revision > revision
         ? current
-        : { vault, revision, settings });
+        : { vault, revision, settings: saved });
     },
-    [vault, revision, settingsReady],
+    [vault, revision, settingsReady, loaded, settings],
   );
   const refresh = useCallback(() => {
     reload();
