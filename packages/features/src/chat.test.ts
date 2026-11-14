@@ -89,6 +89,35 @@ describe("chat over pull", () => {
     expect((await unreadCounts(alice))["bob-id"]).toBeUndefined();
   });
 
+  it("a receiver that loses the write race keeps the winner's record - and its readAt", async () => {
+    const { alice, bob } = await pairedVaults();
+    const aliceConn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
+    const sent = await sendChatMessage(bob, aliceConn, "race read state", deps);
+    // Interleave: between receiver A's absent scan and its atomic write, receiver B
+    // stores the same deterministic record and the user marks the thread read. A's
+    // insert-if-absent must lose cleanly instead of overwriting the record back to
+    // unread.
+    let interleaved = false;
+    const racing: UnlockedVault = {
+      ...alice,
+      putJsonIfUnchanged: async (kind, id, value, expected) => {
+        if (!interleaved) {
+          interleaved = true;
+          await alice.putJsonIfUnchanged(kind, id, value, expected); // B wins the race
+          await markThreadRead(alice, "bob-id", new Date("2026-10-30T13:00:00Z"));
+        }
+        return alice.putJsonIfUnchanged(kind, id, value, expected); // A's CAS conflicts
+      },
+    };
+    const result = await applyInboundChatEnvelope(racing, sent.envelope, deps);
+    expect(interleaved).toBe(true);
+    expect(result.applied).toBe(false);
+    const thread = await listChatThread(alice, "bob-id");
+    expect(thread).toHaveLength(1);
+    expect(thread[0]!.readAt).not.toBeNull();
+    expect(result.message!.readAt).not.toBeNull();
+  });
+
   it("rejects envelopes from unknown connections and tampered envelopes", async () => {
     const { alice, bob } = await pairedVaults();
     const aliceConn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
