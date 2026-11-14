@@ -80,6 +80,53 @@ describe("createThreadReload", () => {
     await pending;
     expect(applyThread).not.toHaveBeenCalled();
   });
+
+  it("same-author overlap: only the latest request paints, even when it resolves first", async () => {
+    let releaseOld!: (thread: ChatMessage[]) => void;
+    const slowGate = new Promise<ChatMessage[]>((done) => { releaseOld = done; });
+    const applied: ChatMessage[][] = [];
+    const loadThread = vi
+      .fn()
+      .mockImplementationOnce(() => slowGate)
+      .mockResolvedValue([message("m-new")]);
+    const reload = createThreadReload({
+      markRead: vi.fn().mockResolvedValue(undefined),
+      loadThread,
+      applyThread: (thread) => applied.push(thread),
+      currentAuthorId: () => "author-a",
+    });
+    const older = reload("author-a"); // e.g. the mount load, still awaiting its read
+    await reload("author-a"); // e.g. the broadcast-triggered reload, resolves first
+    releaseOld([message("m-old")]);
+    await older;
+    // The older snapshot resolves LAST but must not paint over the newer one.
+    expect(applied.map((t) => t.map((m) => m.id))).toEqual([["m-new"]]);
+  });
+
+  it("A -> B -> A: the first A reload outliving the second A reload must not paint", async () => {
+    let current: string | null = "author-a";
+    let releaseFirst!: (thread: ChatMessage[]) => void;
+    const slowGate = new Promise<ChatMessage[]>((done) => { releaseFirst = done; });
+    const applied: ChatMessage[][] = [];
+    const loadThread = vi
+      .fn()
+      .mockImplementationOnce(() => slowGate)
+      .mockResolvedValue([message("m-latest")]);
+    const reload = createThreadReload({
+      markRead: vi.fn().mockResolvedValue(undefined),
+      loadThread,
+      applyThread: (thread) => applied.push(thread),
+      currentAuthorId: () => current,
+    });
+    const firstA = reload("author-a");
+    current = "author-b";
+    await reload("author-b"); // B's paint is B's business; guarded by currentAuthorId
+    current = "author-a";
+    await reload("author-a"); // the second A load paints the latest thread
+    releaseFirst([message("m-stale")]);
+    await firstA;
+    expect(applied.map((t) => t.map((m) => m.id))).toEqual([["m-latest"], ["m-latest"]]);
+  });
 });
 
 describe("applyCatchUpOutcome", () => {
@@ -101,19 +148,19 @@ describe("applyCatchUpOutcome", () => {
   it("refreshes applied messages BEFORE the partial branch returns", async () => {
     const { calls, deps } = harness();
     await applyCatchUpOutcome({ status: "partial", appliedChat: 2 }, deps);
-    expect(calls).toEqual(["reload", "applied", "skipped"]);
+    expect(calls).toEqual(["applied", "reload", "skipped"]);
   });
 
   it("refreshes applied messages BEFORE the deferred branch returns", async () => {
     const { calls, deps } = harness();
     await applyCatchUpOutcome({ status: "deferred", appliedChat: 1 }, deps);
-    expect(calls).toEqual(["reload", "applied", "deferred"]);
+    expect(calls).toEqual(["applied", "reload", "deferred"]);
   });
 
   it("reports a plain receive after refreshing", async () => {
     const { calls, deps } = harness();
     await applyCatchUpOutcome({ status: "applied", appliedChat: 3 }, deps);
-    expect(calls).toEqual(["reload", "applied", "received"]);
+    expect(calls).toEqual(["applied", "reload", "received"]);
   });
 
   it("clears auto-owned state on an unchanged success without reloading", async () => {
@@ -140,7 +187,46 @@ describe("applyCatchUpOutcome", () => {
       onUnchanged: vi.fn(() => { calls.push("unchanged"); }),
     };
     await applyCatchUpOutcome({ status: "applied", appliedChat: 1 }, deps);
-    expect(calls).toEqual(["reload", "applied"]);
+    expect(calls).toEqual(["applied", "reload"]);
+  });
+
+  it("hidden mid-catch-up: committed writes are still announced and the refresh debt is retained", async () => {
+    const contention = { dirty: false };
+    const deps = {
+      active: () => false, // the tab went hidden while its pass was applying
+      reload: vi.fn().mockResolvedValue(undefined),
+      onApplied: vi.fn(), onSkipped: vi.fn(), onDeferred: vi.fn(),
+      onReceived: vi.fn(), onUnchanged: vi.fn(),
+      contention,
+    };
+    await applyCatchUpOutcome({ status: "applied", appliedChat: 2 }, deps);
+    // Other tabs still learn about the committed writes; this tab owes itself a refresh.
+    expect(deps.onApplied).toHaveBeenCalledWith(2);
+    expect(deps.reload).not.toHaveBeenCalled();
+    expect(deps.onReceived).not.toHaveBeenCalled();
+    expect(contention.dirty).toBe(true);
+
+    // On refocus the next poll reads unchanged (the cursor already advanced): the
+    // retained flag must drive the reload a clean flag would have skipped.
+    deps.active = () => true;
+    await applyCatchUpOutcome({ status: "unchanged", appliedChat: 0 }, deps);
+    expect(deps.reload).toHaveBeenCalledTimes(1);
+    expect(contention.dirty).toBe(false);
+    expect(deps.onUnchanged).toHaveBeenCalled();
+  });
+
+  it("hidden with nothing applied: no announcement, no debt, no notice", async () => {
+    const contention = { dirty: false };
+    const deps = {
+      active: () => false,
+      reload: vi.fn(),
+      onApplied: vi.fn(), onSkipped: vi.fn(), onDeferred: vi.fn(),
+      onReceived: vi.fn(), onUnchanged: vi.fn(),
+      contention,
+    };
+    await applyCatchUpOutcome({ status: "unchanged", appliedChat: 0 }, deps);
+    expect(deps.onApplied).not.toHaveBeenCalled();
+    expect(contention.dirty).toBe(false);
   });
 });
 
@@ -366,7 +452,7 @@ describe("contention flag hardening: only a completed refresh consumes", () => {
     expect(contention.dirty).toBe(false);
   });
 
-  it("an applied outcome whose reload throws keeps the flag", async () => {
+  it("an applied outcome whose reload throws keeps the flag - but the committed writes are still announced", async () => {
     const contention = { dirty: true };
     const deps = {
       active: () => true,
@@ -377,7 +463,29 @@ describe("contention flag hardening: only a completed refresh consumes", () => {
     };
     await expect(applyCatchUpOutcome({ status: "applied", appliedChat: 1 }, deps)).rejects.toThrow("boom");
     expect(contention.dirty).toBe(true);
-    expect(deps.onApplied).not.toHaveBeenCalled();
+    // The announcement belongs to other tabs; this tab's failed UI refresh must not eat it.
+    expect(deps.onApplied).toHaveBeenCalledWith(1);
+  });
+
+  it("a throwing applied-branch reload on a CLEAN flag raises the debt, and the next unchanged poll recovers", async () => {
+    // Committed writes + advanced cursor + clean flag + failed refresh = the durable
+    // stale band again unless the failure itself sets the flag.
+    const contention = { dirty: false };
+    const deps = {
+      active: () => true,
+      reload: vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValue(undefined),
+      onApplied: vi.fn(), onSkipped: vi.fn(), onDeferred: vi.fn(),
+      onReceived: vi.fn(), onUnchanged: vi.fn(),
+      contention,
+    };
+    await expect(applyCatchUpOutcome({ status: "applied", appliedChat: 1 }, deps)).rejects.toThrow("boom");
+    expect(contention.dirty).toBe(true);
+    expect(deps.onApplied).toHaveBeenCalledWith(1);
+    // The next unchanged poll performs the refresh a clean flag would have skipped.
+    await applyCatchUpOutcome({ status: "unchanged", appliedChat: 0 }, deps);
+    expect(deps.reload).toHaveBeenCalledTimes(2);
+    expect(contention.dirty).toBe(false);
+    expect(deps.onUnchanged).toHaveBeenCalled();
   });
 
   it("queued grant without an active screen does not consume the flag", async () => {
