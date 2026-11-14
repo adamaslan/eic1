@@ -36,7 +36,7 @@ vi.mock("@veil/features", async (original) => ({
   useVaultItems: () => ({ state: { status: "ready", items: [] }, reload: vi.fn() }),
 }));
 import { defaultSettings, listConnections, listNotes, loadSettings, saveSettings } from "@veil/features";
-import { useSocial } from "./use-social";
+import { mergeSettingsUpdate, useSocial } from "./use-social";
 
 const vault = {} as UnlockedVault;
 const settings: Settings = { ...defaultSettings(), authorId: "keep-id", handle: "keep-handle" };
@@ -133,5 +133,44 @@ describe("settings readiness", () => {
     await flush();
     expect(render(other).settings.authorId).toBe("keep-id");
     expect(render(null).settingsReady).toBe(false);
+  });
+});
+
+describe("mergeSettingsUpdate", () => {
+  it("writes only the caller's changed fields onto the fresh persisted settings", () => {
+    const base = { ...settings, feedUrl: null };
+    // The caller toggled one flag from its stale cached copy.
+    const next = { ...base, syncOnCellular: !base.syncOnCellular };
+    // Meanwhile another tab set up the relay feed and changed keywords.
+    const persisted = { ...settings, feedUrl: "https://relay.example/feed/me", keywords: ["other tab"] };
+    const merged = mergeSettingsUpdate(base, next, persisted);
+    expect(merged.syncOnCellular).toBe(next.syncOnCellular);
+    expect(merged.feedUrl).toBe("https://relay.example/feed/me");
+    expect(merged.keywords).toEqual(["other tab"]);
+    expect(merged.authorId).toBe("keep-id");
+  });
+
+  it("keeps an intentional feedUrl change the caller made", () => {
+    const base = { ...settings, feedUrl: "https://old.example/a" };
+    const next = { ...base, feedUrl: "https://new.example/b" };
+    const persisted = { ...settings, feedUrl: "https://old.example/a" };
+    expect(mergeSettingsUpdate(base, next, persisted).feedUrl).toBe("https://new.example/b");
+  });
+});
+
+describe("cross-tab settings writes", () => {
+  it("a settings save from a stale screen does not wipe a feedUrl written elsewhere", async () => {
+    render();
+    await flush();
+    const social = render();
+    expect(social.settingsReady).toBe(true);
+    // Relay feed setup (or another tab) writes feedUrl after this screen cached settings.
+    const persisted = { ...settings, feedUrl: "https://relay.example/feed/me" };
+    vi.mocked(loadSettings).mockResolvedValue(persisted);
+    await social.update({ ...social.settings, syncOnCellular: !social.settings.syncOnCellular });
+    expect(saveSettings).toHaveBeenCalledWith(vault, expect.objectContaining({
+      feedUrl: "https://relay.example/feed/me",
+      syncOnCellular: !settings.syncOnCellular,
+    }));
   });
 });
