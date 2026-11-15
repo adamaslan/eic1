@@ -61,6 +61,8 @@ export default function Landing() {
 
         <MusicLibraryBox />
 
+        <Window title="Piano room.exe"><div className="flex flex-col gap-2 p-2"><h2 className="text-xl font-bold">Make room for a little piano.</h2><p>Touch the keys, practice a songwriter phrase, or try local single-note listening. Free, no account needed.</p><Link className="inline-flex min-h-[44px] items-center underline" to="/learn-piano">Open the piano room →</Link></div></Window>
+
         <LandingPreview />
 
         <Window title="Hand-drawn avatars">
@@ -188,6 +190,8 @@ function UnlockedLanding() {
         </nav>
         <div className="w95-zoom flex flex-col gap-3">
           <MusicLibraryBox />
+
+        <Window title="Piano room.exe"><div className="flex flex-col gap-2 p-2"><h2 className="text-xl font-bold">Make room for a little piano.</h2><p>Touch the keys, practice a songwriter phrase, or try local single-note listening. Free, no account needed.</p><Link className="inline-flex min-h-[44px] items-center underline" to="/learn-piano">Open the piano room →</Link></div></Window>
           <LandingDashboard />
           <LandingPlayground unlocked />
           <FeatureGallery unlocked />
