@@ -10,6 +10,7 @@ export function meta(_args: Route.MetaArgs) {
 }
 
 const TOOLS = [
+  { to: "/learn-piano", name: "Piano room", blurb: "A touch keyboard and optional local single-note listening for songwriter practice. No audio upload." },
   { to: "/tools/journal", name: "Journal", blurb: "Write private entries. Each one is encrypted in your vault." },
   {
     to: "/tools/music",
