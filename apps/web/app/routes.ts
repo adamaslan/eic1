@@ -22,6 +22,7 @@ export default [
   ]),
   route("stickers", "routes/stickers.tsx"),
   route("music-library", "routes/music-library.tsx"),
+  route("learn-piano", "routes/learn-piano.tsx"),
   route("unlock", "routes/unlock.tsx"),
   // Read-only shared-post view sits outside the desktop layout: reading a shared link
   // must not require a vault. Saving prompts for one explicitly.
