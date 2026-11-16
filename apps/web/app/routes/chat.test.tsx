@@ -85,6 +85,7 @@ describe("ChatThreadView", () => {
     );
     expect(html).toContain("unsigned share file");
     expect(html).toContain("import it from the Connections screen");
+    expect(html).toContain("relay sync progress restarts when you re-import");
     expect(html).toContain('href="/connections"');
     expect(html).toContain("Open Connections to upgrade");
     expect(html).toContain("Chat needs a verified connection");
