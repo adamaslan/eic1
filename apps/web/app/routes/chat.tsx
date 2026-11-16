@@ -108,8 +108,8 @@ export function ChatThreadView({
           {!verified && (
             <p role="alert" className="bg-[#ffffe1] px-1.5 py-1">
               This connection came from an unsigned share file, so chat is read-only. To chat, ask @{handle} for a new
-              signed share file and import it from the Connections screen. Your thread, nickname, and settings are kept
-              when you re-import.
+              signed share file and import it from the Connections screen. Your thread and nickname are kept; relay sync
+              progress restarts when you re-import. <Link to="/connections" className="underline">Open Connections to upgrade</Link>.
             </p>
           )}
           {messages === null ? (
