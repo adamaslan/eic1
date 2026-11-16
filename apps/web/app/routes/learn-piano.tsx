@@ -69,6 +69,7 @@ export default function LearnPiano() {
   }
   async function startMic() {
     stopMic(); setPending(true);
+    setMessage('Starting microphone. Allow microphone access in your browser if asked. You can cancel while it starts.');
     const id = token.current;
     let stream: MediaStream | null = null, context: AudioContext | null = null;
     try {
