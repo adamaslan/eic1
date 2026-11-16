@@ -32,7 +32,7 @@ async function connectLink(page: Page) {
 async function accept(page: Page,link:string) {
  await page.goto(link); await page.getByRole('button',{name:'Add and open chat'}).click(); await expect(page).toHaveURL(/\/chat\//);
 }
-test('local signed relay: two browser vaults exchange ciphertext, manual explicit controls',async({browser})=>{
+test('local signed relay: two browser vaults exchange ciphertext and recover after reload',async({browser},testInfo)=>{
  const aContext=await browser.newContext({viewport:{width:1280,height:900}}),bContext=await browser.newContext({viewport:{width:390,height:844}});
  const a=await aContext.newPage(),b=await bContext.newPage();
  const rows=new Map<string,StoreEntry>();let generation=0;const keys:string[]=[];
@@ -43,21 +43,23 @@ test('local signed relay: two browser vaults exchange ciphertext, manual explici
   async list(prefix,options){return{keys:[...rows.keys()].filter(k=>k.startsWith(prefix)&&(!options?.cursor||k>options.cursor)).sort().slice(0,options?.limit??100)}},
   async delete(key){rows.delete(key)},
  };
- let relayRequests=0; let offline=false;
+ let appOrigin='http://localhost:5173'; let offline=false;
  for(const context of[aContext,bContext])await context.route('http://127.0.0.1:54321/**',async route=>{
-  relayRequests++;
   if(offline){await route.abort("internetdisconnected");return;}
-  const request=route.request();const response=await createRelayHttpHandler(store,{enabled:true,keys:[...keys],origins:['http://localhost:5173'],maxPublishesPerWindow:10,windowMs:60000,now:()=>new Date()})(new Request(request.url(),{method:request.method(),headers:request.headers(),body:request.method()==='POST'?request.postData():undefined}));
+  const request=route.request();const response=await createRelayHttpHandler(store,{enabled:true,keys:[...keys],origins:[appOrigin],maxPublishesPerWindow:10,windowMs:60000,now:()=>new Date()})(new Request(request.url(),{method:request.method(),headers:request.headers(),body:request.method()==='POST'?request.postData():undefined}));
   await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:await response.text()});
  });
  await create(a,'relay-alice');await create(b,'relay-bob');
+ appOrigin=new URL(a.url()).origin;
  const firstA=await connectLink(a),firstB=await connectLink(b);await accept(a,firstB);await accept(b,firstA);
  for(const page of[a,b]){
   await opts(page);await page.getByRole('button',{name:'Set up relay feed'}).click();
   const notice=page.getByText(/Relay feed saved/);await expect(notice).toBeVisible();
   keys.push((await notice.textContent())!.match(/Signing public key: (\S+)\./)![1]);
  }
- expect(relayRequests).toBe(0);
+ // Foreground catch-up may issue empty read probes after connecting; no message
+ // snapshot should exist until the sender explicitly sends one.
+ expect([...rows]).toHaveLength(0);
  const finalA=await connectLink(a),finalB=await connectLink(b);await accept(a,finalB);await accept(b,finalA);
  await a.getByLabel('Message',{exact:true}).fill('synthetic desktop to mobile sealed message');await a.getByRole('button',{name:'Send',exact:true}).click();
  await expect(a.getByRole('button',{name:'Text a chat link'})).toHaveCount(0);
@@ -67,6 +69,14 @@ test('local signed relay: two browser vaults exchange ciphertext, manual explici
  await expect(b.getByText(/Encrypted snapshot committed/)).toBeVisible();
  await opts(a);await a.getByRole('button',{name:'Check for messages'}).click();await expect(a.getByText('synthetic mobile reply',{exact:true})).toBeVisible();
  await opts(a);await a.getByRole('button',{name:'Check for messages'}).click();await expect(a.getByText('synthetic mobile reply',{exact:true})).toHaveCount(1);
+ await Promise.all([a.reload(),b.reload()]);
+ await expect(a.getByText('synthetic desktop to mobile sealed message',{exact:true})).toHaveCount(1);
+ await expect(a.getByText('synthetic mobile reply',{exact:true})).toHaveCount(1);
+ await expect(b.getByText('synthetic desktop to mobile sealed message',{exact:true})).toHaveCount(1);
+ await expect(b.getByText('synthetic mobile reply',{exact:true})).toHaveCount(1);
+ await opts(b);await b.getByRole('button',{name:'Check for messages'}).click();
+ await expect(b.getByText('synthetic desktop to mobile sealed message',{exact:true})).toHaveCount(1);
+ await expect(b.getByText('synthetic mobile reply',{exact:true})).toHaveCount(1);
  expect(JSON.stringify([...rows])).not.toContain('synthetic desktop');expect(JSON.stringify([...rows])).not.toContain('synthetic mobile reply');
  offline=true;
  await a.getByLabel('Message',{exact:true}).fill('synthetic offline saved message');
@@ -82,6 +92,6 @@ test('local signed relay: two browser vaults exchange ciphertext, manual explici
  await opts(b);await b.getByRole('button',{name:'Check for messages'}).click();
  await expect(b.getByText('synthetic offline saved message',{exact:true})).toHaveCount(1);
  await expect(b.getByText('synthetic after reconnect saved message',{exact:true})).toHaveCount(1);
- await a.screenshot({path:'/downloads/eic-relay-local-desktop.png',fullPage:true});await b.screenshot({path:'/downloads/eic-relay-local-mobile.png',fullPage:true});
+ await a.screenshot({path:testInfo.outputPath('eic-relay-local-desktop.png'),fullPage:true});await b.screenshot({path:testInfo.outputPath('eic-relay-local-mobile.png'),fullPage:true});
  await aContext.close();await bContext.close();
 });
