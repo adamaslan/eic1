@@ -1,0 +1,926 @@
+diff --git a/DISCOVER-MESSAGING-TODO.md b/DISCOVER-MESSAGING-TODO.md
+new file mode 100644
+index 0000000..7697c09
+--- /dev/null
++++ b/DISCOVER-MESSAGING-TODO.md
+@@ -0,0 +1,35 @@
++# Discover and messaging todo
++
++Updated 2026-11-19. Local work is not deployed behavior.
++
++## Messaging
++
++- [x] Previously merged foreground chat code exists in the application. This does not establish working delivery for real users.
++- [x] Prepare and independently qualify the local messaging cleanup: home Friend chats links, notes kept separate, one normal sharing action (Text my connect link), and technical/import tools collapsed. Notes persist across reload; unsigned chats remain read-only with Send disabled.
++- [ ] Merge and deploy the cleanup after the applicable release checks. This PR publishes source only.
++- [x] Inspect the current relay configuration read-only. On November 19 at 14:21 ET, eic_relay.config has enabled=true, two admitted public signing keys of unverified current ownership, and only http://localhost:5180 in origins. The deployed application uses a relay endpoint, but its production origin is absent from the permitted list.
++- [ ] Prepare and approve a narrowly scoped production-origin correction with rollback. Allowing a browser origin is not authentication or key enrollment; keep signing checks and key admission separate. No live configuration change has been made.
++- [ ] Finish the real-user add-friend, send and arrival path without manual enrollment or check-for-messages steps.
++- [ ] Verify desktop-to-phone and phone-to-desktop delivery using an authorized hosted test, including offline/reconnect/retry and visible truthful message status.
++- [ ] Verify supported iPhone/browser behavior. Foreground polling is not closed-app background delivery.
++- [ ] Ground capacity, retention and cost for the intended user count with measured workload assumptions. No free-scale guarantee.
++
++Hosted disposable two-way tests passed on November 8 and 12, then the relay was switched off. Those historical tests are not proof of current real-user delivery. Existing data must remain untouched.
++
++## Discover
++
++- [x] Recover the original November 13 design and source-write records. The old local worktree and preview image files were lost; recovered records are not shipped code.
++- [x] Build and independently qualify a local interactive prototype using sample people: browse/search, person details, request state, explicitly chosen public-card fields and easy hide. No private-profile auto-fill or persistent future opt-in.
++- [ ] Finish and independently review the real signed directory and request adapter. Local protocol work is in progress separately and is not included in this PR.
++- [ ] Connect the UI to a reviewed authenticated directory and durable request state. A sample request state is not a delivered invitation.
++- [ ] Finish recipient-controlled accept/decline and the verified connection handshake before offering chat. A directory listing must not open a stranger inbox.
++- [ ] Confirm public-card fields, listing default and audience before activation. Never upload contacts or republish existing private vault/profile content implicitly.
++- [ ] Make hide remove only the person's directory listing, preserve friends/chats, and report ambiguous failures honestly.
++- [ ] Review signing, principal/key admission, replay protection, expiry, abuse/rate limits, persistence, concurrency and storage limits before hosted use.
++- [ ] Integrate production navigation and verify phone/desktop pixels against real permitted data. Sample people must not ship in production.
++
++## Release boundary
++
++This PR contains the messaging cleanup and this checklist only. It does not include the new Discover prototype or unfinished backend. It does not enable a relay, enroll keys, publish a profile, send a real message, change paid/admin settings or authorize a production deploy.
++
++Netlify deployment is intentionally skipped for this source-only PR. Removing the skip marker or triggering a deployment is a separate release step.
+diff --git a/apps/web/app/components/discover-directory.tsx b/apps/web/app/components/discover-directory.tsx
+new file mode 100644
+index 0000000..7fcc312
+--- /dev/null
++++ b/apps/web/app/components/discover-directory.tsx
+@@ -0,0 +1,62 @@
++import { useEffect, useState, useSyncExternalStore } from "react";
++import { Link } from "react-router";
++import { Window } from "~/ui95/Window";
++import { Button95 } from "~/ui95/Button95";
++import { DirectoryController, searchCards, type DirectoryCard } from "~/platform/discover-controller";
++
++export function DiscoverDirectory({ controller, synthetic = false }: { controller: DirectoryController; synthetic?: boolean }) {
++  const state = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot);
++  const [query, setQuery] = useState("");
++  const [selected, setSelected] = useState<DirectoryCard | null>(null);
++  const [editing, setEditing] = useState(false);
++  // Deliberately blank. Existing private profile data is never copied into a public card.
++  const [name, setName] = useState(""); const [handle, setHandle] = useState(""); const [bio, setBio] = useState("");
++  useEffect(() => { void controller.load(); }, [controller]);
++  const cards = searchCards(state.cards, query);
++  return (
++    <div className="mx-auto flex w-full max-w-[960px] flex-col gap-3 text-[12px]">
++      {synthetic && <p className="sticky top-0 z-50 bg-[#ffff00] p-2 font-bold text-black">LOCAL INTERACTIVE PROTOTYPE · SYNTHETIC PEOPLE · NO LIVE DIRECTORY</p>}
++      <Window title="Discover">
++        <div className="flex flex-col gap-3">
++          <div className="flex flex-wrap items-center justify-between gap-2">
++            <div><h1 className="text-lg font-bold">Find your people</h1><p>Browse people who chose to be here.</p></div>
++            <Link className="inline-flex min-h-[44px] items-center underline" to="/connections">Friends &amp; chats</Link>
++          </div>
++          <div className="flex flex-wrap items-center justify-between gap-2 border border-[var(--w95-muted)] bg-white p-3">
++            <div><p className="font-bold">{state.visibility === "listed" ? "You are in Discover" : state.visibility === "hidden" ? "You are hidden from Discover" : "Visibility not confirmed"}</p><p>Hiding keeps your friends and chats.</p></div>
++            {state.visibility === "listed" || state.visibility === "unknown" ? (
++              <Button95 disabled={!state.ready || state.busy} onClick={() => { void controller.hide(); }}>Hide me from Discover</Button95>
++            ) : <Button95 disabled={!state.ready || state.busy} onClick={() => setEditing(!editing)}>Show me in Discover</Button95>}
++          </div>
++          {editing && state.visibility === "hidden" && <form className="flex flex-col gap-2 border border-[var(--w95-muted)] p-3" onSubmit={(event) => { event.preventDefault(); void controller.publish({ name, handle, bio }); }}>
++            <h2 className="font-bold">Choose your public card</h2>
++            <p>Only the name, handle and bio you enter here are listed. Your private profile is not copied.</p>
++            <label className="flex flex-col gap-1">Public name<input className="min-h-[44px] bg-white px-2 text-black" required maxLength={40} value={name} onChange={(e) => setName(e.target.value)} /></label>
++            <label className="flex flex-col gap-1">Public handle<input className="min-h-[44px] bg-white px-2 text-black" required maxLength={30} value={handle} onChange={(e) => setHandle(e.target.value)} /></label>
++            <label className="flex flex-col gap-1">Short bio (optional)<textarea className="min-h-[66px] bg-white p-2 text-black" maxLength={160} value={bio} onChange={(e) => setBio(e.target.value)} /></label>
++            <div className="flex gap-2"><Button95 type="submit" disabled={state.busy}>List this card</Button95><Button95 type="button" disabled={state.busy} onClick={() => setEditing(false)}>Cancel</Button95></div>
++          </form>}
++          {state.ownCard && <p className="border border-[var(--w95-muted)] bg-white p-2">Your listed card: <b>{state.ownCard.name}</b> @{state.ownCard.handle}{state.ownCard.bio && ` · ${state.ownCard.bio}`}</p>}
++          {state.error && <p role="alert" className="border border-red-700 bg-[#fff0f0] p-2 text-black">{state.error}</p>}
++          {state.notice && <p role="status">{state.notice}</p>}
++          {!state.ready && !state.busy && <Button95 onClick={() => { void controller.load(); }}>Try again</Button95>}
++          <label className="flex flex-col gap-1 font-bold">Search people<input className="min-h-[44px] w-full bg-white px-3 font-normal text-black" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, handle or interest" disabled={!state.ready} /></label>
++          {state.busy && <p role="status">Working...</p>}
++          {state.ready && <p>{cards.length} {cards.length === 1 ? "person" : "people"}{query.trim() ? " found" : " to discover"}</p>}
++          {state.ready && cards.length === 0 && <p>No people match. Try a different name or interest.</p>}
++          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="People to discover">
++            {cards.map((card) => <li key={card.id} className="flex min-w-0 flex-col gap-2 border border-[var(--w95-muted)] bg-white p-3">
++              <div className="flex items-center gap-3"><span aria-hidden="true" className="flex h-11 w-11 shrink-0 items-center justify-center bg-[#dcd3ef] text-lg font-bold text-black">{card.name.slice(0, 1)}</span><div className="min-w-0 break-words"><h2 className="font-bold">{card.name}</h2><p>@{card.handle}</p></div></div>
++              <p className="min-h-9 break-words">{card.bio || "No bio yet."}</p>
++              <Button95 onClick={() => setSelected(card)}>View {card.name}</Button95>
++            </li>)}
++          </ul>
++        </div>
++      </Window>
++      {selected && <Window title={`About ${selected.name}`}><section aria-label={`Profile for ${selected.name}`} className="flex flex-col gap-3">
++        <h2 className="text-base font-bold">{selected.name} <span className="text-[12px] font-normal">@{selected.handle}</span></h2><p className="break-words">{selected.bio || "No bio yet."}</p><p>Adding sends a request, not a message. No chat opens until both people agree.</p>
++        <div className="flex flex-wrap gap-2"><Button95 disabled={state.busy || state.requested.includes(selected.id)} onClick={() => { void controller.request(selected.id); }}>{state.requested.includes(selected.id) ? "Request sent" : `Add ${selected.name}`}</Button95><Button95 onClick={() => setSelected(null)}>Close profile</Button95></div>
++      </section></Window>}
++    </div>
++  );
++}
+diff --git a/apps/web/app/components/landing-dashboard.tsx b/apps/web/app/components/landing-dashboard.tsx
+index ed2e772..ec74826 100644
+--- a/apps/web/app/components/landing-dashboard.tsx
++++ b/apps/web/app/components/landing-dashboard.tsx
+@@ -224,14 +224,38 @@ function MessagesBox({ social }: { social: Social }) {
+ 
+   return (
+     <>
+-      <p className="text-[11px] text-[var(--w95-muted)]">Notes to yourself, plus news from share files you import. Nobody else can write here.</p>
++      <section aria-label="Friend chats" className="flex flex-col gap-2 border-b border-[var(--w95-muted)] pb-3">
++        <h2 className="font-bold">Friend chats</h2>
++        <p>Choose a connection to open your conversation.</p>
++        {social.connections.filter((connection) => !connection.hidden).length === 0 ? (
++          <p>No connections yet. Add a friend in Connections to open a chat.</p>
++        ) : (
++          <ul className="flex flex-col gap-2">
++            {social.connections.filter((connection) => !connection.hidden).map((connection) => (
++              <li key={connection.id} className="flex flex-col gap-1 bg-white p-2">
++                <Link to={`/chat/${encodeURIComponent(connection.id)}`} aria-label={`Open chat with @${connection.handle}`} className="inline-flex min-h-[44px] items-center font-bold text-[var(--w95-link)] underline">
++                  Chat with {connection.nickname ? `${connection.nickname} (@${connection.handle})` : `@${connection.handle}`}
++                </Link>
++                {!connection.pubkey && <span className="text-[11px]">Read-only until chat key is added</span>}
++              </li>
++            ))}
++          </ul>
++        )}
++        <Link to="/connections" className="inline-flex min-h-[44px] items-center text-[var(--w95-link)] underline">Add or manage connections</Link>
++        <details className="text-[11px] text-[var(--w95-muted)]">
++          <summary className="cursor-pointer">About delivery</summary>
++          <p>Opening a chat does not mean a message was delivered.</p>
++        </details>
++      </section>
++      <h2 className="font-bold">Notes &amp; imported updates</h2>
++      <p className="text-[11px] text-[var(--w95-muted)]">Your notes stay here. This box does not send them to friends.</p>
+       <form onSubmit={submit} className="flex gap-1">
+         <input className={inputClass} value={text} maxLength={500} onChange={(e) => setText(e.target.value)} placeholder="Write a note" aria-label="New note" />
+-        <Button95 type="submit" disabled={busy || !text.trim()}>Add</Button95>
++        <Button95 type="submit" disabled={busy || !text.trim()}>Save note</Button95>
+       </form>
+       {error && <p role="alert">{error}</p>}
+       {social.notes.length === 0 ? (
+-        <p>No messages yet.</p>
++        <p>No notes or imported updates yet.</p>
+       ) : (
+         <ul className="flex flex-col gap-1">
+           {social.notes.slice(0, 6).map((note) => (
+diff --git a/apps/web/app/platform/discover-controller.test.ts b/apps/web/app/platform/discover-controller.test.ts
+new file mode 100644
+index 0000000..186561f
+--- /dev/null
++++ b/apps/web/app/platform/discover-controller.test.ts
+@@ -0,0 +1,50 @@
++import { describe, expect, it, vi } from "vitest";
++import { DirectoryController, publicCard, searchCards, type DirectoryAdapter, type DirectoryCard } from "./discover-controller";
++
++const card = { id: "person-1", name: "River", handle: "river", bio: "Film photos and long walks" };
++function fixture(ownCard: DirectoryCard | null = null) {
++  const adapter: DirectoryAdapter = { read: vi.fn(async () => ({ cards: [card], ownCard })), publish: vi.fn(async (draft) => ({ id: "self", ...draft })), hide: vi.fn(async () => {}), request: vi.fn(async () => {}) };
++  return { adapter, model: new DirectoryController(adapter) };
++}
++describe("Discover local state, not a hosted directory", () => {
++  it("starts unknown, then confirms hidden without publishing or touching messaging", async () => {
++    const { model, adapter } = fixture(); expect(model.state.visibility).toBe("unknown"); await model.load();
++    expect(model.state.visibility).toBe("hidden"); expect(adapter.publish).not.toHaveBeenCalled(); expect(adapter.request).not.toHaveBeenCalled();
++  });
++  it("projects only chosen public fields and searches name, handle or interest", async () => {
++    expect(publicCard({ ...card, privateNotes: "secret", email: "private" } as DirectoryCard)).toEqual(card);
++    expect(searchCards([card], "  FILM ")).toEqual([card]); expect(searchCards([card], "missing")).toEqual([]);
++  });
++  it("publishes only a validated explicit card, never arbitrary adapter fields", async () => {
++    const { model, adapter } = fixture(); await model.load(); await model.publish({ name: " Me ", handle: "@me", bio: "chosen" });
++    expect(adapter.publish).toHaveBeenCalledWith({ name: "Me", handle: "me", bio: "chosen" }); expect(model.state.visibility).toBe("listed");
++  });
++  it("rejects invalid or missing choices before any write", async () => {
++    const { model, adapter } = fixture(); await model.load(); await model.publish({ name: "", handle: "bad handle", bio: "" });
++    expect(adapter.publish).not.toHaveBeenCalled(); expect(model.state.visibility).toBe("hidden"); expect(model.state.error).toBeTruthy();
++  });
++  it("hides only through its directory adapter and leaves pending requests intact", async () => {
++    const { model, adapter } = fixture({ ...card, id: "self" }); await model.load(); await model.request(card.id); await model.hide();
++    expect(adapter.hide).toHaveBeenCalledTimes(1); expect(model.state.visibility).toBe("hidden"); expect(model.state.ownCard).toBeNull(); expect(model.state.requested).toEqual([card.id]);
++  });
++  it("does not claim hidden after a failed hide and allows retry", async () => {
++    const { model, adapter } = fixture({ ...card, id: "self" }); vi.mocked(adapter.hide).mockRejectedValueOnce(new Error("offline"));
++    await model.load(); await model.hide(); expect(model.state.visibility).toBe("unknown"); expect(model.state.error).toContain("may still be visible"); await model.hide(); expect(model.state.visibility).toBe("hidden");
++  });
++  it("treats an ambiguous publish failure as unknown and offers hide without requiring a known card", async () => {
++    const { model, adapter } = fixture(); vi.mocked(adapter.publish).mockRejectedValueOnce(new Error("response lost"));
++    await model.load(); await model.publish(card); expect(model.state.visibility).toBe("unknown"); await model.hide(); expect(adapter.hide).toHaveBeenCalledOnce(); expect(model.state.visibility).toBe("hidden");
++  });
++  it("deduplicates successful add requests and rejects arbitrary or unloaded targets", async () => {
++    const { model, adapter } = fixture(); await model.request(card.id); await model.load(); await model.request("unlisted"); await model.request(card.id); await model.request(card.id);
++    expect(adapter.request).toHaveBeenCalledTimes(1); expect(model.state.requested).toEqual([card.id]); expect(model.state.notice).toContain("does not open a chat");
++  });
++  it("does not label a failed request as sent", async () => {
++    const { model, adapter } = fixture(); vi.mocked(adapter.request).mockRejectedValueOnce(new Error("offline")); await model.load(); await model.request(card.id);
++    expect(model.state.requested).toEqual([]); expect(model.state.error).toContain("Couldn't send");
++  });
++  it("blocks concurrent visibility mutations until the server outcome is known", async () => {
++    const { model, adapter } = fixture(); let resolve!: (value: DirectoryCard) => void;
++    vi.mocked(adapter.publish).mockImplementation(() => new Promise((r) => { resolve = r; })); await model.load(); const pending = model.publish(card); await model.hide(); expect(adapter.hide).not.toHaveBeenCalled(); resolve({ ...card, id: "self" }); await pending; expect(model.state.visibility).toBe("listed");
++  });
++});
+diff --git a/apps/web/app/platform/discover-controller.ts b/apps/web/app/platform/discover-controller.ts
+new file mode 100644
+index 0000000..b11e5b2
+--- /dev/null
++++ b/apps/web/app/platform/discover-controller.ts
+@@ -0,0 +1,73 @@
++export type DirectoryCard = { id: string; name: string; handle: string; bio: string };
++export type PublicCardDraft = Omit<DirectoryCard, "id">;
++export interface DirectoryAdapter {
++  read(): Promise<{ cards: DirectoryCard[]; ownCard: DirectoryCard | null }>;
++  publish(draft: PublicCardDraft): Promise<DirectoryCard>;
++  hide(): Promise<void>;
++  // Idempotent per signed identity + target: retrying after a lost response must not duplicate requests.
++  request(id: string): Promise<void>;
++}
++export type DirectoryState = {
++  visibility: "hidden" | "listed" | "unknown"; ready: boolean; busy: boolean; cards: DirectoryCard[]; ownCard: DirectoryCard | null;
++  requested: string[]; error: string; notice: string;
++};
++
++// Explicit projection: a directory adapter cannot accidentally expose extra vault fields.
++export function publicCard(card: DirectoryCard): DirectoryCard {
++  if (!card.id || typeof card.id !== "string") throw new Error("Invalid directory card.");
++  return { id: card.id, ...validateDraft(card) };
++}
++export function validateDraft(draft: PublicCardDraft): PublicCardDraft {
++  if (typeof draft.name !== "string" || typeof draft.handle !== "string" || typeof draft.bio !== "string") throw new Error("Invalid directory card.");
++  const name = draft.name.trim(); const handle = draft.handle.trim().replace(/^@/, ""); const bio = draft.bio.trim();
++  if (!name || name.length > 40 || !/^[a-zA-Z0-9_.-]{1,30}$/.test(handle) || bio.length > 160) throw new Error("Enter a name, a handle using letters, numbers, dots, dashes or underscores, and a bio up to 160 characters.");
++  return { name, handle, bio };
++}
++export function searchCards(cards: DirectoryCard[], query: string): DirectoryCard[] {
++  const q = query.trim().toLocaleLowerCase();
++  return cards.filter((card) => `${card.name} ${card.handle} ${card.bio}`.toLocaleLowerCase().includes(q));
++}
++
++// No vault, contacts, feeds or messaging API is reachable from this controller.
++// A real authenticated directory adapter is deliberately not wired in this prototype.
++export class DirectoryController {
++  state: DirectoryState = { visibility: "unknown", ready: false, busy: false, cards: [], ownCard: null, requested: [], error: "", notice: "" };
++  private listeners = new Set<() => void>();
++  constructor(private readonly adapter: DirectoryAdapter) {}
++  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
++  snapshot = () => this.state;
++  private update(patch: Partial<DirectoryState>) { this.state = { ...this.state, ...patch }; this.listeners.forEach((fn) => fn()); }
++  async load() {
++    if (this.state.busy) return;
++    this.update({ busy: true, error: "" });
++    try {
++      const data = await this.adapter.read(); const ownCard = data.ownCard ? publicCard(data.ownCard) : null;
++      const cards = data.cards.map(publicCard).filter((card) => card.id !== ownCard?.id);
++      this.update({ ready: true, ownCard, cards, visibility: ownCard ? "listed" : "hidden" });
++    } catch { this.update({ error: "Couldn't load Discover. Try again.", ready: false }); }
++    finally { this.update({ busy: false }); }
++  }
++  async publish(draft: PublicCardDraft) {
++    if (!this.state.ready || this.state.busy) return;
++    let chosen: PublicCardDraft;
++    try { chosen = validateDraft(draft); } catch (error) { this.update({ error: (error as Error).message }); return; }
++    this.update({ busy: true, error: "", notice: "" });
++    try { const card = publicCard(await this.adapter.publish(chosen)); this.update({ ownCard: card, visibility: "listed", notice: "Your chosen card is visible in this directory." }); }
++    catch { this.update({ visibility: "unknown", error: "Couldn't list your card. Your visibility has not been confirmed. Try again." }); }
++    finally { this.update({ busy: false }); }
++  }
++  async hide() {
++    if (!this.state.ready || this.state.busy || this.state.visibility === "hidden") return;
++    this.update({ busy: true, error: "", notice: "" });
++    try { await this.adapter.hide(); this.update({ ownCard: null, visibility: "hidden", notice: "Hidden from Discover. Your existing friends and chats are unchanged." }); }
++    catch { this.update({ visibility: "unknown", error: "Couldn't hide your card. It may still be visible. Try again." }); }
++    finally { this.update({ busy: false }); }
++  }
++  async request(id: string) {
++    if (!this.state.ready || this.state.busy || this.state.requested.includes(id) || !this.state.cards.some((card) => card.id === id)) return;
++    this.update({ busy: true, error: "", notice: "" });
++    try { await this.adapter.request(id); this.update({ requested: [...this.state.requested, id], notice: "Request sent. This does not open a chat or allow messages." }); }
++    catch { this.update({ error: "Couldn't send the request. Try again." }); }
++    finally { this.update({ busy: false }); }
++  }
++}
+diff --git a/apps/web/app/platform/discover-signed-adapter.ts b/apps/web/app/platform/discover-signed-adapter.ts
+new file mode 100644
+index 0000000..9463eb2
+--- /dev/null
++++ b/apps/web/app/platform/discover-signed-adapter.ts
+@@ -0,0 +1,27 @@
++import { SignedDirectoryClient } from "@veil/features";
++import type { DirectoryAdapter } from "./discover-controller";
++
++// Real signing/protocol client, with an injected transport only. No default/live endpoint.
++// The application must confirm endpoint + authority before supplying a hosted transport.
++export function signedDirectoryAdapter(client: SignedDirectoryClient): DirectoryAdapter {
++  return {
++    read: async () => {
++      const data = await client.execute({ action: "read" });
++      return { cards: data.cards, ownCard: data.ownCard };
++    },
++    publish: async (card) => {
++      const data = await client.execute({ action: "publish", card });
++      if (!data.ownCard) throw new Error("Listing was not confirmed.");
++      return data.ownCard;
++    },
++    hide: async () => {
++      const data = await client.execute({ action: "hide" });
++      if (data.ownCard) throw new Error("Hiding was not confirmed.");
++    },
++    request: async (target) => {
++      const data = await client.execute({ action: "request", target });
++      const request = data.requests.find((request) => request.to === target);
++      if (!request || request.status !== "pending") throw new Error("No pending request was confirmed.");
++    },
++  };
++}
+diff --git a/apps/web/app/routes.ts b/apps/web/app/routes.ts
+index a346f0a..8ac717b 100644
+--- a/apps/web/app/routes.ts
++++ b/apps/web/app/routes.ts
+@@ -2,6 +2,8 @@ import { type RouteConfig, index, layout, route } from "@react-router/dev/routes
+ 
+ export default [
+   index("routes/landing.tsx"),
++...(process.env.NODE_ENV !== "production" && process.env.EIC_LOCAL_DISCOVER_PREVIEW === "1" ? [route("discover-local-preview", "routes/discover-local-preview.tsx")] : []),
++
+   layout("layouts/desktop.tsx", [
+     route("feed", "routes/feed.tsx"),
+     route("market", "routes/market.tsx"),
+diff --git a/apps/web/app/routes/chat.tsx b/apps/web/app/routes/chat.tsx
+index fcfc67b..d5b8ebb 100644
+--- a/apps/web/app/routes/chat.tsx
++++ b/apps/web/app/routes/chat.tsx
+@@ -81,12 +81,7 @@ export function ChatThreadView({
+         {authorId && <div className="flex items-center gap-2"><Avatar authorId={authorId} label={`${handle}'s avatar`} />@{handle}</div>}
+         <div className="flex flex-col gap-2 text-[12px]">
+           {relay ? (
+-            <p className="bg-[#ffffe1] px-1.5 py-1">
+-              Messages are sealed for @{handle} and live in your vault; everything you see renders from local data.
+-              When a relay endpoint is configured, Send also puts an encrypted snapshot on the relay, and Check for messages pulls @{handle}&apos;s replies.
+-              An open chat checks for replies about once a minute while visible and unlocked, on Wi-Fi (or on cellular when you turn on cellular sync in Settings). Nothing runs after you close it, and the relay cannot read your messages or tell you when they are read.
+-              First time? Open Relay options and Set up relay feed before you share connect links.
+-            </p>
++            <p className="text-[var(--w95-muted)]">Encrypted chat. Check the send status below.</p>
+           ) : (
+             <>
+               <p className="bg-[#ffffe1] px-1.5 py-1">
+@@ -106,11 +101,17 @@ export function ChatThreadView({
+             </>
+           )}
+           {!verified && (
+-            <p role="alert" className="bg-[#ffffe1] px-1.5 py-1">
++            <div role="alert" className="bg-[#ffffe1] px-1.5 py-1">
++              <p>Chat is read-only until this connection is upgraded. <Link to="/connections" className="underline">Open Connections to upgrade</Link>.</p>
++              <details>
++                <summary className="cursor-pointer">Upgrade details</summary>
++                <p>
+               This connection came from an unsigned share file, so chat is read-only. To chat, ask @{handle} for a new
+               signed share file and import it from the Connections screen. Your thread and nickname are kept; relay sync
+-              progress restarts when you re-import. <Link to="/connections" className="underline">Open Connections to upgrade</Link>.
+-            </p>
++              progress restarts when you re-import.
++                </p>
++              </details>
++            </div>
+           )}
+           {messages === null ? (
+             <p>Loading…</p>
+@@ -163,6 +164,17 @@ export function ChatThreadView({
+               </div>
+             </details>
+           )}
++          {relay && (
++            <details>
++              <summary className="cursor-pointer text-[var(--w95-muted)]">Privacy and delivery details</summary>
++            <p className="bg-[#ffffe1] px-1.5 py-1">
++              Messages are sealed for @{handle} and live in your vault; everything you see renders from local data.
++              When a relay endpoint is configured, Send also puts an encrypted snapshot on the relay, and Check for messages pulls @{handle}&apos;s replies.
++              An open chat checks for replies about once a minute while visible and unlocked, on Wi-Fi (or on cellular when you turn on cellular sync in Settings). Nothing runs after you close it, and the relay cannot read your messages or tell you when they are read.
++              First time? Open Relay options and Set up relay feed before you share connect links.
++            </p>
++            </details>
++          )}
+           {error && (
+             <p role="alert" className="text-[#800000]">
+               {error}
+diff --git a/apps/web/app/routes/connections.tsx b/apps/web/app/routes/connections.tsx
+index c444966..f411079 100644
+--- a/apps/web/app/routes/connections.tsx
++++ b/apps/web/app/routes/connections.tsx
+@@ -52,7 +52,7 @@ export function ConnectionsList({
+   now: Date;
+ }) {
+   if (connections.length === 0) {
+-    return <p className="text-[12px]">No connections yet. Import a friend's share file to add one.</p>;
++    return <p className="text-[12px]">No connections yet. Share your connect link with a friend to get started.</p>;
+   }
+   return (
+     <ul className="flex flex-col gap-1 text-[12px]">
+@@ -382,7 +382,7 @@ export default function Connections() {
+         </form>
+       </Window>
+ 
+-      <Window title="Share and connect">
++      <Window title="Find friends">
+         <div
+           className="flex flex-col gap-2 text-[12px]"
+           onDragOver={(e) => e.preventDefault()}
+@@ -391,6 +391,13 @@ export default function Connections() {
+             importFile(e.dataTransfer.files[0]);
+           }}
+         >
++          <div className="flex flex-wrap items-center gap-2">
++            <Button95 onClick={copyConnectLink} disabled={busy || !social.settingsReady || !settings.handle}>Text my connect link</Button95>
++          </div>
++          <p className="text-[var(--w95-muted)]">Send your link to a friend. Their link opens your conversation.</p>
++          <details>
++            <summary className="cursor-pointer text-[var(--w95-muted)]">Older imports and exports</summary>
++            <div className="mt-2 flex flex-col gap-2">
+           <p>
+             There is no server. Press Share on any post, or export a share file here, send it any way you like, and import what your friend sends back by file, drop, or paste.
+             Importing adds their posts to your feed, lists them as a connection, and brings in any likes they gave you.
+@@ -399,12 +406,8 @@ export default function Connections() {
+             A share file is <b>not encrypted</b>. It holds your shareable posts, their photos, your handle, and the posts you liked.
+             Private posts, notes, and settings are never in an exported file - but pressing ↗ Share on one of your own posts sends just that post, even a private one.
+           </p>
+-          <p>
+-            Or skip the file: a connect link carries just your signed card (handle + key, no posts). Text it - your
+-            friend taps it, adds you, and lands right in your chat.
+-          </p>
+           <div className="flex flex-wrap items-center gap-2">
+-            <Button95 onClick={copyConnectLink} disabled={busy || !social.settingsReady || !settings.handle}>Text my connect link</Button95>
++
+             <Button95 onClick={exportFile} disabled={busy || !social.settingsReady || !settings.handle}>Export share file ({Math.min(shareable, 100)} post{Math.min(shareable, 100) === 1 ? "" : "s"})</Button95>
+             <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(e) => importFile(e.target.files?.[0])} aria-label="Choose a share file" />
+             <Button95 onClick={() => fileInput.current?.click()} disabled={busy || !social.settingsReady || !settings.handle}>Import a share file…</Button95>
+@@ -423,6 +426,8 @@ export default function Connections() {
+           <div>
+             <Button95 onClick={importPasted} disabled={busy || !social.settingsReady || !settings.handle || !pasted.trim()}>Import pasted text</Button95>
+           </div>
++            </div>
++          </details>
+           {!settings.handle && <p className="text-[var(--w95-muted)]">Choose a handle first.</p>}
+           {rotationPrompt && (
+             <div className="flex flex-col gap-1 bg-[#ffffe1] px-1.5 py-1">
+@@ -458,7 +463,7 @@ export default function Connections() {
+ 
+       <Window title={`Connections (${visible.length})`}>
+         {connections.length === 0 ? (
+-          <p className="text-[12px]">No connections yet. Import a friend's share file to add one.</p>
++          <p className="text-[12px]">No connections yet. Share your connect link with a friend to get started.</p>
+         ) : (
+           <div className="flex flex-col gap-2 text-[12px]">
+             <p>To refresh someone's posts, import their newest share file again - importing updates in place. If they publish a feed, sync pulls it over the network instead.</p>
+diff --git a/apps/web/app/routes/discover-local-preview.tsx b/apps/web/app/routes/discover-local-preview.tsx
+new file mode 100644
+index 0000000..d7044f6
+--- /dev/null
++++ b/apps/web/app/routes/discover-local-preview.tsx
+@@ -0,0 +1,43 @@
++import { useState } from "react";
++import { encodeBase64 } from "@veil/core";
++import { generateSigningKeyPair } from "@veil/crypto";
++import { DirectoryService, SignedDirectoryClient, emptyDirectory, type DirectoryDatabase } from "@veil/features";
++import { signedDirectoryAdapter } from "~/platform/discover-signed-adapter";
++import { DiscoverDirectory } from "~/components/discover-directory";
++import { DirectoryController, type DirectoryAdapter, type DirectoryCard } from "~/platform/discover-controller";
++
++// Test-only route. Registered only with EIC_LOCAL_DISCOVER_PREVIEW=1; no production adapter.
++const people: DirectoryCard[] = [
++  { id: "synthetic-river", name: "River", handle: "river.frames", bio: "Film photos, neighborhood walks, zines." },
++  { id: "synthetic-jo", name: "Jo", handle: "jo.makes", bio: "Making small games and loud playlists." },
++  { id: "synthetic-sage", name: "Sage", handle: "sage.grows", bio: "Houseplants and weekend noodle experiments." },
++  { id: "synthetic-kit", name: "Kit", handle: "kit.draws", bio: "Sketchbooks, tiny comics, big dogs." },
++  { id: "synthetic-remy", name: "Remy", handle: "remy.rides", bio: "Bike rides to coffee shops. Always a new route." },
++  { id: "synthetic-lee", name: "Lee", handle: "lee.listens", bio: "Ambient music and sci-fi book swaps." },
++];
++function syntheticAdapter(): DirectoryAdapter {
++  // Real signatures + admission + CAS protocol in this browser only. No HTTP endpoint.
++  const ready = (async () => {
++    const keys = new Map<string, string>(); let generation = 0; let value: DirectoryDatabase = emptyDirectory();
++    const service = new DirectoryService({
++      read: async () => ({ generation: String(generation), value: structuredClone(value) }),
++      compareAndSet: async (expected, next) => { if (expected !== String(generation)) return false; value = structuredClone(next); generation++; return true; },
++    }, async (id) => keys.get(id) ?? null, () => Date.now());
++    async function actor(id: string) {
++      const identity = await generateSigningKeyPair(); keys.set(id, encodeBase64(identity.publicKey)); let seq = 0;
++      return new SignedDirectoryClient(id, identity, async () => ++seq, (request) => service.execute(request), () => Date.now());
++    }
++    for (const person of people) { const client = await actor(person.id); await client.execute({ action: "publish", card: { name: person.name, handle: person.handle, bio: person.bio } }); }
++    return signedDirectoryAdapter(await actor("synthetic-self"));
++  })();
++  return {
++    read: async () => (await ready).read(),
++    publish: async (draft) => (await ready).publish(draft),
++    hide: async () => (await ready).hide(),
++    request: async (id) => (await ready).request(id),
++  };
++}
++export default function DiscoverLocalPreview() {
++  const [controller] = useState(() => new DirectoryController(syntheticAdapter()));
++  return <main className="min-h-screen bg-[#008080] p-2 sm:p-6"><DiscoverDirectory controller={controller} synthetic /></main>;
++}
+diff --git a/e2e/dashboard-friend-chat.spec.ts b/e2e/dashboard-friend-chat.spec.ts
+new file mode 100644
+index 0000000..c973117
+--- /dev/null
++++ b/e2e/dashboard-friend-chat.spec.ts
+@@ -0,0 +1,97 @@
++import { expect, test } from "@playwright/test";
++
++test("dashboard separates private notes from friend chat and keeps notes after reload", async ({ page }, testInfo) => {
++  await page.addInitScript(() => {
++    window.addEventListener("DOMContentLoaded", () => {
++      const label = document.createElement("div");
++      label.textContent = "LOCAL PREVIEW · SYNTHETIC VAULT · NOT HOSTED DELIVERY";
++      Object.assign(label.style, { position: "fixed", top: "0", left: "0", right: "0", zIndex: "999999", background: "#ffff00", color: "#000", padding: "5px", font: "bold 12px sans-serif", textAlign: "center" });
++      document.body.append(label);
++    });
++  });
++  await page.goto("/unlock");
++  await page.getByLabel("Passphrase", { exact: true }).fill("local-ui-synthetic-vault-1356");
++  await page.getByLabel("Confirm passphrase").fill("local-ui-synthetic-vault-1356");
++  await page.getByRole("button", { name: "Create vault" }).click();
++  await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
++  await page.goto("/");
++  await expect(page.getByRole("heading", { name: "Friend chats", exact: true })).toBeVisible();
++  await expect(page.getByText("No connections yet. Add a friend in Connections to open a chat.")).toBeVisible();
++  await page.getByLabel("New note", { exact: true }).fill("Synthetic private note, kept locally");
++  await page.getByRole("button", { name: "Save note", exact: true }).click();
++  await expect(page.getByLabel("New note", { exact: true })).toHaveValue("");
++  await expect(page.locator("li").filter({ hasText: "Synthetic private note, kept locally" })).toBeVisible();
++  await page.reload();
++  await expect(page.locator("li").filter({ hasText: "Synthetic private note, kept locally" })).toBeVisible();
++  await page.getByRole("link", { name: "Add or manage connections", exact: true }).click();
++  await page.getByLabel("Handle", { exact: true }).fill("local-tester");
++  await page.getByRole("button", { name: "Save", exact: true }).click();
++  await expect(page.getByText("Handle saved.")).toBeVisible();
++  await expect(page.getByRole("button", { name: "Text my connect link", exact: true })).toBeVisible();
++  await expect(page.getByRole("button", { name: /Export share file/ })).not.toBeVisible();
++  await expect(page.getByRole("button", { name: "Import a share file…", exact: true })).not.toBeVisible();
++  await expect(page.getByRole("button", { name: "Copy my chat key link", exact: true })).not.toBeVisible();
++  await page.bringToFront();
++  await page.evaluate(async () => {
++    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
++    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => {})));
++  });
++  await page.screenshot({ path: testInfo.outputPath("simple-connections-desktop.png"), fullPage: true });
++  await page.setViewportSize({ width: 390, height: 844 });
++  await page.bringToFront();
++  await page.evaluate(async () => {
++    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
++    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => {})));
++  });
++  await page.screenshot({ path: testInfo.outputPath("simple-connections-phone.png"), fullPage: true });
++  await page.setViewportSize({ width: 1280, height: 900 });
++  await page.getByText("Older imports and exports", { exact: true }).click();
++  await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(JSON.stringify({
++    format: "eic-share", version: 1, exportedAt: "2026-11-01T14:00:00Z",
++    author: { id: "synthetic-sunny", handle: "sunny" }, posts: [], likes: [], likesComplete: true,
++  }));
++  await page.getByRole("button", { name: "Import pasted text", exact: true }).click();
++  await expect(page.getByText(/Unsigned file - trust the sender/)).toBeVisible();
++  await page.goto("/");
++  const chat = page.getByRole("link", { name: "Open chat with @sunny", exact: true });
++  await expect(chat).toBeVisible();
++  await expect(chat).toHaveAttribute("href", "/chat/synthetic-sunny");
++  await expect(page.getByText("Read-only until chat key is added", { exact: true })).toBeVisible();
++  await expect(page.getByText("Opening a chat does not mean a message was delivered.", { exact: true })).not.toBeVisible();
++  await page.getByText("About delivery", { exact: true }).click();
++  await expect(page.getByText("Opening a chat does not mean a message was delivered.", { exact: true })).toBeVisible();
++  await page.getByText("About delivery", { exact: true }).click();
++  await page.bringToFront();
++  await page.evaluate(async () => {
++    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
++    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => {})));
++  });
++  await page.screenshot({ path: testInfo.outputPath("friend-chat-desktop.png"), fullPage: true });
++  await page.setViewportSize({ width: 390, height: 844 });
++  await chat.scrollIntoViewIfNeeded();
++  await page.bringToFront();
++  await page.evaluate(async () => {
++    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
++    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => {})));
++  });
++  await page.screenshot({ path: testInfo.outputPath("friend-chat-phone.png"), fullPage: true });
++  await chat.click();
++  await expect(page).toHaveURL(/\/chat\/synthetic-sunny$/);
++  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
++  await expect(page.getByRole("alert")).toContainText("Chat is read-only");
++  await expect(page.getByText("Privacy and delivery details", { exact: true })).toBeVisible();
++  await expect(page.getByText(/Messages are sealed for @sunny/)).not.toBeVisible();
++  await page.bringToFront();
++  await page.evaluate(async () => {
++    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
++    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => {})));
++  });
++  await page.screenshot({ path: testInfo.outputPath("concise-chat-phone.png"), fullPage: true });
++  await page.setViewportSize({ width: 1280, height: 900 });
++  await page.bringToFront();
++  await page.evaluate(async () => {
++    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
++    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => {})));
++  });
++  await page.screenshot({ path: testInfo.outputPath("concise-chat-desktop.png"), fullPage: true });
++});
+diff --git a/e2e/discover-local.spec.ts b/e2e/discover-local.spec.ts
+new file mode 100644
+index 0000000..05a86cd
+--- /dev/null
++++ b/e2e/discover-local.spec.ts
+@@ -0,0 +1,38 @@
++import { expect, test } from "@playwright/test";
++
++test("synthetic directory browse, search, request and hide do not open messaging", async ({ page }, testInfo) => {
++  await page.goto("/discover-local-preview");
++  await expect(page.getByRole("heading", { name: "Find your people" })).toBeVisible();
++  await expect(page.getByText("You are hidden from Discover", { exact: true })).toBeVisible();
++  await expect(page.getByRole("list", { name: "People to discover" }).getByRole("listitem")).toHaveCount(6);
++  await page.bringToFront();
++  await page.evaluate(async () => { await Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => {}))); });
++  await page.screenshot({ path: testInfo.outputPath("discover-desktop.png"), fullPage: true });
++  await page.getByLabel("Search people", { exact: true }).fill("film");
++  await expect(page.getByRole("list", { name: "People to discover" }).getByRole("listitem")).toHaveCount(1);
++  await page.getByRole("button", { name: "View River", exact: true }).click();
++  await expect(page.getByRole("region", { name: "Profile for River" })).toBeVisible();
++  await page.getByRole("button", { name: "Add River", exact: true }).click();
++  await expect(page.getByRole("button", { name: "Request sent", exact: true })).toBeDisabled();
++  await expect(page.getByText("Request sent. This does not open a chat or allow messages.", { exact: true })).toBeVisible();
++  await expect(page).toHaveURL(/discover-local-preview$/);
++  await page.getByRole("button", { name: "Close profile", exact: true }).click();
++  await page.getByLabel("Search people", { exact: true }).fill("nobody-matches");
++  await expect(page.getByText("No people match. Try a different name or interest.", { exact: true })).toBeVisible();
++  await page.getByLabel("Search people", { exact: true }).fill("");
++  await page.getByRole("button", { name: "Show me in Discover", exact: true }).click();
++  await expect(page.getByLabel("Public name", { exact: true })).toHaveValue("");
++  await expect(page.getByLabel("Public handle", { exact: true })).toHaveValue("");
++  await page.getByLabel("Public name", { exact: true }).fill("Synthetic Artist");
++  await page.getByLabel("Public handle", { exact: true }).fill("synthetic.artist");
++  await page.getByLabel("Short bio (optional)", { exact: true }).fill("Only the words chosen for this synthetic card.");
++  await page.getByRole("button", { name: "List this card", exact: true }).click();
++  await expect(page.getByText("You are in Discover", { exact: true })).toBeVisible();
++  await page.getByRole("button", { name: "Hide me from Discover", exact: true }).click();
++  await expect(page.getByText("Hidden from Discover. Your existing friends and chats are unchanged.", { exact: true })).toBeVisible();
++  await page.getByRole("button", { name: "Cancel", exact: true }).click();
++  await page.setViewportSize({ width: 390, height: 844 });
++  await page.bringToFront();
++  await page.screenshot({ path: testInfo.outputPath("discover-phone.png"), fullPage: true });
++  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
++});
+diff --git a/packages/features/src/discover-directory.test.ts b/packages/features/src/discover-directory.test.ts
+new file mode 100644
+index 0000000..39c74f1
+--- /dev/null
++++ b/packages/features/src/discover-directory.test.ts
+@@ -0,0 +1,103 @@
++import { describe, it, expect } from "vitest";
++import { encodeBase64 } from "@veil/core";
++import { SubtleCryptoPort, generateSigningKeyPair } from "@veil/crypto";
++import { createVault } from "@veil/vault";
++import { MemoryStore } from "../../vault/src/memory-store";
++import { loadOrCreateShareIdentity } from "./sharing";
++import { defaultSettings, saveSettings, listConnections } from "./social";
++import { DirectoryService, emptyDirectory, signDirectoryCommand, type DirectoryAtomicStore, type DirectoryDatabase } from "./discover-directory";
++import { nextDirectorySequence, vaultDirectoryClient } from "./discover-vault";
++
++class AtomicMemory implements DirectoryAtomicStore {
++  generation = 0; value: DirectoryDatabase = emptyDirectory(); reads = 0; writes = 0;
++  async read() { this.reads++; return { generation: String(this.generation), value: structuredClone(this.value) }; }
++  async compareAndSet(generation: string, value: DirectoryDatabase) {
++    if (generation !== String(this.generation)) return false;
++    this.writes++; this.value = structuredClone(value); this.generation++; return true;
++  }
++}
++const time = Date.UTC(2026, 10, 19, 19, 0);
++const draft = { name: "Chosen Name", handle: "chosen", bio: "Only this chosen bio" };
++async function setup() {
++  const now = { value: time }; const store = new AtomicMemory(); const keys = new Map<string, string>();
++  const service = new DirectoryService(store, async (id) => keys.get(id) ?? null, () => now.value);
++  async function actor(id: string) {
++    const vault = await createVault({ store: new MemoryStore(), crypto: new SubtleCryptoPort(), now: () => new Date(time) }, "synthetic-directory-test");
++    await saveSettings(vault, { ...defaultSettings(), authorId: id, handle: id });
++    const identity = await loadOrCreateShareIdentity(vault); keys.set(id, encodeBase64(identity.publicKey));
++    const client = await vaultDirectoryClient(vault, (envelope) => service.execute(envelope), () => now.value);
++    return { id, vault, identity, client };
++  }
++  return { store, keys, service, now, actor };
++}
++
++describe("signed local directory service + vault adapter integration, no hosted writes", () => {
++  it("runs two encrypted vaults through chosen card, signed request, recipient-only acceptance and hide", async () => {
++    const { actor, store } = await setup(); const alice = await actor("alice"); const bob = await actor("bob"); const eve = await actor("eve");
++    await bob.client.execute({ action: "publish", card: draft });
++    const browse = await alice.client.execute({ action: "read" }); expect(browse.cards.map((c) => c.id)).toEqual(["bob"]);
++    const sent = await alice.client.execute({ action: "request", target: "bob" }); expect(sent.requests[0].status).toBe("pending");
++    expect((await eve.client.execute({ action: "read" })).requests).toEqual([]);
++    await expect(eve.client.execute({ action: "accept", target: "alice" })).rejects.toThrow("No incoming");
++    const accepted = await bob.client.execute({ action: "accept", target: "alice" }); expect(accepted.requests[0].status).toBe("accepted");
++    await bob.client.execute({ action: "hide" });
++    const hidden = await alice.client.execute({ action: "read" }); expect(hidden.cards).toEqual([]); expect(hidden.requests[0].status).toBe("accepted");
++    expect(await listConnections(alice.vault)).toEqual([]); expect(await listConnections(bob.vault)).toEqual([]);
++    expect(JSON.stringify(store.value)).not.toContain("private");
++  });
++  it("verifies Ed25519 signatures and admitted principal/key binding before any storage access", async () => {
++    const { actor, service, store } = await setup(); const alice = await actor("alice"); const impostor = await generateSigningKeyPair();
++    const command = { domain: "eic-directory-v1" as const, principal: "alice", seq: 1, at: time, action: "publish" as const, card: draft };
++    await expect(service.execute(await signDirectoryCommand(command, impostor))).rejects.toThrow("not admitted"); expect(store.reads).toBe(0);
++    const signed = await signDirectoryCommand(command, alice.identity); signed.command = { ...command, card: { ...draft, name: "forged" } };
++    await expect(service.execute(signed)).rejects.toThrow("signature"); expect(store.reads).toBe(0);
++  });
++  it("rejects replay, stale timestamp, wrong domain and extra private fields", async () => {
++    const { actor, service } = await setup(); const alice = await actor("alice");
++    const command = { domain: "eic-directory-v1" as const, principal: "alice", seq: 1, at: time, action: "read" as const };
++    const signed = await signDirectoryCommand(command, alice.identity); await service.execute(signed); await expect(service.execute(signed)).rejects.toThrow("Replayed");
++    await expect(service.execute(await signDirectoryCommand({ ...command, seq: 2, at: time - 300_001 }, alice.identity))).rejects.toThrow("expired");
++    await expect(service.execute({ ...signed, command: { ...command, domain: "other" } })).rejects.toThrow();
++    await expect(service.execute({ ...signed, command: { ...command, action: "publish", card: { ...draft, privateNotes: "no" } } })).rejects.toThrow();
++  });
++  it("deduplicates retries across new sequences and does not resurrect declined requests", async () => {
++    const { actor } = await setup(); const a = await actor("alice"); const b = await actor("bob"); await b.client.execute({ action: "publish", card: draft });
++    await a.client.execute({ action: "request", target: "bob" }); await a.client.execute({ action: "request", target: "bob" });
++    expect((await b.client.execute({ action: "read" })).requests).toHaveLength(1);
++    await b.client.execute({ action: "decline", target: "alice" });
++    expect((await a.client.execute({ action: "request", target: "bob" })).requests[0].status).toBe("declined");
++  });
++  it("expires public cards and rejects requests to hidden, expired or self targets", async () => {
++    const { actor, now } = await setup(); const a = await actor("alice"); const b = await actor("bob");
++    await expect(a.client.execute({ action: "request", target: "bob" })).rejects.toThrow("unavailable");
++    await b.client.execute({ action: "publish", card: draft }); now.value += 7 * 86_400_000 + 1;
++    expect((await a.client.execute({ action: "read" })).cards).toEqual([]);
++    await expect(a.client.execute({ action: "request", target: "bob" })).rejects.toThrow("unavailable");
++    await expect(a.client.execute({ action: "request", target: "alice" })).rejects.toThrow("unavailable");
++  });
++  it("serializes duplicate signed commands with CAS, so at most one replay commits", async () => {
++    const { actor, service, store } = await setup(); const a = await actor("alice");
++    const signed = await signDirectoryCommand({ domain: "eic-directory-v1", principal: "alice", seq: 1, at: time, action: "read" }, a.identity);
++    const results = await Promise.allSettled([service.execute(signed), service.execute(signed)]);
++    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1); expect(store.writes).toBe(1);
++  });
++  it("persists atomic sequence reservations across parallel callers and client recreation", async () => {
++    const { actor, service, now } = await setup(); const a = await actor("alice");
++    const seqs = await Promise.all(Array.from({ length: 4 }, () => nextDirectorySequence(a.vault))); expect(new Set(seqs).size).toBe(4);
++    const client = await vaultDirectoryClient(a.vault, (request) => service.execute(request), () => now.value);
++    await client.execute({ action: "read" }); expect(await nextDirectorySequence(a.vault)).toBe(6);
++  });
++  it("never resets a malformed local sequence counter", async () => {
++    const { actor } = await setup(); const a = await actor("alice"); await a.vault.putJson("settings", "directory-sequence", "broken");
++    await expect(nextDirectorySequence(a.vault)).rejects.toThrow("damaged");
++  });
++  it("bounds admitted identity request traffic", async () => {
++    const { actor } = await setup(); const a = await actor("alice");
++    for (let i = 0; i < 30; i++) await a.client.execute({ action: "read" });
++    await expect(a.client.execute({ action: "read" })).rejects.toThrow("rate limit");
++  });
++  it("rejects special object-property identifiers", async () => {
++    const { service } = await setup();
++    await expect(service.execute({ command: { domain: "eic-directory-v1", principal: "__proto__", seq: 1, at: time, action: "read" }, pubkey: "", signature: "" })).rejects.toThrow();
++  });
++});
+diff --git a/packages/features/src/discover-directory.ts b/packages/features/src/discover-directory.ts
+new file mode 100644
+index 0000000..8a15c65
+--- /dev/null
++++ b/packages/features/src/discover-directory.ts
+@@ -0,0 +1,100 @@
++import { z } from "zod";
++import { decodeBase64, encodeBase64 } from "@veil/core";
++import { signPayload, verifySignature, type SigningKeyPair } from "@veil/crypto";
++
++// Host-neutral directory protocol. No HTTP endpoint, storage binding or deployment is enabled.
++// An admission function must bind an existing principal ID to its pinned signing key.
++const Id = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).refine((id) => !["__proto__", "prototype", "constructor"].includes(id));
++const Card = z.object({ name: z.string().trim().min(1).max(40), handle: z.string().regex(/^[a-zA-Z0-9_.-]{1,30}$/), bio: z.string().max(160) }).strict();
++const Base = { domain: z.literal("eic-directory-v1"), principal: Id, seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), at: z.number().int().nonnegative() };
++const Command = z.discriminatedUnion("action", [
++  z.object({ ...Base, action: z.literal("read") }).strict(),
++  z.object({ ...Base, action: z.literal("publish"), card: Card }).strict(),
++  z.object({ ...Base, action: z.literal("hide") }).strict(),
++  z.object({ ...Base, action: z.literal("request"), target: Id }).strict(),
++  z.object({ ...Base, action: z.literal("accept"), target: Id }).strict(),
++  z.object({ ...Base, action: z.literal("decline"), target: Id }).strict(),
++]);
++export type DirectoryCommand = z.infer<typeof Command>;
++export type DirectoryAction = { action: "read" | "hide" } | { action: "publish"; card: z.infer<typeof Card> } | { action: "request" | "accept" | "decline"; target: string };
++export type SignedDirectoryCommand = { command: DirectoryCommand; pubkey: string; signature: string };
++const Envelope = z.object({ command: Command, pubkey: z.string().max(64), signature: z.string().max(128) }).strict();
++export type DirectoryListing = z.infer<typeof Card> & { id: string; expiresAt: number };
++export type DirectoryRequest = { from: string; to: string; status: "pending" | "accepted" | "declined"; updatedAt: number };
++export type DirectoryRead = { cards: DirectoryListing[]; ownCard: DirectoryListing | null; requests: DirectoryRequest[] };
++export type DirectoryDatabase = { cards: Record<string, DirectoryListing>; requests: Record<string, DirectoryRequest>; actors: Record<string, { seq: number; minute: number; count: number }> };
++export interface DirectoryAtomicStore {
++  read(): Promise<{ generation: string; value: DirectoryDatabase }>;
++  // Must be atomic across processes. The demo memory implementation is NOT a deployment binding.
++  compareAndSet(generation: string, value: DirectoryDatabase): Promise<boolean>;
++}
++export const emptyDirectory = (): DirectoryDatabase => ({ cards: {}, requests: {}, actors: {} });
++const encoded = (command: DirectoryCommand) => new TextEncoder().encode(JSON.stringify(command));
++
++export async function signDirectoryCommand(command: DirectoryCommand, identity: SigningKeyPair): Promise<SignedDirectoryCommand> {
++  const parsed = Command.parse(command);
++  return { command: parsed, pubkey: encodeBase64(identity.publicKey), signature: encodeBase64(await signPayload(identity.secretKey, encoded(parsed))) };
++}
++
++export class DirectoryService {
++  constructor(private store: DirectoryAtomicStore, private admittedKey: (principal: string) => Promise<string | null>, private now: () => number) {}
++  async execute(raw: unknown): Promise<DirectoryRead> {
++    // Bound before signature or storage work. Never persist unverified envelopes.
++    if (JSON.stringify(raw).length > 4096) throw new Error("Directory command too large.");
++    const envelope = Envelope.parse(raw); const c = envelope.command;
++    const key = await this.admittedKey(c.principal);
++    if (!key || key !== envelope.pubkey) throw new Error("Directory identity is not admitted.");
++    const keyBytes = decodeBase64(key); const signature = decodeBase64(envelope.signature);
++    if (keyBytes.length !== 32 || signature.length !== 64 || !await verifySignature(keyBytes, encoded(c), signature)) throw new Error("Invalid directory signature.");
++    const now = this.now();
++    if (Math.abs(now - c.at) > 300_000) throw new Error("Directory command expired.");
++    for (let attempt = 0; attempt < 4; attempt++) {
++      const snapshot = await this.store.read();
++      const state = structuredClone(snapshot.value);
++      const actor = state.actors[c.principal]; const minute = Math.floor(now / 60_000);
++      if (actor && c.seq <= actor.seq) throw new Error("Replayed directory command.");
++      const count = actor?.minute === minute ? actor.count + 1 : 1;
++      if (count > 30) throw new Error("Directory rate limit.");
++      const live = (id: string) => state.cards[id] && state.cards[id].expiresAt > now;
++      if (c.action === "publish") {
++        if (!state.cards[c.principal] && Object.keys(state.cards).length >= 10_000) throw new Error("Directory capacity reached.");
++        state.cards[c.principal] = { id: c.principal, ...c.card, expiresAt: now + 7 * 86_400_000 };
++      } else if (c.action === "hide") {
++        // This affects only the caller's new directory card, never relay/vault data.
++        delete state.cards[c.principal];
++      } else if (c.action === "request") {
++        if (c.target === c.principal || !live(c.target)) throw new Error("That directory card is unavailable.");
++        const id = `${c.principal}:${c.target}`; const existing = state.requests[id];
++        // Declined requests do not resurrect when the sender retries or changes seq.
++        if (!existing) {
++          if (Object.keys(state.requests).length >= 20_000) throw new Error("Directory request capacity reached.");
++          state.requests[id] = { from: c.principal, to: c.target, status: "pending", updatedAt: now };
++        }
++      } else if (c.action === "accept" || c.action === "decline") {
++        const id = `${c.target}:${c.principal}`; const request = state.requests[id];
++        if (!request || request.to !== c.principal) throw new Error("No incoming request from that person.");
++        if (request.status === "pending") state.requests[id] = { ...request, status: c.action === "accept" ? "accepted" : "declined", updatedAt: now };
++      }
++      state.actors[c.principal] = { seq: c.seq, minute, count };
++      if (await this.store.compareAndSet(snapshot.generation, state)) {
++        return {
++          cards: Object.values(state.cards).filter((card) => card.expiresAt > now && card.id !== c.principal),
++          ownCard: live(c.principal) ? state.cards[c.principal] : null,
++          // Private inbox metadata is visible only to a request participant.
++          requests: Object.values(state.requests).filter((request) => request.from === c.principal || request.to === c.principal),
++        };
++      }
++    }
++    throw new Error("Directory busy. Retry with a fresh signed command.");
++  }
++}
++
++// Dependency-injected identity/sequence persistence makes device restart and cross-tab ordering
++// the embedding app's explicit obligation, rather than silently resetting sequence to zero.
++export class SignedDirectoryClient {
++  constructor(private principal: string, private identity: SigningKeyPair, private nextSequence: () => Promise<number>, private transport: (envelope: SignedDirectoryCommand) => Promise<DirectoryRead>, private now: () => number) {}
++  async execute(action: DirectoryAction): Promise<DirectoryRead> {
++    const command = Command.parse({ domain: "eic-directory-v1", principal: this.principal, seq: await this.nextSequence(), at: this.now(), ...action });
++    return this.transport(await signDirectoryCommand(command, this.identity));
++  }
++}
+diff --git a/packages/features/src/discover-vault.ts b/packages/features/src/discover-vault.ts
+new file mode 100644
+index 0000000..f19c41d
+--- /dev/null
++++ b/packages/features/src/discover-vault.ts
+@@ -0,0 +1,25 @@
++import type { UnlockedVault } from "@veil/vault";
++import { loadSettings } from "./social";
++import { loadOrCreateShareIdentity } from "./sharing";
++import { SignedDirectoryClient, type DirectoryRead, type SignedDirectoryCommand } from "./discover-directory";
++
++// Independent vault record: changing visibility never edits chat/connections/settings fields.
++export async function nextDirectorySequence(vault: UnlockedVault): Promise<number> {
++  for (let attempt = 0; attempt < 8; attempt++) {
++    const raw = await vault.getJson("directory-sequence");
++    if (raw !== null && (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw < 0)) throw new Error("Directory sequence record is damaged.");
++    const next = (raw as number | null ?? 0) + 1;
++    if (!Number.isSafeInteger(next)) throw new Error("Directory sequence exhausted.");
++    try { await vault.putJsonIfUnchanged("settings", "directory-sequence", next, raw); return next; }
++    catch { /* Retry only the bounded CAS operation. Never reset a damaged counter. */ }
++  }
++  throw new Error("Directory sequence is busy. Try again.");
++}
++
++export async function vaultDirectoryClient(vault: UnlockedVault, transport: (envelope: SignedDirectoryCommand) => Promise<DirectoryRead>, now: () => number): Promise<SignedDirectoryClient> {
++  const settings = await loadSettings(vault);
++  if (!settings.authorId) throw new Error("Set up your connection identity first.");
++  // No profile, contacts, posts or connection records are read by this adapter.
++  const identity = await loadOrCreateShareIdentity(vault);
++  return new SignedDirectoryClient(settings.authorId, identity, () => nextDirectorySequence(vault), transport, now);
++}
+diff --git a/packages/features/src/index.ts b/packages/features/src/index.ts
+index a6d3821..5161d03 100644
+--- a/packages/features/src/index.ts
++++ b/packages/features/src/index.ts
+@@ -34,3 +34,6 @@ export { loadDisplayAvatar } from "./display-avatar";
+ export * from "./relay-client";
+ export * from "./relay-outbox";
+ export * from "./sticker-remix";
++
++export * from "./discover-directory";
++export * from "./discover-vault";
+diff --git a/playwright.discover-local.config.ts b/playwright.discover-local.config.ts
+new file mode 100644
+index 0000000..4471257
+--- /dev/null
++++ b/playwright.discover-local.config.ts
+@@ -0,0 +1,6 @@
++import { defineConfig } from "@playwright/test";
++export default defineConfig({
++  testDir: "./e2e", testMatch: "discover-local.spec.ts", workers: 1, timeout: 60000,
++  expect: { timeout: 10000 }, use: { baseURL: "http://localhost:5185", channel: "chrome", launchOptions: { args: ["--no-sandbox"] } },
++  webServer: { command: "EIC_LOCAL_DISCOVER_PREVIEW=1 npm run dev --workspace web -- --host 127.0.0.1 --port 5185", url: "http://localhost:5185", reuseExistingServer: false, timeout: 60000 },
++});
