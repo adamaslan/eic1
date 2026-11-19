@@ -7,7 +7,8 @@ Updated 2026-11-19. Local work is not deployed behavior.
 - [x] Previously merged foreground chat code exists in the application. This does not establish working delivery for real users.
 - [x] Prepare and independently qualify the local messaging cleanup: home Friend chats links, notes kept separate, one normal sharing action (Text my connect link), and technical/import tools collapsed. Notes persist across reload; unsigned chats remain read-only with Send disabled.
 - [ ] Merge and deploy the cleanup after the applicable release checks. This PR publishes source only.
-- [ ] Inspect the current relay enablement, admitted keys and permitted origins. Production assets contain a relay endpoint, but a read and preflight from the production origin returned HTTP 403 on November 19. That alone does not identify the exact setting causing rejection.
+- [x] Inspect the current relay configuration read-only. On November 19 at 14:21 ET, eic_relay.config has enabled=true, two admitted public signing keys of unverified current ownership, and only http://localhost:5180 in origins. The deployed application uses a relay endpoint, but its production origin is absent from the permitted list.
+- [ ] Prepare and approve a narrowly scoped production-origin correction with rollback. Allowing a browser origin is not authentication or key enrollment; keep signing checks and key admission separate. No live configuration change has been made.
 - [ ] Finish the real-user add-friend, send and arrival path without manual enrollment or check-for-messages steps.
 - [ ] Verify desktop-to-phone and phone-to-desktop delivery using an authorized hosted test, including offline/reconnect/retry and visible truthful message status.
 - [ ] Verify supported iPhone/browser behavior. Foreground polling is not closed-app background delivery.
