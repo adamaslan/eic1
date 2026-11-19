@@ -1,5 +1,6 @@
 import { AppError } from "@veil/core";
 import type { RelayAtomicStore, StoreEntry, ListPage } from "./relay-adapter";
+import type { RelayMembership } from "./relay-enroll";
 
 /** SERVER ONLY: inject an Edge Function's secret-backed client, never a browser client.
  * No client is constructed, secrets read, network called, or feature enabled by importing this file.
@@ -53,5 +54,31 @@ export function createSupabaseRelayStore(client: RelayRpc): RelayAtomicStore {
       return { keys: data.keys, ...(cursor ? { nextCursor: cursor as string } : {}) };
     },
     async delete(key) { await call("delete", { p_key: path(key) }); },
+  };
+}
+
+const ENROLL_RESULTS: readonly string[] = ["enrolled", "member", "inviter_not_member", "invite_used", "inviter_quota", "capacity"];
+
+/** SERVER ONLY: membership backed by eic_relay_is_member / eic_relay_enroll (one indexed lookup each).
+ * Quotas live in eic_relay.config and are enforced inside the enroll RPC under one lock. */
+export function createSupabaseRelayMembership(client: RelayRpc): RelayMembership {
+  async function call(name: string, args: Record<string, unknown>): Promise<unknown> {
+    let result;
+    try { result = await client.rpc(`eic_relay_${name}`, args); }
+    catch { throw new RelayStoreUnavailableError("The encrypted relay store is unavailable."); }
+    if (result.error) throw new RelayStoreUnavailableError("The encrypted relay store is unavailable.");
+    return result.data;
+  }
+  return {
+    async isMember(pubkey) {
+      const data = await call("is_member", { p_pubkey: pubkey });
+      if (typeof data !== "boolean") throw new RelayStoreUnavailableError("Invalid relay store response.");
+      return data;
+    },
+    async enroll({ pubkey, inviterPub, inviteId }) {
+      const data = await call("enroll", { p_pubkey: pubkey, p_inviter: inviterPub, p_invite_id: inviteId });
+      if (typeof data !== "string" || !ENROLL_RESULTS.includes(data)) throw new RelayStoreUnavailableError("Invalid relay store response.");
+      return data as Awaited<ReturnType<RelayMembership["enroll"]>>;
+    },
   };
 }

@@ -2,13 +2,17 @@ import { AppError } from "@veil/core";
 import { RelayStoreUnavailableError } from "./supabase-relay-store";
 import { RelayRateLimitError, admitRelayPublish, serveRelayRead, serveRelayChunk, type RelayAtomicStore, type RelayReadRequest } from "./relay-adapter";
 import type { RelayPublishRequest } from "./chat-relay";
+import { RelayEnrollDeniedError, admitRelayEnroll, isRelayEnrollRequest, staticRelayMembership, type RelayMembership } from "./relay-enroll";
 
 export const RELAY_HTTP_MAX_BYTES = 2 * 1024 * 1024;
 export interface RelayHttpOptions {
   /** Default is OFF. This local-only factory is not a deployment or activation path. */
   enabled?: boolean;
   origins: string[];
-  keys: string[];
+  /** Static allowlist (local fixtures, manual override). Ignored when membership is set. */
+  keys?: string[];
+  /** Vouched-enrollment membership. Takes precedence over keys. */
+  membership?: RelayMembership;
   maxPublishesPerWindow: number;
   windowMs: number;
   now: () => Date;
@@ -48,15 +52,18 @@ function isRead(value: unknown): value is RelayReadRequest & { chunkId?: string 
 
 /** Host-neutral, no listener/env/SDK/client construction. Caller supplies server-only store.
  * CORS is defense in depth, NOT authentication. Every operation still uses signed core gates.
- * No key in a nonempty configured allowlist means no access. No anonymous open enrollment.
+ * Access requires membership: a static allowlist or vouched enrollment through a
+ * member-signed invite. No anonymous open enrollment.
  */
 export function createRelayHttpHandler(store: RelayAtomicStore, options: RelayHttpOptions): (request: Request) => Promise<Response> {
   // Snapshot caller configuration so mutation cannot open the gateway after construction.
   const enabled = options.enabled === true;
   const origins = new Set(options.origins);
-  const keys = [...options.keys];
+  const keys = [...(options.keys ?? [])];
+  const membership = options.membership ?? (keys.length > 0 ? staticRelayMembership(keys) : null);
+  const allowlist = membership ? (pubkey: string) => membership.isMember(pubkey) : [];
   const rate = options.maxPublishesPerWindow; const windowMs = options.windowMs;
-  const configured = keys.length > 0 && keys.every(key => typeof key === "string" && key.length > 0 && key.length <= 128)
+  const configured = membership !== null && keys.every(key => typeof key === "string" && key.length > 0 && key.length <= 128)
     && Number.isInteger(rate) && rate > 0 && rate <= 100 && Number.isInteger(windowMs) && windowMs >= 1000;
   return async request => {
     const origin = request.headers.get("origin");
@@ -67,7 +74,7 @@ export function createRelayHttpHandler(store: RelayAtomicStore, options: RelayHt
     if (!enabled || !configured) return reply(503, { error: "Encrypted relay is disabled." });
     if (origin !== null && !allowedOrigin) return reply(403, { error: "Request denied." });
     const action = new URL(request.url).pathname.split("/").pop();
-    if (!["publish", "read", "chunk"].includes(action ?? "")) return reply(404, { error: "Not found." });
+    if (!["publish", "read", "chunk", "enroll"].includes(action ?? "")) return reply(404, { error: "Not found." });
     if (request.method === "OPTIONS") {
       if (!allowedOrigin || request.headers.get("access-control-request-method") !== "POST") return reply(403, { error: "Request denied." });
       return new Response(null, { status: 204, headers: { ...headers, "access-control-allow-methods": "POST", "access-control-allow-headers": "content-type" } });
@@ -76,22 +83,28 @@ export function createRelayHttpHandler(store: RelayAtomicStore, options: RelayHt
     if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") return reply(415, { error: "JSON required." });
     try {
       const body = await boundedJson(request);
+      if (action === "enroll") {
+        if (!isRelayEnrollRequest(body)) throw new BadRequest();
+        const { status } = await admitRelayEnroll(store, membership!, body, { now: options.now() });
+        return reply(200, { status });
+      }
       if (action === "publish") {
         if (!record(body) || typeof body.manifest !== "string" || !Array.isArray(body.files)) throw new BadRequest();
         // Core verifies exact manifest/file hashes and Ed25519 signature before any store call.
-        const result = await admitRelayPublish(store, body as unknown as RelayPublishRequest, { allowlist: keys, maxPublishesPerWindow: rate, windowMs, now: options.now() });
+        const result = await admitRelayPublish(store, body as unknown as RelayPublishRequest, { allowlist, maxPublishesPerWindow: rate, windowMs, now: options.now() });
         return reply(200, { publisherPath: result.publisherPath });
       }
       if (!isRead(body)) throw new BadRequest();
       if (action === "chunk") {
         if (typeof body.chunkId !== "string") throw new BadRequest();
-        const { chunk } = await serveRelayChunk(store, { ...body, chunkId: body.chunkId }, { allowlist: keys, now: options.now() });
+        const { chunk } = await serveRelayChunk(store, { ...body, chunkId: body.chunkId }, { allowlist, now: options.now() });
         return reply(200, { chunk });
       }
-      const { manifest } = await serveRelayRead(store, body, { allowlist: keys, now: options.now() });
+      const { manifest } = await serveRelayRead(store, body, { allowlist, now: options.now() });
       return reply(200, { manifest });
     } catch (error) {
       // Backend details and signed request material never leave the gateway.
+      if (error instanceof RelayEnrollDeniedError) return reply(403, { error: "The relay did not accept that invite. Ask a friend who already chats here for a fresh connect link." });
       if (error instanceof RelayRateLimitError) return reply(429, { error: "Relay rate limit reached. Keep your local message and try later." });
       if (error instanceof BadRequest || (error instanceof AppError && !(error instanceof RelayStoreUnavailableError))) {
         return reply(400, { error: "Relay request rejected. Keep your local message." });

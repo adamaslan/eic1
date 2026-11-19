@@ -33,4 +33,5 @@ export { loadDisplayAvatar } from "./display-avatar";
 
 export * from "./relay-client";
 export * from "./relay-outbox";
+export type { RelayInvite, RelayEnrollStatus } from "./relay-enroll";
 export * from "./sticker-remix";

@@ -76,7 +76,7 @@ test("signed connect links open the right chat; endpoint-unset sends stay local"
     await expect(bob.getByText("synthetic endpoint-unset local message", { exact: true })).toHaveCount(1);
     const options = bob.locator('details').filter({ has: bob.getByText("Relay options", { exact: true }) });
     await options.locator("summary").click();
-    for (const name of ["Set up relay feed", "Check for messages", "Retry relay send"]) {
+    for (const name of ["Check for messages", "Retry relay send"]) {
       await bob.getByRole("button", { name, exact: true }).click();
       await expect(bob.getByText(/This build has no relay endpoint/)).toBeVisible();
     }

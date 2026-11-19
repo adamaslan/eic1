@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createRelayHttpHandler } from '../packages/features/src/relay-http';
 import type { RelayAtomicStore, StoreEntry } from '../packages/features/src/relay-adapter';
+import { createMemoryRelayMembership } from '../packages/features/src/relay-enroll';
 
 // This fixture needs a local endpoint-enabled app and intercepted transport. It
 // must not run against the ordinary endpoint-unset production/deploy preview.
@@ -29,13 +30,15 @@ async function connectLink(page: Page) {
  await expect(page.getByText(/Connect link shared/)).toBeVisible();
  return await page.evaluate(()=>(window as unknown as {__shared:string[]}).__shared.at(-1)!.match(/https?:\/\/\S+/)![0]);
 }
+// The card is base64url JSON after #connect=; the author key is public by design.
+function linkAuthorKey(link:string){const b=link.split('#connect=')[1].replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(Buffer.from(b,'base64').toString('utf8')).author.pubkey as string;}
 async function accept(page: Page,link:string) {
  await page.goto(link); await page.getByRole('button',{name:'Add and open chat'}).click(); await expect(page).toHaveURL(/\/chat\//);
 }
 test('local signed relay: two browser vaults exchange ciphertext and recover after reload',async({browser},testInfo)=>{
  const aContext=await browser.newContext({viewport:{width:1280,height:900}}),bContext=await browser.newContext({viewport:{width:390,height:844}});
  const a=await aContext.newPage(),b=await bContext.newPage();
- const rows=new Map<string,StoreEntry>();let generation=0;const keys:string[]=[];
+ const rows=new Map<string,StoreEntry>();let generation=0;const membership=createMemoryRelayMembership([]);
  const store:RelayAtomicStore={
   async get(key){return rows.get(key)??null},
   async compareAndSet(key,data,condition){const old=rows.get(key);if('createOnly'in condition?!!old:old?.generation!==condition.generation)return null;const next=String(++generation);rows.set(key,{data,generation:next});return next},
@@ -46,21 +49,23 @@ test('local signed relay: two browser vaults exchange ciphertext and recover aft
  let appOrigin='http://localhost:5173'; let offline=false;
  for(const context of[aContext,bContext])await context.route('http://127.0.0.1:54321/**',async route=>{
   if(offline){await route.abort("internetdisconnected");return;}
-  const request=route.request();const response=await createRelayHttpHandler(store,{enabled:true,keys:[...keys],origins:[appOrigin],maxPublishesPerWindow:10,windowMs:60000,now:()=>new Date()})(new Request(request.url(),{method:request.method(),headers:request.headers(),body:request.method()==='POST'?request.postData():undefined}));
+  const request=route.request();const response=await createRelayHttpHandler(store,{enabled:true,membership,origins:[appOrigin],maxPublishesPerWindow:10,windowMs:60000,now:()=>new Date()})(new Request(request.url(),{method:request.method(),headers:request.headers(),body:request.method()==='POST'?request.postData():undefined}));
   await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:await response.text()});
  });
  await create(a,'relay-alice');await create(b,'relay-bob');
  appOrigin=new URL(a.url()).origin;
- const firstA=await connectLink(a),firstB=await connectLink(b);await accept(a,firstB);await accept(b,firstA);
- for(const page of[a,b]){
-  await opts(page);await page.getByRole('button',{name:'Set up relay feed'}).click();
-  const notice=page.getByText(/Relay feed saved/);await expect(notice).toBeVisible();
-  keys.push((await notice.textContent())!.match(/Signing public key: (\S+)\./)![1]);
- }
+ // Vouched enrollment, no setup button and no manual admission: alice is the only seeded
+ // root (the owner's role in production); bob is admitted by accepting alice's link.
+ const firstA=await connectLink(a),firstB=await connectLink(b);
+ membership.members.set(linkAuthorKey(firstA),{inviter:null,inviteId:null});
+ expect(await membership.isMember(linkAuthorKey(firstB))).toBe(false);
+ await accept(a,firstB);await accept(b,firstA);
+ await expect(a.getByRole('button',{name:'Set up relay feed'})).toHaveCount(0);
+ expect(await membership.isMember(linkAuthorKey(firstB))).toBe(true);
+ expect(membership.members.get(linkAuthorKey(firstB))?.inviter).toBe(linkAuthorKey(firstA));
  // Foreground catch-up may issue empty read probes after connecting; no message
  // snapshot should exist until the sender explicitly sends one.
- expect([...rows]).toHaveLength(0);
- const finalA=await connectLink(a),finalB=await connectLink(b);await accept(a,finalB);await accept(b,finalA);
+ expect([...rows].filter(([k])=>k.startsWith('feeds/'))).toHaveLength(0);
  await a.getByLabel('Message',{exact:true}).fill('synthetic desktop to mobile sealed message');await a.getByRole('button',{name:'Send',exact:true}).click();
  await expect(a.getByRole('button',{name:'Text a chat link'})).toHaveCount(0);
  await expect(a.getByText(/Encrypted snapshot committed/)).toBeVisible();

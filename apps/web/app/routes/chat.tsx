@@ -73,7 +73,7 @@ export function ChatThreadView({
   onShareLink: () => void;
   onOlderLink?: () => void;
   /** v2 (Supabase relay). When present it REPLACES the v1 chat-link handoff controls. */
-  relay?: { notice: string | null; onSetup: () => void; onRetry: () => void; onCheck: () => void };
+  relay?: { notice: string | null; onRetry: () => void; onCheck: () => void };
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -85,7 +85,7 @@ export function ChatThreadView({
               Messages are sealed for @{handle} and live in your vault; everything you see renders from local data.
               When a relay endpoint is configured, Send also puts an encrypted snapshot on the relay, and Check for messages pulls @{handle}&apos;s replies.
               An open chat checks for replies about once a minute while visible and unlocked, on Wi-Fi (or on cellular when you turn on cellular sync in Settings). Nothing runs after you close it, and the relay cannot read your messages or tell you when they are read.
-              First time? Open Relay options and Set up relay feed before you share connect links.
+              No setup step: sharing or accepting a connect link prepares your relay feed, and accepting a friend&apos;s link enrolls you on the relay.
             </p>
           ) : (
             <>
@@ -159,7 +159,6 @@ export function ChatThreadView({
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <Button95 type="button" disabled={busy || !verified} onClick={relay.onCheck}>Check for messages</Button95>
                 <Button95 type="button" disabled={busy || !verified} onClick={relay.onRetry}>Retry relay send</Button95>
-                <Button95 type="button" disabled={busy || !verified} onClick={relay.onSetup}>Set up relay feed</Button95>
               </div>
             </details>
           )}
@@ -371,7 +370,7 @@ export default function Chat({ params }: Route.ComponentProps) {
     if (relayEndpoint) await relay("publish");
   }
 
-  async function relay(action: "configure" | "publish" | "receive") {
+  async function relay(action: "publish" | "receive") {
     if (!vault || !connection) return;
     if (action === "receive" && foregroundBusy.current) {
       setRelayNotice("Checking for replies already. Your local messages are kept.");
@@ -384,20 +383,17 @@ export default function Chat({ params }: Route.ComponentProps) {
     }
     setBusy(true);
     try {
-      if (action === "configure") {
-        const configured = await configureRelayFeed(vault, relayEndpoint);
-        setRelayNotice(`Relay feed saved. Signing public key: ${configured.publicKey}. The relay owner must allow this key before online exchange. Re-share your signed connection file so friends get your relay feed URL.`);
+      const settings = await loadSettings(vault);
+      if (detectSyncNetwork() !== "wifi" && !settings.syncOnCellular) throw new AppError("Waiting for Wi-Fi. This browser may not know its connection type; turn on cellular sync in Settings to allow this request.");
+      if (action === "publish") {
+        // Idempotent; covers vaults connected before feeds were prepared automatically.
+        if (!settings.feedUrl) await configureRelayFeed(vault, relayEndpoint);
+        const result = await publishRelaySnapshot(vault, createRelayTransport(relayEndpoint), () => new Date());
+        setRelayNotice(result.status === "confirmed" ? "Encrypted snapshot committed to relay. This is not a recipient receipt. Sending another message commits a new snapshot." : "Relay confirmation is pending. Exact sealed snapshot is saved; open Relay options and use Retry relay send; do not retype the message.");
       } else {
-        const settings = await loadSettings(vault);
-        if (detectSyncNetwork() !== "wifi" && !settings.syncOnCellular) throw new AppError("Waiting for Wi-Fi. This browser may not know its connection type; turn on cellular sync in Settings to allow this request.");
-        if (action === "publish") {
-          const result = await publishRelaySnapshot(vault, createRelayTransport(relayEndpoint), () => new Date());
-          setRelayNotice(result.status === "confirmed" ? "Encrypted snapshot committed to relay. This is not a recipient receipt. Sending another message commits a new snapshot." : "Relay confirmation is pending. Exact sealed snapshot is saved; open Relay options and use Retry relay send; do not retype the message.");
-        } else {
-          const result = await syncConnection(vault, connection, { fetch: signedRelayFetcher(vault, relayEndpoint), network: detectSyncNetwork(), retryFailed: true, newId: newItemId, now: new Date() });
-          setRelayNotice(`Received ${result.appliedChat} new encrypted messages. ${result.status}.`);
-          await reload();
-        }
+        const result = await syncConnection(vault, connection, { fetch: signedRelayFetcher(vault, relayEndpoint), network: detectSyncNetwork(), retryFailed: true, newId: newItemId, now: new Date() });
+        setRelayNotice(`Received ${result.appliedChat} new encrypted messages. ${result.status}.`);
+        await reload();
       }
     } catch (caught) { setRelayNotice(caught instanceof AppError ? caught.message : "The encrypted relay is unavailable. Local messages and manual handoff are kept."); }
     finally { setBusy(false); }
@@ -461,7 +457,7 @@ export default function Chat({ params }: Route.ComponentProps) {
       onShareLink={() => void shareLink(null)}
       olderLeftOut={olderLeftOut}
       onOlderLink={olderCursor ? () => void shareLink(olderCursor) : undefined}
-      relay={{ notice: relayDisplayNotice(relayEndpoint, relayNotice), onSetup: () => void relay("configure"), onRetry: () => void relay("publish"), onCheck: () => void relay("receive") }}
+      relay={{ notice: relayDisplayNotice(relayEndpoint, relayNotice), onRetry: () => void relay("publish"), onCheck: () => void relay("receive") }}
     />
   );
 }

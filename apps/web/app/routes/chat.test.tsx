@@ -127,7 +127,7 @@ describe("ChatThreadView", () => {
 });
 
 describe("ChatThreadView v2 relay mode", () => {
-  const relay = { notice: null, onSetup: noop, onRetry: noop, onCheck: noop };
+  const relay = { notice: null, onRetry: noop, onCheck: noop };
   const view = (over: Partial<React.ComponentProps<typeof ChatThreadView>> = {}) =>
     render(
       <ChatThreadView handle="friend" verified messages={[]} draft="hi" busy={false} error={null} linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} relay={relay} {...over} />,
@@ -140,9 +140,10 @@ describe("ChatThreadView v2 relay mode", () => {
     expect(html).not.toContain("hand messages over yourself");
   });
 
-  it("puts Send, Check, Retry and Set up in the message box", () => {
+  it("puts Send, Check and Retry in the message box, with no relay setup step", () => {
     const html = view();
-    for (const label of ["Send", "Check for messages", "Retry relay send", "Set up relay feed"]) {
+    expect(html).not.toContain("Set up relay feed");
+    for (const label of ["Send", "Check for messages", "Retry relay send"]) {
       expect(html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g)?.some((b) => b.includes(`>${label}<`)), label).toBe(true);
     }
     expect(html).not.toContain("Send to relay");
@@ -152,16 +153,16 @@ describe("ChatThreadView v2 relay mode", () => {
     const html = view();
     const [outside, inside] = html.split("<details");
     expect(inside).toContain("Relay options");
-    const actions = ["Send", "Check for messages", "Retry relay send", "Set up relay feed"];
+    const actions = ["Send", "Check for messages", "Retry relay send"];
     const present = (markup: string) => actions.filter((label) => markup.includes(`>${label}<`));
     expect(present(outside)).toEqual(["Send"]);
-    expect(present(inside)).toEqual(["Check for messages", "Retry relay send", "Set up relay feed"]);
+    expect(present(inside)).toEqual(["Check for messages", "Retry relay send"]);
     expect(html).not.toContain("<details open");
   });
 
   it("disables the relay actions for an unsigned connection and while busy", () => {
     for (const html of [view({ verified: false }), view({ busy: true })]) {
-      for (const label of ["Check for messages", "Retry relay send", "Set up relay feed"]) {
+      for (const label of ["Check for messages", "Retry relay send"]) {
         const button = html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g)?.find((b) => b.includes(`>${label}<`));
         expect(button, label).toContain('disabled=""');
       }
@@ -182,7 +183,7 @@ describe("missing relay endpoint", () => {
   it("shows the delivery warning immediately without a relay action", () => {
     expect(relayDisplayNotice(undefined, null)).toBe(MISSING_RELAY_NOTICE);
     expect(relayDisplayNotice("", null)).toBe(MISSING_RELAY_NOTICE);
-    const html = render(<ChatThreadView handle="friend" verified messages={[]} draft="" busy={false} error={null} linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} relay={{ notice: relayDisplayNotice(undefined, null), onSetup: noop, onRetry: noop, onCheck: noop }} />);
+    const html = render(<ChatThreadView handle="friend" verified messages={[]} draft="" busy={false} error={null} linkNotice={null} onDraft={noop} onSend={sendNoop} onShareLink={noop} relay={{ notice: relayDisplayNotice(undefined, null), onRetry: noop, onCheck: noop }} />);
     expect(html).toContain("cannot reach your friend");
     expect(html).toContain("When a relay endpoint is configured");
   });

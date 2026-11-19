@@ -199,13 +199,30 @@ describe("connect links", () => {
     const carol = await open();
     await saveSettings(carol, settingsFor("carol-id", "carol"));
     const result = await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
-    expect(result).toEqual({ authorId: "bob-id", handle: "bob", isNew: true });
+    expect(result).toEqual({ authorId: "bob-id", handle: "bob", isNew: true, relayInvite: null });
     const conn = await connectionFor(carol, "bob-id");
     expect(conn.pubkey).toBeTruthy();
 
     // And a chat sealed to carol's key... goes the other way: bob can now open carol's card.
     const aliceLink = await buildConnectLink(alice, BASE, NOW);
     expect(peekConnectCardHandle(readConnectLink(new URL(aliceLink).hash)!)).toBe("alice");
+  });
+
+  it("carries a relay invite only once the author has a feed, signed outside the card subset", async () => {
+    const { bob } = await pairedVaults();
+    const carol = await open();
+    await saveSettings(carol, settingsFor("carol-id", "carol"));
+    const plain = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    expect(JSON.parse(plain).relayInvite).toBeUndefined();
+    await saveSettings(bob, { ...settingsFor("bob-id", "bob"), feedUrl: "https://relay.example/feeds/bob" });
+    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const card = JSON.parse(text);
+    expect(card.relayInvite.expiresAt).toBe(NOW.getTime() + 14 * 24 * 60 * 60 * 1000);
+    const result = await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
+    expect(result.relayInvite).toMatchObject({ inviterPub: card.author.pubkey, inviteId: card.relayInvite.id, expiresAt: card.relayInvite.expiresAt });
+    // A malformed invite is dropped, never a veto on the signed card.
+    const broken = JSON.stringify({ ...card, relayInvite: { id: "x", expiresAt: -1, signature: "" } });
+    expect((await importConnectCard(carol, broken, importDeps(settingsFor("carol-id", "carol")))).relayInvite).toBeNull();
   });
 
   it("verifies the signature: a tampered card is rejected", async () => {

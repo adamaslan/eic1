@@ -2,6 +2,7 @@ import { AppError, encodeBase64 } from "@veil/core";
 import type { UnlockedVault } from "@veil/vault";
 import { publisherPath, type RelayPublishRequest } from "./chat-relay";
 import { signRelayRead, type RelayReadRequest } from "./relay-adapter";
+import { signRelayEnroll, type RelayEnrollRequest, type RelayEnrollStatus, type RelayInvite } from "./relay-enroll";
 import { loadOrCreateShareIdentity } from "./sharing";
 import { loadSettings, saveSettingsFields } from "./social";
 import type { SyncFetcher } from "./sync";
@@ -44,10 +45,11 @@ export function createRelayTransport(endpoint: string, fetcher: typeof fetch = g
     async publish(request: RelayPublishRequest): Promise<void> { await post("publish", request); },
     async read(request: RelayReadRequest): Promise<{ manifest: string }> { const result = await post("read", request); if (typeof result.manifest !== "string") throw new AppError("Invalid relay manifest."); return { manifest: result.manifest }; },
     async chunk(request: RelayReadRequest & { chunkId: string }): Promise<{ chunk: string }> { const result = await post("chunk", request); if (typeof result.chunk !== "string") throw new AppError("Invalid relay chunk."); return { chunk: result.chunk }; },
+    async enroll(request: RelayEnrollRequest): Promise<{ status: RelayEnrollStatus }> { const result = await post("enroll", request); if (result.status !== "enrolled" && result.status !== "member") throw new AppError("Invalid relay enroll response."); return { status: result.status }; },
   };
 }
 
-/** Explicit user action only. Never replaces an existing different feed destination. */
+/** Idempotent: runs automatically before sharing or accepting a connect link. Never replaces an existing different feed destination. */
 export async function configureRelayFeed(vault: UnlockedVault, endpoint: string): Promise<{ publicKey: string; feedUrl: string }> {
   const base = relayEndpoint(endpoint);
   const identity = await loadOrCreateShareIdentity(vault);
@@ -78,4 +80,16 @@ export function signedRelayFetcher(vault: UnlockedVault, endpoint: string, fetch
     const text = match[3] ? (await transport.chunk({ ...request, chunkId: match[3] })).chunk : (await transport.read(request)).manifest;
     return { status: 200, etag: null, text };
   };
+}
+
+/**
+ * Vouched enrollment, run when a connect link carrying a member's invite is accepted:
+ * prepares this vault's relay feed (idempotent), then proves key possession to the relay.
+ * Callers treat failure as non-fatal: the connection is already saved locally.
+ */
+export async function enrollWithRelayInvite(vault: UnlockedVault, endpoint: string, invite: RelayInvite, fetcher: typeof fetch = globalThis.fetch): Promise<RelayEnrollStatus> {
+  // A vault with a different (external) feed URL can still enroll; it just keeps that feed.
+  await configureRelayFeed(vault, endpoint).catch(() => undefined);
+  const identity = await loadOrCreateShareIdentity(vault);
+  return (await createRelayTransport(endpoint, fetcher).enroll(await signRelayEnroll(identity, invite, new Date()))).status;
 }

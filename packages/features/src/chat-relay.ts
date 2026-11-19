@@ -108,6 +108,14 @@ export async function buildChatFeedSnapshot(
   return { manifest, files: [{ path: "feed.json", text: manifest }, ...files] };
 }
 
+/** Static key list, or an async membership check (vouched enrollment). */
+export type RelayAllowlist = readonly string[] | ((pubkey: string) => Promise<boolean>);
+
+export async function relayAllows(allowlist: RelayAllowlist | undefined, pubkey: string): Promise<boolean> {
+  if (!allowlist) return true;
+  return typeof allowlist === "function" ? allowlist(pubkey) : allowlist.includes(pubkey);
+}
+
 export interface RelayPublishRequest {
   manifest: string;
   files: FeedSnapshotFile[];
@@ -127,7 +135,7 @@ export interface VerifiedRelayPublish {
  */
 export async function verifyRelayPublish(
   request: RelayPublishRequest,
-  opts?: { allowlist?: string[] },
+  opts?: { allowlist?: RelayAllowlist },
 ): Promise<VerifiedRelayPublish> {
   if (!request || typeof request.manifest !== "string" || !Array.isArray(request.files)) {
     throw new VaultCorruptError("That publish request is damaged.");
@@ -147,7 +155,7 @@ export async function verifyRelayPublish(
     );
     if (!ok) throw new VaultCorruptError("That feed manifest's signature does not check out.");
   }
-  if (opts?.allowlist && !opts.allowlist.includes(manifest.pubkey)) {
+  if (!(await relayAllows(opts?.allowlist, manifest.pubkey))) {
     throw new AppError("That publisher key is not on the allowlist.");
   }
 
