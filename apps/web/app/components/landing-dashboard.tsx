@@ -224,14 +224,38 @@ function MessagesBox({ social }: { social: Social }) {
 
   return (
     <>
-      <p className="text-[11px] text-[var(--w95-muted)]">Notes to yourself, plus news from share files you import. Nobody else can write here.</p>
+      <section aria-label="Friend chats" className="flex flex-col gap-2 border-b border-[var(--w95-muted)] pb-3">
+        <h2 className="font-bold">Friend chats</h2>
+        <p>Choose a connection to open your conversation.</p>
+        {social.connections.filter((connection) => !connection.hidden).length === 0 ? (
+          <p>No connections yet. Add a friend in Connections to open a chat.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {social.connections.filter((connection) => !connection.hidden).map((connection) => (
+              <li key={connection.id} className="flex flex-col gap-1 bg-white p-2">
+                <Link to={`/chat/${encodeURIComponent(connection.id)}`} aria-label={`Open chat with @${connection.handle}`} className="inline-flex min-h-[44px] items-center font-bold text-[var(--w95-link)] underline">
+                  Chat with {connection.nickname ? `${connection.nickname} (@${connection.handle})` : `@${connection.handle}`}
+                </Link>
+                {!connection.pubkey && <span className="text-[11px]">Read-only until chat key is added</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <Link to="/connections" className="inline-flex min-h-[44px] items-center text-[var(--w95-link)] underline">Add or manage connections</Link>
+        <details className="text-[11px] text-[var(--w95-muted)]">
+          <summary className="cursor-pointer">About delivery</summary>
+          <p>Opening a chat does not mean a message was delivered.</p>
+        </details>
+      </section>
+      <h2 className="font-bold">Notes &amp; imported updates</h2>
+      <p className="text-[11px] text-[var(--w95-muted)]">Your notes stay here. This box does not send them to friends.</p>
       <form onSubmit={submit} className="flex gap-1">
         <input className={inputClass} value={text} maxLength={500} onChange={(e) => setText(e.target.value)} placeholder="Write a note" aria-label="New note" />
-        <Button95 type="submit" disabled={busy || !text.trim()}>Add</Button95>
+        <Button95 type="submit" disabled={busy || !text.trim()}>Save note</Button95>
       </form>
       {error && <p role="alert">{error}</p>}
       {social.notes.length === 0 ? (
-        <p>No messages yet.</p>
+        <p>No notes or imported updates yet.</p>
       ) : (
         <ul className="flex flex-col gap-1">
           {social.notes.slice(0, 6).map((note) => (

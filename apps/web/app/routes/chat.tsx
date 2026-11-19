@@ -81,12 +81,7 @@ export function ChatThreadView({
         {authorId && <div className="flex items-center gap-2"><Avatar authorId={authorId} label={`${handle}'s avatar`} />@{handle}</div>}
         <div className="flex flex-col gap-2 text-[12px]">
           {relay ? (
-            <p className="bg-[#ffffe1] px-1.5 py-1">
-              Messages are sealed for @{handle} and live in your vault; everything you see renders from local data.
-              When a relay endpoint is configured, Send also puts an encrypted snapshot on the relay, and Check for messages pulls @{handle}&apos;s replies.
-              An open chat checks for replies about once a minute while visible and unlocked, on Wi-Fi (or on cellular when you turn on cellular sync in Settings). Nothing runs after you close it, and the relay cannot read your messages or tell you when they are read.
-              First time? Open Relay options and Set up relay feed before you share connect links.
-            </p>
+            <p className="text-[var(--w95-muted)]">Encrypted chat. Check the send status below.</p>
           ) : (
             <>
               <p className="bg-[#ffffe1] px-1.5 py-1">
@@ -106,11 +101,17 @@ export function ChatThreadView({
             </>
           )}
           {!verified && (
-            <p role="alert" className="bg-[#ffffe1] px-1.5 py-1">
+            <div role="alert" className="bg-[#ffffe1] px-1.5 py-1">
+              <p>Chat is read-only until this connection is upgraded. <Link to="/connections" className="underline">Open Connections to upgrade</Link>.</p>
+              <details>
+                <summary className="cursor-pointer">Upgrade details</summary>
+                <p>
               This connection came from an unsigned share file, so chat is read-only. To chat, ask @{handle} for a new
               signed share file and import it from the Connections screen. Your thread and nickname are kept; relay sync
-              progress restarts when you re-import. <Link to="/connections" className="underline">Open Connections to upgrade</Link>.
-            </p>
+              progress restarts when you re-import.
+                </p>
+              </details>
+            </div>
           )}
           {messages === null ? (
             <p>Loading…</p>
@@ -161,6 +162,17 @@ export function ChatThreadView({
                 <Button95 type="button" disabled={busy || !verified} onClick={relay.onRetry}>Retry relay send</Button95>
                 <Button95 type="button" disabled={busy || !verified} onClick={relay.onSetup}>Set up relay feed</Button95>
               </div>
+            </details>
+          )}
+          {relay && (
+            <details>
+              <summary className="cursor-pointer text-[var(--w95-muted)]">Privacy and delivery details</summary>
+            <p className="bg-[#ffffe1] px-1.5 py-1">
+              Messages are sealed for @{handle} and live in your vault; everything you see renders from local data.
+              When a relay endpoint is configured, Send also puts an encrypted snapshot on the relay, and Check for messages pulls @{handle}&apos;s replies.
+              An open chat checks for replies about once a minute while visible and unlocked, on Wi-Fi (or on cellular when you turn on cellular sync in Settings). Nothing runs after you close it, and the relay cannot read your messages or tell you when they are read.
+              First time? Open Relay options and Set up relay feed before you share connect links.
+            </p>
             </details>
           )}
           {error && (
