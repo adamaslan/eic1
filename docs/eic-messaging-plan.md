@@ -146,3 +146,37 @@ Code for all phases can be finished and tested locally without any of G1–G6. W
 4. Phase 5: Discover. Needs the G3 answer before the enrollment piece. The rest proceeds.
 5. Phase 6: mobile polish and screenshots.
 6. Open one non-draft PR with evidence, then wait for G1/G2/G5 before the hosted run.
+
+## 8. Evidence log, 2026-11-20 (follow-up to b1c07bf)
+
+Everything here ran locally against **synthetic** vaults and an **in-memory relay** behind browser route interception. None of it is hosted Supabase evidence, and none of it proves the deployed relay. Spec: `e2e/discover-two-vault.spec.ts` (opt-in, `EIC_LOCAL_RELAY_TEST=1`; skipped otherwise, and a skip is not a pass).
+
+### What the two-vault run proves (desktop 1280 and mobile 390, three isolated vaults)
+
+Passed 4 of 4 consecutive runs after the fixes below, about 35 s each. Covered: not-joined state, Turnstile join, publish card, find, request, accept, chat A to B, automatic receipt with no reply from B, reply, reload (the session resumes, no passphrase prompt), offline with three retry taps (one copy, saved on device), reconnect (exactly one copy at the recipient), lost publish response (one copy, never shown as sent early), decline (request kept as declined, no sealed material, no resurrection), third-person privacy (a non-participant's directory replies contain only their own requests; no plaintext in any relay row), hide (card gone for others, chats kept and still working), locked vault (zero relay requests while locked, work resumes on unlock), no horizontal overflow at 390, and no console or page errors apart from the deliberate offline aborts.
+
+### Defects found by that run and fixed (each has a unit test)
+
+| Defect | Effect | Fix |
+|---|---|---|
+| Discover sealed connects before the vault had a relay feed | The friend imported a connection with no feed URL, so chat showed `no-feed` and could never receive | `signedDirectoryAdapter(..., prepareFeed)`; Discover passes `configureRelayFeed`. A failing step stops the request. Connections made before this fix are not repaired. |
+| An open chat ignored receipt-only pulls | The sender kept seeing "Sent to relay" after the receipt was saved | `SyncResult.appliedReceipts`; `applyCatchUpOutcome` reloads on it |
+| The app-wide background pass could save a message or receipt first | The open chat then read "unchanged" and lagged the vault | `RELAY_APPLIED_EVENT`, fired by the background pass, repaints an open chat |
+| "Relay confirmation is pending" outlived the queue | It contradicted the delivered ticks beside it | Cleared once no sent message is queued |
+| Join panel stayed after joining | Looked like Discover was still locked | Hidden once Discover has loaded |
+| Request to a card that left Discover said "Try again" | Not retryable | Says "That person is no longer in Discover." and drops the card |
+
+CodeRabbit's four open findings on #128, checked against current code: requester name from `state.cards` (valid, fixed); feed-destination check inside the CAS loop (valid, fixed through a `saveSettingsFields` guard); Turnstile widget reset after a single-use token (valid, fixed; a reset now yields a fresh token and the e2e uses single-use tokens); `hosted-self-enroll.test.ts` seeding (valid, narrow: the cap test hardcoded the restore value and the claim tests assumed an empty day; both now own their state).
+
+### Request and accept, verified (item 2)
+
+Sealed request and accept bind the sender key at request time. Only the listed key can accept. A pending or declined request grants nothing: no connection, no chat. Declined requests keep no sealed material and do not come back on retry. A sealed connect must carry its sender's own signed bundle, and cannot replace an existing friend's key. **Missing: block and report.** There is no code for either. Declining is not blocking, because the sender can still see the card and the card is the only gate.
+
+### Not proved, or found and not fixed
+
+- **transition-smoke CI is red for a reason outside the code.** `e2e/ci-preview.mjs wait` polls for the Netlify deploy-preview status and the footer build stamp. Commit `5cf8748` has zero commit statuses, so Netlify never reported a preview. PRs through #125 got `netlify/everybodyiscool/deploy-preview=success`; #126, #127 and #128 have none, and all three smoke jobs fail after about 16 minutes. Lint, tsc and vitest show `skipping` because they only run on manual dispatch, and **skipped is not passed**. Cause is on the Netlify side (not visible from here). Nothing was deployed or removed.
+- A draft typed in the message box is not persisted across a reload (state only). Messages already sent are.
+- The Discover route wraps the component's own window, so two "Discover" title bars show on desktop. Cosmetic.
+- A pull of a friend's never-published feed still counts as `failed: 1` in `runRelayPass` (pre-existing).
+- Screenshots were taken under a mocked clock, which leaves the window fade-in at opacity 0 (a test-clock artifact, not a product defect). The capture helper forces those wrappers visible.
+- 45 synthetic hosted `feeds/` objects from earlier runs were not touched. Deleting them needs a yes first.
