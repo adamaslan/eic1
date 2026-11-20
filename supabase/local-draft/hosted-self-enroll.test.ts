@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 
 // Self-enroll + directory SQL on real in-process Postgres (PGlite is NOT hosted Supabase).
@@ -32,9 +32,10 @@ describe("eic_relay_admit_self", () => {
   it("refuses new keys at the member cap", async () => {
     const { rows } = await db.query("select count(*)::int as n from eic_relay.members");
     const current = (rows[0] as { n: number }).n;
+    const original = (await db.query("select max_members from eic_relay.config")).rows[0] as { max_members: number };
     await db.query("update eic_relay.config set max_members = $1", [current]);
-    expect((await admit("new-key-over-cap")).value).toBe("capacity");
-    await db.query("update eic_relay.config set max_members = 1000");
+    try { expect((await admit("new-key-over-cap")).value).toBe("capacity"); }
+    finally { await db.query("update eic_relay.config set max_members = $1", [original.max_members]); }
   });
 });
 
@@ -49,6 +50,8 @@ describe("self-enrolled members cannot vouch (v3)", () => {
 });
 
 describe("eic_relay_claim_self_enroll", () => {
+  // Own the counter: start each case from an empty day so the budget never depends on test order.
+  beforeEach(async () => { await db.exec("delete from eic_relay.self_enroll_daily"); });
   it("stops at the daily limit", async () => {
     expect((await claim(2)).value).toBe(true);
     expect((await claim(2)).value).toBe(true);

@@ -10,7 +10,12 @@ const newId = () => globalThis.crypto.randomUUID();
 
 function connectMarker(vault: UnlockedVault, from: string, to: string) { return `discover-connect:${from}:${to}`; }
 
-export function signedDirectoryAdapter(client: SignedDirectoryClient, vault: UnlockedVault): DirectoryAdapter {
+/**
+ * `prepareFeed` runs before any connect is sealed. A bundle sealed before this vault has a relay feed carries no
+ * feed URL, so the friend imports a connection with nothing to pull from and chat can never receive. It must throw
+ * rather than let a feedless connect go out.
+ */
+export function signedDirectoryAdapter(client: SignedDirectoryClient, vault: UnlockedVault, prepareFeed: () => Promise<void> = async () => {}): DirectoryAdapter {
   // A sealed connect is imported once, then marked in the vault so reloads do not re-import it.
   async function importIfNew(from: string, to: string, sealed: string, senderPubkey: string) {
     const marker = connectMarker(vault, from, to);
@@ -48,6 +53,7 @@ export function signedDirectoryAdapter(client: SignedDirectoryClient, vault: Unl
       const data = await fetchRaw();
       const card = data.cards.find((c) => c.id === target);
       if (!card) throw new Error("That card is no longer listed.");
+      await prepareFeed();
       const sealed = await sealConnectBundle(vault, target, card.pubkey, CONNECT_CLOCK());
       const confirmed = await client.execute({ action: "request", target, sealed });
       const me = await myPrincipal(vault);
@@ -61,6 +67,7 @@ export function signedDirectoryAdapter(client: SignedDirectoryClient, vault: Unl
       if (!request || !request.requestSealed) throw new Error("No incoming request from that person.");
       // Import the requester's bundle first, then send mine back, sealed to them.
       await importIfNew(requester, me, request.requestSealed, request.fromPubkey);
+      await prepareFeed();
       const sealed = await sealConnectBundle(vault, requester, request.fromPubkey, CONNECT_CLOCK());
       await client.execute({ action: "accept", target: requester, sealed });
     },

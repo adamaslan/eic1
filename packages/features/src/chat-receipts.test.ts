@@ -44,7 +44,8 @@ describe("delivery receipts", () => {
     const aliceFeed = envelopesFor(await listOutboundChatEnvelopes(alice), "bob-id");
     expect(aliceFeed).toHaveLength(1);
     const receiptResult = await applyInboundChatEnvelope(bob, aliceFeed[0], deps);
-    expect(receiptResult).toEqual({ applied: false, message: null });
+    // A receipt is not a message, but it reports that it newly marked one delivered.
+    expect(receiptResult).toEqual({ applied: false, message: null, delivered: 1 });
     const [stored] = await listChatThread(bob, "alice-id");
     expect(stored.deliveredAt).toBe(NOW.toISOString());
     expect(outboundStatus(stored)).toBe("delivered");
@@ -66,7 +67,8 @@ describe("delivery receipts", () => {
     await applyInboundChatEnvelope(alice, sent.envelope, deps);
     const receipt = envelopesFor(await listOutboundChatEnvelopes(alice), "bob-id")[0];
     await applyInboundChatEnvelope(bob, receipt, deps);
-    await expect(applyInboundChatEnvelope(bob, receipt, deps)).resolves.toEqual({ applied: false, message: null });
+    // The repeat marks nothing new, so a view has nothing to repaint.
+    await expect(applyInboundChatEnvelope(bob, receipt, deps)).resolves.toEqual({ applied: false, message: null, delivered: 0 });
     expect(await listChatThread(bob, "alice-id")).toHaveLength(1);
   });
 

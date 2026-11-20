@@ -71,7 +71,9 @@ export async function configureRelayFeed(vault: UnlockedVault, endpoint: string)
   if (settings.feedUrl && settings.feedUrl !== feedUrl) throw new AppError("This vault already has a different feed URL. It was not replaced.");
   // Patch only feedUrl, applied onto the fresh record inside the CAS loop: a full-object
   // save here would revert fields an editor changed between the read above and the write.
-  await saveSettingsFields(vault, { feedUrl });
+  await saveSettingsFields(vault, { feedUrl }, (current) => {
+    if (current.feedUrl && current.feedUrl !== feedUrl) throw new AppError("This vault already has a different feed URL. It was not replaced.");
+  });
   return { publicKey, feedUrl };
 }
 

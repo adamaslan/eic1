@@ -167,7 +167,7 @@ export async function applyInboundChatEnvelope(
   vault: UnlockedVault,
   envelope: unknown,
   deps: ChatDeps,
-): Promise<{ applied: boolean; message: ChatMessage | null }> {
+): Promise<{ applied: boolean; message: ChatMessage | null; delivered?: number }> {
   const e = envelope as Partial<SyncEnvelope> | null;
   if (!e || typeof e.authorId !== "string" || typeof e.signature !== "string") {
     throw new AppError("The chat envelope is damaged.");
@@ -198,8 +198,8 @@ export async function applyInboundChatEnvelope(
   const receipt = ReceiptPayloadSchema.safeParse(decoded);
   if (receipt.success) {
     // Receipts are not messages: they only mark my sent messages as delivered. Idempotent.
-    await markDelivered(vault, sender.id, receipt.data.ack.ids, deps.now().toISOString());
-    return { applied: false, message: null };
+    const delivered = await markDelivered(vault, sender.id, receipt.data.ack.ids, deps.now().toISOString());
+    return { applied: false, message: null, delivered };
   }
   let payload: z.infer<typeof ChatPayloadSchema>;
   try {
@@ -237,15 +237,19 @@ export async function applyInboundChatEnvelope(
   return { applied: true, message };
 }
 
-async function markDelivered(vault: UnlockedVault, threadAuthorId: string, ids: string[], at: string): Promise<void> {
+/** Returns how many sent messages this receipt newly marked, so a view can tell a receipt changed something. */
+async function markDelivered(vault: UnlockedVault, threadAuthorId: string, ids: string[], at: string): Promise<number> {
   const wanted = new Set(ids);
+  let marked = 0;
   for (const message of await listOutboundMessages(vault)) {
     if (message.threadAuthorId !== threadAuthorId || message.deliveredAt) continue;
     const signature = (message.envelope as Partial<SyncEnvelope> | null)?.signature;
     if (signature && wanted.has(signature)) {
       await vault.putJson(CHAT_KIND as never, recordIdFor(message.id), { ...message, deliveredAt: at });
+      marked += 1;
     }
   }
+  return marked;
 }
 
 /** Marks exactly the messages whose envelopes were in a confirmed snapshot (outbound -> acceptedAt) and the

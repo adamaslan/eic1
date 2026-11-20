@@ -169,6 +169,27 @@ describe("applyCatchUpOutcome", () => {
     expect(calls).toEqual(["unchanged"]);
   });
 
+  it("refreshes the open chat when a receipt-only pull marked a sent message delivered", async () => {
+    const { calls, deps } = harness();
+    await applyCatchUpOutcome({ status: "applied", appliedChat: 0, appliedReceipts: 1 }, deps);
+    // No message arrived, so no "applied"/"received" announcement, but the view must repaint.
+    expect(calls).toEqual(["reload", "unchanged"]);
+  });
+
+  it("keeps the refresh debt when a receipt-only pull lands while the tab is hidden", async () => {
+    const contention = { dirty: false };
+    const { calls, deps } = harness({ active: () => false, contention });
+    await applyCatchUpOutcome({ status: "applied", appliedChat: 0, appliedReceipts: 2 }, deps);
+    expect(calls).toEqual([]);
+    expect(contention.dirty).toBe(true);
+  });
+
+  it("does not reload for an unchanged pull that applied zero receipts", async () => {
+    const { calls, deps } = harness();
+    await applyCatchUpOutcome({ status: "applied", appliedChat: 0, appliedReceipts: 0 }, deps);
+    expect(calls).toEqual(["unchanged"]);
+  });
+
   it("throws on failure so the scheduler backs off", async () => {
     const { deps } = harness();
     await expect(applyCatchUpOutcome({ status: "failed", appliedChat: 0 }, deps)).rejects.toThrow("unavailable");

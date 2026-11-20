@@ -104,13 +104,15 @@ export function changedSettingsFields(base: Settings, next: Settings): Partial<S
  * concurrent writer saved between the editor's load and this save are never read into
  * the write at all (a merge onto a pre-load snapshot would revert them). Feature flags
  * stay owned by setFeatureEnabled. Same-field concurrent edits remain inherent
- * last-writer-wins.
+ * last-writer-wins. An optional guard may throw to abort against the fresh record.
  */
-export async function saveSettingsFields(vault: UnlockedVault, fields: Partial<Settings>): Promise<Settings> {
+export async function saveSettingsFields(vault: UnlockedVault, fields: Partial<Settings>, guard?: (current: Settings) => void): Promise<Settings> {
   for (let attempt = 0; attempt < SETTINGS_CAS_RETRIES; attempt++) {
     const raw = await vault.getJson(SETTINGS_RECORD_ID);
     const parsed = raw === null ? null : SettingsSchema.safeParse(raw);
     const current = parsed && parsed.success ? parsed.data : defaultSettings();
+    // Runs on the fresh record each attempt, so a check cannot go stale between read and write.
+    guard?.(current);
     const clean = SettingsSchema.parse({
       ...current,
       ...fields,

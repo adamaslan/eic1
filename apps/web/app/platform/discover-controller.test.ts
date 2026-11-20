@@ -27,6 +27,19 @@ describe("Discover local state, not a hosted directory", () => {
     const { model, adapter } = fixture({ ...card, id: "self" }); await model.load(); await model.request(card.id); await model.hide();
     expect(adapter.hide).toHaveBeenCalledTimes(1); expect(model.state.visibility).toBe("hidden"); expect(model.state.ownCard).toBeNull(); expect(model.state.requested).toEqual([card.id]);
   });
+  it("a request to a card that left Discover says so and removes it, instead of offering a pointless retry", async () => {
+    const { model, adapter } = fixture(); await model.load();
+    (adapter.request as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("That card is no longer listed."));
+    await model.request(card.id);
+    expect(model.state.error).toBe("That person is no longer in Discover.");
+    expect(model.state.cards).toEqual([]); expect(model.state.requested).toEqual([]);
+  });
+  it("any other request failure stays a retryable error and keeps the card", async () => {
+    const { model, adapter } = fixture(); await model.load();
+    (adapter.request as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("boom"));
+    await model.request(card.id);
+    expect(model.state.error).toBe("Couldn't send the request. Try again."); expect(model.state.cards).toEqual([card]);
+  });
   it("does not claim hidden after a failed hide and allows retry", async () => {
     const { model, adapter } = fixture({ ...card, id: "self" }); vi.mocked(adapter.hide).mockRejectedValueOnce(new Error("offline"));
     await model.load(); await model.hide(); expect(model.state.visibility).toBe("unknown"); expect(model.state.error).toContain("may still be visible"); await model.hide(); expect(model.state.visibility).toBe("hidden");

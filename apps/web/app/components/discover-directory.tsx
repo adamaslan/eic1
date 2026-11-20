@@ -46,7 +46,7 @@ export function DiscoverDirectory({ controller }: { controller: DirectoryControl
               <p className="font-bold">{state.incoming.length} {state.incoming.length === 1 ? "person wants" : "people want"} to connect with you</p>
               {state.incoming.map((id) => (
                 <div key={id} className="flex flex-wrap items-center gap-2">
-                  <span className="min-w-0 flex-1 break-all">{cards.find((card) => card.id === id)?.name ?? "Someone on Discover"}</span>
+                  <span className="min-w-0 flex-1 break-all">{state.cards.find((card) => card.id === id)?.name ?? "Someone on Discover"}</span>
                   <Button95 disabled={state.busy} onClick={() => { void controller.accept(id); }}>Accept</Button95>
                   <Button95 disabled={state.busy} onClick={() => { void controller.decline(id); }}>Decline</Button95>
                 </div>

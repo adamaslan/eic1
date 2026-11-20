@@ -35,6 +35,8 @@ export interface CatchUpOutcome {
   // Mirrors SyncResult.status from @veil/features sync.
   status: "applied" | "unchanged" | "deferred" | "no-feed" | "failed" | "partial";
   appliedChat: number;
+  /** Receipts that newly marked a sent message delivered. They change what the open chat must show, though no message arrived. */
+  appliedReceipts?: number;
 }
 
 /** Zero-storage cross-tab contention marker. Set whenever this tab loses the catch-up
@@ -60,17 +62,18 @@ export async function applyCatchUpOutcome(outcome: CatchUpOutcome, deps: {
   // The writes are already committed when this hook runs: the announcement belongs to
   // other tabs, so it fires even when this tab is hidden or its own reload later fails.
   if (outcome.appliedChat) deps.onApplied(outcome.appliedChat);
+  const changed = (outcome.appliedChat ?? 0) + (outcome.appliedReceipts ?? 0) > 0;
   if (!deps.active()) {
     // An applied outcome discarded while hidden must not go stale: the cursor already
     // advanced, so the next poll reads unchanged and a clean flag would skip the reload
     // forever. Retain the refresh debt until a completed refresh consumes it.
-    if (outcome.appliedChat && deps.contention) deps.contention.dirty = true;
+    if (changed && deps.contention) deps.contention.dirty = true;
     return;
   }
   if (outcome.status === "failed") throw new Error("Relay catch-up unavailable");
   // Refresh BEFORE any status branch returns: partial/deferred results can still have
   // applied earlier chat chunks, and later unchanged polls would never show them.
-  if (outcome.appliedChat) {
+  if (changed) {
     try {
       await deps.reload();
     } catch (error) {

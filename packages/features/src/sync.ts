@@ -78,6 +78,8 @@ export interface SyncResult {
   status: "applied" | "unchanged" | "deferred" | "no-feed" | "failed" | "partial";
   appliedPosts: number;
   appliedChat: number;
+  /** Sent messages newly marked delivered by receipts in this pull. Receipts are not chat messages, so appliedChat misses them. */
+  appliedReceipts?: number;
   appliedProfile: boolean;
   pendingChunks: string[];
   rejectedChunks: string[];
@@ -135,6 +137,7 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
 
   let appliedPosts = 0;
   let appliedChat = 0;
+  let appliedReceipts = 0;
   let appliedProfile = false;
   const pendingChunks: string[] = [];
   const fetchFailedChunks: string[] = [];
@@ -177,6 +180,7 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
           try {
             const applied = await applyInboundChatEnvelope(vault, envelope, { newId: deps.newId, now: () => deps.now });
             if (applied.applied) appliedChat += 1;
+            appliedReceipts += applied.delivered ?? 0;
           } catch {
             // A chunk can carry envelopes for connections whose keys rotated; one bad envelope
             // must not fail the whole sync. Others still apply.
@@ -232,6 +236,7 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
     status,
     appliedPosts,
     appliedChat,
+    appliedReceipts,
     appliedProfile,
     pendingChunks,
     rejectedChunks,

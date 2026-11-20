@@ -68,7 +68,11 @@ export class DirectoryController {
     if (!this.state.ready || this.state.busy || this.state.requested.includes(id) || !this.state.cards.some((card) => card.id === id)) return;
     this.update({ busy: true, error: "", notice: "" });
     try { await this.adapter.request(id); this.update({ requested: [...this.state.requested, id], notice: "Request sent. This does not open a chat or allow messages." }); }
-    catch { this.update({ error: "Couldn't send the request. Try again." }); }
+    catch (error) {
+      // A card hidden or expired since the list loaded is not retryable: say so, and drop it from the list.
+      if (error instanceof Error && error.message === "That card is no longer listed.") this.update({ cards: this.state.cards.filter((c) => c.id !== id), error: "That person is no longer in Discover." });
+      else this.update({ error: "Couldn't send the request. Try again." });
+    }
     finally { this.update({ busy: false }); }
   }
   // Accepting imports the requester's connect and sends mine back. Only this explicit step creates a chat.

@@ -5,7 +5,7 @@ import { MemoryStore } from "../../../../packages/vault/src/memory-store";
 import {
   buildShareBundle, importSealedConnect, loadOrCreateShareIdentity, sealConnectBundle,
   admitDirectoryPrincipal, defaultSettings, DirectoryService, emptyDirectory, listConnections, listChatThread,
-  myPrincipal, saveSettings, sendChatMessage, vaultDirectoryClient, type DirectoryAtomicStore, type DirectoryDatabase,
+  configureRelayFeed, loadSettings, myPrincipal, saveSettings, sendChatMessage, vaultDirectoryClient, type DirectoryAtomicStore, type DirectoryDatabase,
 } from "@veil/features";
 import { sealSyncEnvelope } from "@veil/crypto";
 import { decodeBase64, encodeBase64 } from "@veil/core";
@@ -40,6 +40,43 @@ async function setup() {
   const eve = await person("eve-id", "eve", service);
   return { alice, bob, eve };
 }
+
+describe("Discover connect carries a feed to pull from", () => {
+  async function pair(prepare: (vault: UnlockedVault) => (() => Promise<void>) | undefined) {
+    const service = new DirectoryService(new MemoryDirectoryStore(), (principal, pubkey) => admitDirectoryPrincipal(async () => true, principal, pubkey), () => NOW);
+    const make = async (authorId: string, handle: string) => {
+      const vault: UnlockedVault = await createVault({ store: new MemoryStore(), crypto: new SubtleCryptoPort(), now: () => new Date(NOW) }, `feed-${handle}`);
+      await saveSettings(vault, { ...defaultSettings(), authorId, handle });
+      const client = await vaultDirectoryClient(vault, (envelope) => service.execute(envelope), () => NOW);
+      const adapter = signedDirectoryAdapter(client, vault, prepare(vault));
+      await adapter.publish({ name: handle, handle, bio: `${handle} bio` });
+      return { vault, adapter, principal: await myPrincipal(vault) };
+    };
+    return { alice: await make("alice-id", "alice"), bob: await make("bob-id", "bob") };
+  }
+  const ENDPOINT = "http://127.0.0.1:54321/functions/v1/eic-relay";
+
+  it("without a feed step the friend imports a connection with no feed (the defect this guards)", async () => {
+    const { alice, bob } = await pair(() => undefined);
+    await alice.adapter.request(bob.principal); await bob.adapter.accept(alice.principal);
+    expect((await listConnections(bob.vault))[0]?.feedUrl).toBeNull();
+  });
+
+  it("with the feed step both directions carry the sender's own feed", async () => {
+    const { alice, bob } = await pair((vault) => async () => { await configureRelayFeed(vault, ENDPOINT); });
+    await alice.adapter.request(bob.principal); await bob.adapter.accept(alice.principal); await alice.adapter.read();
+    const aliceFeed = (await loadSettings(alice.vault)).feedUrl; const bobFeed = (await loadSettings(bob.vault)).feedUrl;
+    expect(aliceFeed?.startsWith(`${ENDPOINT}/feeds/`)).toBe(true);
+    expect((await listConnections(bob.vault))[0]?.feedUrl).toBe(aliceFeed);
+    expect((await listConnections(alice.vault))[0]?.feedUrl).toBe(bobFeed);
+  });
+
+  it("a failing feed step stops the request: nothing feedless is sealed or sent", async () => {
+    const { alice, bob } = await pair(() => async () => { throw new Error("feed setup failed"); });
+    await expect(alice.adapter.request(bob.principal)).rejects.toThrow("feed setup failed");
+    expect((await bob.adapter.read()).incoming).toEqual([]);
+  });
+});
 
 describe("Discover connect: request, accept, then chat", () => {
   it("a pending request creates no connection on either side", async () => {

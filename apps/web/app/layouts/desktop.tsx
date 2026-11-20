@@ -11,7 +11,7 @@ import { motion } from "motion/react";
 import { useSessionStore } from "~/platform/session";
 import { useThemeStore } from "~/platform/theme-store";
 import type { StartItem } from "~/ui95/StartMenu";
-import { startRelayBackground } from "~/platform/relay-background";
+import { RELAY_APPLIED_EVENT, startRelayBackground } from "~/platform/relay-background";
 
 const TABS = [
   { id: "home", label: "Home" },
@@ -64,7 +64,10 @@ export default function DesktopLayout() {
   useEffect(() => {
     const endpoint = import.meta.env.VITE_EIC_RELAY_ENDPOINT as string | undefined;
     if (!vault || !endpoint) return;
-    return startRelayBackground({ vault, endpoint, isCurrent: () => useSessionStore.getState().vault === vault });
+    return startRelayBackground({
+      vault, endpoint, isCurrent: () => useSessionStore.getState().vault === vault,
+      onPass: (result) => { if (result.received > 0 || (result.receipts ?? 0) > 0) window.dispatchEvent(new Event(RELAY_APPLIED_EVENT)); },
+    });
   }, [vault]);
 
   if (!vault && resuming) {

@@ -9,6 +9,8 @@ const CHECK_FAILED = "The check did not load. Reload the page and try again.";
 
 type Turnstile = {
   render(element: HTMLElement, options: { sitekey: string; callback: (token: string) => void; "expired-callback": () => void; "error-callback": () => void }): string;
+  reset(widgetId?: string): void;
+  remove(widgetId?: string): void;
 };
 declare global { interface Window { turnstile?: Turnstile } }
 
@@ -29,20 +31,24 @@ export function RelayJoin({ onJoin }: { onJoin: (token: string) => Promise<void>
   const [token, setToken] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const widgetId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!SITE_KEY || !box.current) return;
     let cancelled = false;
     loadTurnstile().then((turnstile) => {
       if (cancelled || !box.current) return;
-      turnstile.render(box.current, {
+      widgetId.current = turnstile.render(box.current, {
         sitekey: SITE_KEY,
         callback: (value) => setToken(value),
         "expired-callback": () => setToken(null),
         "error-callback": () => setStatus(CHECK_FAILED),
       });
     }).catch(() => { if (!cancelled) setStatus(CHECK_FAILED); });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (widgetId.current) { window.turnstile?.remove(widgetId.current); widgetId.current = null; }
+    };
   }, []);
 
   if (!SITE_KEY) return <p className="text-[12px]">Joining the encrypted relay is not set up in this build.</p>;
@@ -58,6 +64,7 @@ export function RelayJoin({ onJoin }: { onJoin: (token: string) => Promise<void>
     } finally {
       // A check token is single use: clear it so the next attempt needs a fresh check.
       setToken(null); setBusy(false);
+      if (widgetId.current) window.turnstile?.reset(widgetId.current);
     }
   }
 

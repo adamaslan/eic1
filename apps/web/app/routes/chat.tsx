@@ -21,6 +21,7 @@ import { useSessionStore } from "~/platform/session";
 import { useSocial } from "~/platform/use-social";
 import { detectSyncNetwork } from "~/platform/sync-fetcher";
 import { runForegroundCatchUp, startForegroundRelay } from "~/platform/foreground-relay";
+import { RELAY_APPLIED_EVENT } from "~/platform/relay-background";
 import {
   applyCatchUpOutcome,
   createThreadReload,
@@ -265,6 +266,20 @@ export default function Chat({ params }: Route.ComponentProps) {
   }, []);
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
+  // "Relay confirmation is pending" is true only while a sent message is still queued. Once every message is
+  // accepted or delivered, keeping it would contradict the status shown on each message.
+  useEffect(() => {
+    if (!messages || !relayNotice?.startsWith("Relay confirmation is pending")) return;
+    if (messages.every((m) => m.direction !== "out" || outboundStatus(m) !== "queued")) setRelayNotice(null);
+  }, [messages, relayNotice]);
+  // The app-wide background pass may save a message or receipt before this chat's own poll runs, which then
+  // reads "unchanged". Repaint on its announcement so the open thread never lags the vault.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onApplied = () => { void reloadRef.current().catch(() => undefined); };
+    window.addEventListener(RELAY_APPLIED_EVENT, onApplied);
+    return () => window.removeEventListener(RELAY_APPLIED_EVENT, onApplied);
+  }, []);
   // Set on any lock loss; cleared only by a reload that pulled the winner's writes.
   const contentionRef = useRef<ContentionFlag>({ dirty: false });
   useEffect(() => {

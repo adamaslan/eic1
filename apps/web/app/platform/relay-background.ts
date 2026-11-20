@@ -20,11 +20,14 @@ export const relayPolicy = networkPolicy;
 
 /** One background pass for the unlocked vault: set up the feed if missing, retry any unaccepted send,
  * then pull every friend's feed. Each step is independent: one failure does not stop the others. */
-export async function runRelayPass(vault: UnlockedVault, endpoint: string, now: () => Date = () => new Date()): Promise<{ sent: boolean; received: number; failed: number }> {
+/** Fired on window when a background pass saved messages or receipts, so an open chat repaints. Its own poll would read "unchanged". */
+export const RELAY_APPLIED_EVENT = "eic-relay-applied";
+
+export async function runRelayPass(vault: UnlockedVault, endpoint: string, now: () => Date = () => new Date()): Promise<{ sent: boolean; received: number; failed: number; receipts?: number }> {
   const settings = await loadSettings(vault);
   const policy = relayPolicy(detectSyncNetwork(), settings.syncOnCellular);
   if (!policy.allowed) return { sent: false, received: 0, failed: 0 };
-  let sent = false; let received = 0; let failed = 0;
+  let sent = false; let received = 0; let failed = 0; let receipts = 0;
   // Zero-setup feed: idempotent, never replaces a different feed URL.
   if (!settings.feedUrl && settings.authorId && settings.handle) await configureRelayFeed(vault, endpoint).catch(() => { failed += 1; });
   // A relay response is never delivery: only a confirmed signed readback counts as sent. A pending result is a
@@ -46,6 +49,7 @@ export async function runRelayPass(vault: UnlockedVault, endpoint: string, now: 
     try {
       const result = await syncConnection(vault, connection, { fetch: signedRelayFetcher(vault, endpoint), network: detectSyncNetwork(), newId: newItemId, now: now() });
       received += result.appliedChat;
+      receipts += result.appliedReceipts ?? 0;
     } catch { failed += 1; }
   }
   // Messages saved by this pull owe a receipt even if this person never replies. Publish it in the same pass
@@ -54,11 +58,11 @@ export async function runRelayPass(vault: UnlockedVault, endpoint: string, now: 
     const after = await relayPublishReason(vault);
     if (after !== null) await publish(after);
   }
-  return { sent, received, failed };
+  return { sent, received, failed, receipts };
 }
 
 /** Visible, online, unlocked only. Never runs after lock. Minimum one minute between passes (see foreground-relay). */
-export function startRelayBackground(options: { vault: UnlockedVault; endpoint: string; isCurrent: () => boolean; onPass?: (result: { sent: boolean; received: number; failed: number }) => void }) {
+export function startRelayBackground(options: { vault: UnlockedVault; endpoint: string; isCurrent: () => boolean; onPass?: (result: { sent: boolean; received: number; failed: number; receipts?: number }) => void }) {
   return startForegroundRelay({
     active: () => options.isCurrent() && document.visibilityState === "visible" && navigator.onLine,
     subscribe: (wake) => {
