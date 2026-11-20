@@ -5,10 +5,12 @@ import { buildChatFeedSnapshot, publisherPath, verifyRelayPublish, type RelayPub
 import { parseFeedManifest, verifyFeedManifest } from "./feed";
 import { signRelayRead, type RelayReadRequest } from "./relay-adapter";
 import { loadOrCreateShareIdentity } from "./sharing";
+import { latestOutboundSentAt, listOutboundMessages } from "./chat";
 import { loadSettings } from "./social";
 
 const SnapshotSchema = z.object({ manifest: z.string(), files: z.array(z.object({ path: z.string(), text: z.string() })).max(100) });
-const OutboxSchema = z.object({ version: z.literal(1), authorId: z.string(), feedUrl: z.string(), seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), pending: SnapshotSchema.nullable() });
+// pendingCutoff: newest sentAt the pending snapshot includes. confirmedCutoff: same, for the last snapshot the relay committed.
+const OutboxSchema = z.object({ version: z.literal(1), authorId: z.string(), feedUrl: z.string(), seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), pending: SnapshotSchema.nullable(), pendingCutoff: z.string().nullish(), confirmedCutoff: z.string().nullish() });
 const idFor = (authorId: string) => `relay-outbox:${authorId}`;
 export interface RelayOutboxTransport {
   /** A success response is NOT delivery confirmation. Readback is always required. */
@@ -26,9 +28,29 @@ async function context(vault: UnlockedVault) {
 }
 async function stateFor(vault: UnlockedVault, ctx: Awaited<ReturnType<typeof context>>) {
   const raw = await vault.getJson(ctx.id);
-  const state = raw === null ? { version: 1 as const, authorId: ctx.settings.authorId!, feedUrl: ctx.settings.feedUrl!, seq: 0, pending: null } : OutboxSchema.parse(raw);
+  const state = raw === null ? { version: 1 as const, authorId: ctx.settings.authorId!, feedUrl: ctx.settings.feedUrl!, seq: 0, pending: null, pendingCutoff: null, confirmedCutoff: null } : OutboxSchema.parse(raw);
   if (state.authorId !== ctx.settings.authorId || state.feedUrl !== ctx.settings.feedUrl) throw new AppError("The relay identity or destination changed. Keep the saved outbox and review it before sending.");
   return { raw, state };
+}
+
+function maxCutoff(a: string | null, b: string | null): string | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return a > b ? a : b;
+}
+
+/** Newest sent message the relay has committed. Messages with sentAt <= this are "accepted" (not delivered). */
+export async function relayConfirmedCutoff(vault: UnlockedVault): Promise<string | null> {
+  const settings = await loadSettings(vault);
+  if (!settings.authorId) return null;
+  const raw = await vault.getJson(idFor(settings.authorId));
+  return raw === null ? null : (OutboxSchema.parse(raw).confirmedCutoff ?? null);
+}
+
+/** True while any sent message is still neither accepted by the relay nor delivered. Drives automatic retry. */
+export async function hasUnacceptedOutbound(vault: UnlockedVault): Promise<boolean> {
+  const cutoff = await relayConfirmedCutoff(vault);
+  return (await listOutboundMessages(vault)).some((m) => !m.deliveredAt && (cutoff === null || m.sentAt > cutoff));
 }
 
 /** Explicit local preparation only. Encrypts the exact signed snapshot before any transport call.
@@ -43,7 +65,8 @@ export async function prepareRelayOutbox(vault: UnlockedVault, now: Date): Promi
   const pending = await buildChatFeedSnapshot(vault, ctx.settings, { now, seq });
   // HTTP candidate is deliberately stricter than the older feed's maximum backlog.
   if (new TextEncoder().encode(JSON.stringify(pending)).byteLength > 2 * 1024 * 1024) throw new AppError("The sealed chat backlog is too large for this relay. Nothing was sent.");
-  await vault.putJsonIfUnchanged("settings", ctx.id, { ...state, seq, pending }, raw);
+  const pendingCutoff = await latestOutboundSentAt(vault);
+  await vault.putJsonIfUnchanged("settings", ctx.id, { ...state, seq, pending, pendingCutoff }, raw);
   return { seq, reusedPending: false };
 }
 
@@ -70,7 +93,8 @@ export async function attemptRelayOutbox(vault: UnlockedVault, transport: RelayO
     await verifyFeedManifest(committed, state.authorId, ctx.pubkey);
     if (response.manifest !== state.pending.manifest) return { status: "pending", seq: state.seq };
     // A concurrent tab/new state or lock makes this fail closed, not erase newer pending work.
-    await vault.putJsonIfUnchanged("settings", ctx.id, { ...state, pending: null }, raw);
+    const confirmedCutoff = maxCutoff(state.pendingCutoff ?? null, state.confirmedCutoff ?? null);
+    await vault.putJsonIfUnchanged("settings", ctx.id, { ...state, pending: null, pendingCutoff: null, confirmedCutoff }, raw);
     return { status: "confirmed", seq: state.seq };
   } catch { return { status: "pending", seq: state.seq }; }
 }

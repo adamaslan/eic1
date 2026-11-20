@@ -6,6 +6,7 @@ import { signRelayEnroll, type RelayEnrollRequest, type RelayEnrollStatus, type 
 import { loadOrCreateShareIdentity } from "./sharing";
 import { loadSettings, saveSettingsFields } from "./social";
 import type { SyncFetcher } from "./sync";
+import type { DirectoryRead } from "./discover-directory";
 
 export function relayEndpoint(value: string): string {
   const url = new URL(value);
@@ -45,6 +46,11 @@ export function createRelayTransport(endpoint: string, fetcher: typeof fetch = g
     async publish(request: RelayPublishRequest): Promise<void> { await post("publish", request); },
     async read(request: RelayReadRequest): Promise<{ manifest: string }> { const result = await post("read", request); if (typeof result.manifest !== "string") throw new AppError("Invalid relay manifest."); return { manifest: result.manifest }; },
     async chunk(request: RelayReadRequest & { chunkId: string }): Promise<{ chunk: string }> { const result = await post("chunk", request); if (typeof result.chunk !== "string") throw new AppError("Invalid relay chunk."); return { chunk: result.chunk }; },
+    async directory(envelope: unknown): Promise<DirectoryRead> {
+      const result = await post("directory", envelope);
+      if (!Array.isArray(result.cards) || !Array.isArray(result.requests)) throw new AppError("Invalid directory response.");
+      return result as unknown as DirectoryRead;
+    },
     async enroll(request: RelayEnrollRequest): Promise<{ status: RelayEnrollStatus }> { const result = await post("enroll", request); if (result.status !== "enrolled" && result.status !== "member") throw new AppError("Invalid relay enroll response."); return { status: result.status }; },
   };
 }

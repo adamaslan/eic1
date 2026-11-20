@@ -3,6 +3,7 @@ import { RelayStoreUnavailableError } from "./supabase-relay-store";
 import { RelayRateLimitError, admitRelayPublish, serveRelayRead, serveRelayChunk, type RelayAtomicStore, type RelayReadRequest } from "./relay-adapter";
 import type { RelayPublishRequest } from "./chat-relay";
 import { RelayEnrollDeniedError, admitRelayEnroll, isRelayEnrollRequest, staticRelayMembership, type RelayMembership } from "./relay-enroll";
+import type { DirectoryService } from "./discover-directory";
 
 export const RELAY_HTTP_MAX_BYTES = 2 * 1024 * 1024;
 export interface RelayHttpOptions {
@@ -16,6 +17,8 @@ export interface RelayHttpOptions {
   maxPublishesPerWindow: number;
   windowMs: number;
   now: () => Date;
+  /** Discover directory. Absent means the directory action is not served. */
+  directory?: DirectoryService;
 }
 
 class BadRequest extends Error {}
@@ -74,7 +77,7 @@ export function createRelayHttpHandler(store: RelayAtomicStore, options: RelayHt
     if (!enabled || !configured) return reply(503, { error: "Encrypted relay is disabled." });
     if (origin !== null && !allowedOrigin) return reply(403, { error: "Request denied." });
     const action = new URL(request.url).pathname.split("/").pop();
-    if (!["publish", "read", "chunk", "enroll"].includes(action ?? "")) return reply(404, { error: "Not found." });
+    if (!["publish", "read", "chunk", "enroll", "directory"].includes(action ?? "") || (action === "directory" && !options.directory)) return reply(404, { error: "Not found." });
     if (request.method === "OPTIONS") {
       if (!allowedOrigin || request.headers.get("access-control-request-method") !== "POST") return reply(403, { error: "Request denied." });
       return new Response(null, { status: 204, headers: { ...headers, "access-control-allow-methods": "POST", "access-control-allow-headers": "content-type" } });
@@ -83,6 +86,15 @@ export function createRelayHttpHandler(store: RelayAtomicStore, options: RelayHt
     if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") return reply(415, { error: "JSON required." });
     try {
       const body = await boundedJson(request);
+      if (action === "directory") {
+        try {
+          return reply(200, { ...(await options.directory!.execute(body)) });
+        } catch (error) {
+          // Rejections (signature, replay, rate, expiry) are the caller's fault; store failures stay 503.
+          if (error instanceof RelayStoreUnavailableError) throw error;
+          return reply(400, { error: "Directory request rejected." });
+        }
+      }
       if (action === "enroll") {
         if (!isRelayEnrollRequest(body)) throw new BadRequest();
         const { status } = await admitRelayEnroll(store, membership!, body, { now: options.now() });

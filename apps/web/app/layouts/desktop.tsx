@@ -11,6 +11,7 @@ import { motion } from "motion/react";
 import { useSessionStore } from "~/platform/session";
 import { useThemeStore } from "~/platform/theme-store";
 import type { StartItem } from "~/ui95/StartMenu";
+import { startRelayBackground } from "~/platform/relay-background";
 
 const TABS = [
   { id: "home", label: "Home" },
@@ -33,6 +34,7 @@ const START_ITEMS: StartItem[] = [
   { to: "/tools/music", label: "Music", icon: "🎵" },
   { to: "/tools/calendar", label: "Calendar", icon: "📅" },
   { to: "/connections", label: "Friends", icon: "💌" },
+  { to: "/discover", label: "Discover", icon: "🔎" },
   { to: "/profile", label: "My profile", icon: "😎" },
   { to: "/stickers", label: "Avatar stickers", icon: "⭐" },
 ];
@@ -55,6 +57,14 @@ export default function DesktopLayout() {
   // not just leave the player running against a locked vault.
   useEffect(() => {
     if (!vault) usePlayerStore.getState().resetAll();
+  }, [vault]);
+
+  // Friends' messages arrive while the app is open and unlocked, not only inside an open chat.
+  // The owner of this effect is the vault: switching or locking stops the pass first.
+  useEffect(() => {
+    const endpoint = import.meta.env.VITE_EIC_RELAY_ENDPOINT as string | undefined;
+    if (!vault || !endpoint) return;
+    return startRelayBackground({ vault, endpoint, isCurrent: () => useSessionStore.getState().vault === vault });
   }, [vault]);
 
   if (!vault && resuming) {

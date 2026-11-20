@@ -35,3 +35,6 @@ export * from "./relay-client";
 export * from "./relay-outbox";
 export type { RelayInvite, RelayEnrollStatus } from "./relay-enroll";
 export * from "./sticker-remix";
+
+export * from "./discover-directory";
+export * from "./discover-vault";
