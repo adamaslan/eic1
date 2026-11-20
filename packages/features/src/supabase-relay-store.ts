@@ -70,6 +70,11 @@ export function createSupabaseRelayMembership(client: RelayRpc): RelayMembership
     return result.data;
   }
   return {
+    async admitSelf(pubkey) {
+      const data = await call("admit_self", { p_pubkey: pubkey });
+      if (data !== "enrolled" && data !== "member" && data !== "capacity") throw new RelayStoreUnavailableError("Invalid relay store response.");
+      return data;
+    },
     async isMember(pubkey) {
       const data = await call("is_member", { p_pubkey: pubkey });
       if (typeof data !== "boolean") throw new RelayStoreUnavailableError("Invalid relay store response.");

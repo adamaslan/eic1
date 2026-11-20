@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { createRelayTransport, vaultDirectoryClient } from "@veil/features";
+import { createRelayTransport, joinRelaySelf, vaultDirectoryClient } from "@veil/features";
+import { RelayJoin } from "~/components/relay-join";
 import { DiscoverDirectory } from "~/components/discover-directory";
 import { DirectoryController } from "~/platform/discover-controller";
 import { signedDirectoryAdapter } from "~/platform/discover-signed-adapter";
@@ -22,7 +23,7 @@ export default function DiscoverRoute() {
     void (async () => {
       try {
         const client = await vaultDirectoryClient(vault, (envelope) => createRelayTransport(endpoint).directory(envelope), () => Date.now());
-        const next = new DirectoryController(signedDirectoryAdapter(client));
+        const next = new DirectoryController(signedDirectoryAdapter(client, vault));
         if (!cancelled) { setController(next); void next.load(); }
       } catch (caught) {
         if (!cancelled) setProblem(caught instanceof Error ? caught.message : "Discover is unavailable right now.");
@@ -33,6 +34,12 @@ export default function DiscoverRoute() {
 
   return (
     <Window title="Discover">
+      {endpoint && vault && (
+        <RelayJoin onJoin={async (token) => {
+          await joinRelaySelf(vault, endpoint, token);
+          await controller?.load();
+        }} />
+      )}
       {controller ? <DiscoverDirectory controller={controller} /> : <p className="text-[12px]">{problem ?? "Connecting to Discover…"}</p>}
     </Window>
   );

@@ -38,3 +38,4 @@ export * from "./sticker-remix";
 
 export * from "./discover-directory";
 export * from "./discover-vault";
+export * from "./discover-connect";

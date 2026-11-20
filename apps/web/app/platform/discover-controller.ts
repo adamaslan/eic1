@@ -1,15 +1,17 @@
 export type DirectoryCard = { id: string; name: string; handle: string; bio: string };
 export type PublicCardDraft = Omit<DirectoryCard, "id">;
 export interface DirectoryAdapter {
-  read(): Promise<{ cards: DirectoryCard[]; ownCard: DirectoryCard | null }>;
+  read(): Promise<{ cards: DirectoryCard[]; ownCard: DirectoryCard | null; incoming: string[] }>;
   publish(draft: PublicCardDraft): Promise<DirectoryCard>;
   hide(): Promise<void>;
   // Idempotent per signed identity + target: retrying after a lost response must not duplicate requests.
   request(id: string): Promise<void>;
+  accept(id: string): Promise<void>;
+  decline(id: string): Promise<void>;
 }
 export type DirectoryState = {
   visibility: "hidden" | "listed" | "unknown"; ready: boolean; busy: boolean; cards: DirectoryCard[]; ownCard: DirectoryCard | null;
-  requested: string[]; error: string; notice: string;
+  requested: string[]; incoming: string[]; error: string; notice: string;
 };
 
 // Explicit projection: a directory adapter cannot accidentally expose extra vault fields.
@@ -28,10 +30,9 @@ export function searchCards(cards: DirectoryCard[], query: string): DirectoryCar
   return cards.filter((card) => `${card.name} ${card.handle} ${card.bio}`.toLocaleLowerCase().includes(q));
 }
 
-// No vault, contacts, feeds or messaging API is reachable from this controller.
-// A real authenticated directory adapter is deliberately not wired in this prototype.
+// Talks only to the injected adapter. The adapter owns signing, sealing and imports.
 export class DirectoryController {
-  state: DirectoryState = { visibility: "unknown", ready: false, busy: false, cards: [], ownCard: null, requested: [], error: "", notice: "" };
+  state: DirectoryState = { visibility: "unknown", ready: false, busy: false, cards: [], ownCard: null, requested: [], incoming: [], error: "", notice: "" };
   private listeners = new Set<() => void>();
   constructor(private readonly adapter: DirectoryAdapter) {}
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -43,7 +44,7 @@ export class DirectoryController {
     try {
       const data = await this.adapter.read(); const ownCard = data.ownCard ? publicCard(data.ownCard) : null;
       const cards = data.cards.map(publicCard).filter((card) => card.id !== ownCard?.id);
-      this.update({ ready: true, ownCard, cards, visibility: ownCard ? "listed" : "hidden" });
+      this.update({ ready: true, ownCard, cards, incoming: data.incoming, visibility: ownCard ? "listed" : "hidden" });
     } catch { this.update({ error: "Couldn't load Discover. Try again.", ready: false }); }
     finally { this.update({ busy: false }); }
   }
@@ -68,6 +69,21 @@ export class DirectoryController {
     this.update({ busy: true, error: "", notice: "" });
     try { await this.adapter.request(id); this.update({ requested: [...this.state.requested, id], notice: "Request sent. This does not open a chat or allow messages." }); }
     catch { this.update({ error: "Couldn't send the request. Try again." }); }
+    finally { this.update({ busy: false }); }
+  }
+  // Accepting imports the requester's connect and sends mine back. Only this explicit step creates a chat.
+  async accept(id: string) {
+    if (!this.state.ready || this.state.busy || !this.state.incoming.includes(id)) return;
+    this.update({ busy: true, error: "", notice: "" });
+    try { await this.adapter.accept(id); this.update({ incoming: this.state.incoming.filter((x) => x !== id), notice: "Accepted. Your chat opens once you both have each other's connect." }); }
+    catch { this.update({ error: "Couldn't accept. Try again." }); }
+    finally { this.update({ busy: false }); }
+  }
+  async decline(id: string) {
+    if (!this.state.ready || this.state.busy || !this.state.incoming.includes(id)) return;
+    this.update({ busy: true, error: "", notice: "" });
+    try { await this.adapter.decline(id); this.update({ incoming: this.state.incoming.filter((x) => x !== id), notice: "Declined. Nothing was shared with them." }); }
+    catch { this.update({ error: "Couldn't decline. Try again." }); }
     finally { this.update({ busy: false }); }
   }
 }

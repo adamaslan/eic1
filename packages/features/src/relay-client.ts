@@ -2,7 +2,7 @@ import { AppError, encodeBase64 } from "@veil/core";
 import type { UnlockedVault } from "@veil/vault";
 import { publisherPath, type RelayPublishRequest } from "./chat-relay";
 import { signRelayRead, type RelayReadRequest } from "./relay-adapter";
-import { signRelayEnroll, type RelayEnrollRequest, type RelayEnrollStatus, type RelayInvite } from "./relay-enroll";
+import { signRelayEnroll, signRelaySelfEnroll, type RelayEnrollRequest, type RelayEnrollStatus, type RelayInvite, type RelaySelfEnrollRequest } from "./relay-enroll";
 import { loadOrCreateShareIdentity } from "./sharing";
 import { loadSettings, saveSettingsFields } from "./social";
 import type { SyncFetcher } from "./sync";
@@ -51,6 +51,11 @@ export function createRelayTransport(endpoint: string, fetcher: typeof fetch = g
       if (!Array.isArray(result.cards) || !Array.isArray(result.requests)) throw new AppError("Invalid directory response.");
       return result as unknown as DirectoryRead;
     },
+    async enrollSelf(request: RelaySelfEnrollRequest): Promise<{ status: RelayEnrollStatus }> {
+      const result = await post("enroll", request);
+      if (result.status !== "enrolled" && result.status !== "member") throw new AppError("Joining did not finish. Try again.");
+      return { status: result.status };
+    },
     async enroll(request: RelayEnrollRequest): Promise<{ status: RelayEnrollStatus }> { const result = await post("enroll", request); if (result.status !== "enrolled" && result.status !== "member") throw new AppError("Invalid relay enroll response."); return { status: result.status }; },
   };
 }
@@ -86,6 +91,13 @@ export function signedRelayFetcher(vault: UnlockedVault, endpoint: string, fetch
     const text = match[3] ? (await transport.chunk({ ...request, chunkId: match[3] })).chunk : (await transport.read(request)).manifest;
     return { status: 200, etag: null, text };
   };
+}
+
+/** Human-verified self-enrollment, for someone with no member to vouch for them. The token comes from the
+ * Turnstile check in the UI; the relay verifies it server-side. Idempotent for existing members. */
+export async function joinRelaySelf(vault: UnlockedVault, endpoint: string, turnstile: string, fetcher: typeof fetch = globalThis.fetch): Promise<RelayEnrollStatus> {
+  const identity = await loadOrCreateShareIdentity(vault);
+  return (await createRelayTransport(endpoint, fetcher).enrollSelf(await signRelaySelfEnroll(identity, turnstile, new Date()))).status;
 }
 
 /**

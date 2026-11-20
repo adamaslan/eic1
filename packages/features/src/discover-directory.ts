@@ -6,22 +6,29 @@ import { publisherPath } from "./chat-relay";
 // Host-neutral directory protocol. No HTTP endpoint, storage binding or deployment is enabled.
 // An admission function must bind an existing principal ID to its pinned signing key.
 const Id = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).refine((id) => !["__proto__", "prototype", "constructor"].includes(id));
+// A sealed connect bundle: a chat-style envelope only the named target can open. Opaque to the directory.
+const Sealed = z.string().min(1).max(8192);
 const Card = z.object({ name: z.string().trim().min(1).max(40), handle: z.string().regex(/^[a-zA-Z0-9_.-]{1,30}$/), bio: z.string().max(160) }).strict();
 const Base = { domain: z.literal("eic-directory-v1"), principal: Id, seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), at: z.number().int().nonnegative() };
 const Command = z.discriminatedUnion("action", [
   z.object({ ...Base, action: z.literal("read") }).strict(),
   z.object({ ...Base, action: z.literal("publish"), card: Card }).strict(),
   z.object({ ...Base, action: z.literal("hide") }).strict(),
-  z.object({ ...Base, action: z.literal("request"), target: Id }).strict(),
-  z.object({ ...Base, action: z.literal("accept"), target: Id }).strict(),
+  z.object({ ...Base, action: z.literal("request"), target: Id, sealed: Sealed }).strict(),
+  z.object({ ...Base, action: z.literal("accept"), target: Id, sealed: Sealed }).strict(),
   z.object({ ...Base, action: z.literal("decline"), target: Id }).strict(),
 ]);
 export type DirectoryCommand = z.infer<typeof Command>;
-export type DirectoryAction = { action: "read" | "hide" } | { action: "publish"; card: z.infer<typeof Card> } | { action: "request" | "accept" | "decline"; target: string };
+export type DirectoryAction = { action: "read" | "hide" } | { action: "publish"; card: z.infer<typeof Card> } | { action: "request" | "accept"; target: string; sealed: string } | { action: "decline"; target: string };
 export type SignedDirectoryCommand = { command: DirectoryCommand; pubkey: string; signature: string };
 const Envelope = z.object({ command: Command, pubkey: z.string().max(64), signature: z.string().max(128) }).strict();
-export type DirectoryListing = z.infer<typeof Card> & { id: string; expiresAt: number };
-export type DirectoryRequest = { from: string; to: string; status: "pending" | "accepted" | "declined"; updatedAt: number };
+// pubkey is the owner's signing key, recorded from the signed publish. Other fields are the owner's choice.
+export type DirectoryListing = z.infer<typeof Card> & { id: string; pubkey: string; expiresAt: number };
+// requestSealed is readable only by `to`; acceptSealed only by `from`. Keys are recorded at request/accept time.
+export type DirectoryRequest = {
+  from: string; to: string; status: "pending" | "accepted" | "declined"; updatedAt: number;
+  fromPubkey: string; toPubkey: string; requestSealed: string | null; acceptSealed: string | null;
+};
 export type DirectoryRead = { cards: DirectoryListing[]; ownCard: DirectoryListing | null; requests: DirectoryRequest[] };
 export type DirectoryDatabase = { cards: Record<string, DirectoryListing>; requests: Record<string, DirectoryRequest>; actors: Record<string, { seq: number; minute: number; count: number }> };
 export interface DirectoryAtomicStore {
@@ -64,7 +71,7 @@ export class DirectoryService {
       const live = (id: string) => state.cards[id] && state.cards[id].expiresAt > now;
       if (c.action === "publish") {
         if (!state.cards[c.principal] && Object.keys(state.cards).length >= 10_000) throw new Error("Directory capacity reached.");
-        state.cards[c.principal] = { id: c.principal, ...c.card, expiresAt: now + 7 * 86_400_000 };
+        state.cards[c.principal] = { id: c.principal, ...c.card, pubkey: envelope.pubkey, expiresAt: now + 7 * 86_400_000 };
       } else if (c.action === "hide") {
         // This affects only the caller's new directory card, never relay/vault data.
         delete state.cards[c.principal];
@@ -74,12 +81,22 @@ export class DirectoryService {
         // Declined requests do not resurrect when the sender retries or changes seq.
         if (!existing) {
           if (Object.keys(state.requests).length >= 20_000) throw new Error("Directory request capacity reached.");
-          state.requests[id] = { from: c.principal, to: c.target, status: "pending", updatedAt: now };
+          state.requests[id] = {
+            from: c.principal, to: c.target, status: "pending", updatedAt: now,
+            fromPubkey: envelope.pubkey, toPubkey: state.cards[c.target].pubkey, requestSealed: c.sealed, acceptSealed: null,
+          };
         }
       } else if (c.action === "accept" || c.action === "decline") {
         const id = `${c.target}:${c.principal}`; const request = state.requests[id];
         if (!request || request.to !== c.principal) throw new Error("No incoming request from that person.");
-        if (request.status === "pending") state.requests[id] = { ...request, status: c.action === "accept" ? "accepted" : "declined", updatedAt: now };
+        // Only the key that was listed for this request can accept it.
+        if (c.action === "accept" && request.toPubkey !== envelope.pubkey) throw new Error("Directory identity is not admitted.");
+        if (request.status === "pending") {
+          state.requests[id] = c.action === "accept"
+            ? { ...request, status: "accepted", updatedAt: now, acceptSealed: c.sealed }
+            // A declined request keeps no sealed material.
+            : { ...request, status: "declined", updatedAt: now, requestSealed: null, acceptSealed: null };
+        }
       }
       state.actors[c.principal] = { seq: c.seq, minute, count };
       if (await this.store.compareAndSet(snapshot.generation, state)) {

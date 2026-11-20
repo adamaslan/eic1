@@ -38,10 +38,10 @@ describe("signed local directory service + vault adapter integration, no hosted 
     const { actor, store } = await setup(); const alice = await actor("alice"); const bob = await actor("bob"); const eve = await actor("eve");
     await bob.client.execute({ action: "publish", card: draft });
     const browse = await alice.client.execute({ action: "read" }); expect(browse.cards.map((c) => c.id)).toEqual(["bob"]);
-    const sent = await alice.client.execute({ action: "request", target: "bob" }); expect(sent.requests[0].status).toBe("pending");
+    const sent = await alice.client.execute({ action: "request", target: "bob", sealed: "sealed-test" }); expect(sent.requests[0].status).toBe("pending");
     expect((await eve.client.execute({ action: "read" })).requests).toEqual([]);
-    await expect(eve.client.execute({ action: "accept", target: "alice" })).rejects.toThrow("No incoming");
-    const accepted = await bob.client.execute({ action: "accept", target: "alice" }); expect(accepted.requests[0].status).toBe("accepted");
+    await expect(eve.client.execute({ action: "accept", target: "alice", sealed: "sealed-test" })).rejects.toThrow("No incoming");
+    const accepted = await bob.client.execute({ action: "accept", target: "alice", sealed: "sealed-test" }); expect(accepted.requests[0].status).toBe("accepted");
     await bob.client.execute({ action: "hide" });
     const hidden = await alice.client.execute({ action: "read" }); expect(hidden.cards).toEqual([]); expect(hidden.requests[0].status).toBe("accepted");
     expect(await listConnections(alice.vault)).toEqual([]); expect(await listConnections(bob.vault)).toEqual([]);
@@ -64,18 +64,18 @@ describe("signed local directory service + vault adapter integration, no hosted 
   });
   it("deduplicates retries across new sequences and does not resurrect declined requests", async () => {
     const { actor } = await setup(); const a = await actor("alice"); const b = await actor("bob"); await b.client.execute({ action: "publish", card: draft });
-    await a.client.execute({ action: "request", target: "bob" }); await a.client.execute({ action: "request", target: "bob" });
+    await a.client.execute({ action: "request", target: "bob", sealed: "sealed-test" }); await a.client.execute({ action: "request", target: "bob", sealed: "sealed-test" });
     expect((await b.client.execute({ action: "read" })).requests).toHaveLength(1);
     await b.client.execute({ action: "decline", target: "alice" });
-    expect((await a.client.execute({ action: "request", target: "bob" })).requests[0].status).toBe("declined");
+    expect((await a.client.execute({ action: "request", target: "bob", sealed: "sealed-test" })).requests[0].status).toBe("declined");
   });
   it("expires public cards and rejects requests to hidden, expired or self targets", async () => {
     const { actor, now } = await setup(); const a = await actor("alice"); const b = await actor("bob");
-    await expect(a.client.execute({ action: "request", target: "bob" })).rejects.toThrow("unavailable");
+    await expect(a.client.execute({ action: "request", target: "bob", sealed: "sealed-test" })).rejects.toThrow("unavailable");
     await b.client.execute({ action: "publish", card: draft }); now.value += 7 * 86_400_000 + 1;
     expect((await a.client.execute({ action: "read" })).cards).toEqual([]);
-    await expect(a.client.execute({ action: "request", target: "bob" })).rejects.toThrow("unavailable");
-    await expect(a.client.execute({ action: "request", target: "alice" })).rejects.toThrow("unavailable");
+    await expect(a.client.execute({ action: "request", target: "bob", sealed: "sealed-test" })).rejects.toThrow("unavailable");
+    await expect(a.client.execute({ action: "request", target: "alice", sealed: "sealed-test" })).rejects.toThrow("unavailable");
   });
   it("serializes duplicate signed commands with CAS, so at most one replay commits", async () => {
     const { actor, service, store } = await setup(); const a = await actor("alice");

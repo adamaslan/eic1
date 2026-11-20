@@ -3,7 +3,7 @@ import { DirectoryController, publicCard, searchCards, type DirectoryAdapter, ty
 
 const card = { id: "person-1", name: "River", handle: "river", bio: "Film photos and long walks" };
 function fixture(ownCard: DirectoryCard | null = null) {
-  const adapter: DirectoryAdapter = { read: vi.fn(async () => ({ cards: [card], ownCard })), publish: vi.fn(async (draft) => ({ id: "self", ...draft })), hide: vi.fn(async () => {}), request: vi.fn(async () => {}) };
+  const adapter: DirectoryAdapter = { read: vi.fn(async () => ({ cards: [card], ownCard, incoming: [] })), publish: vi.fn(async (draft) => ({ id: "self", ...draft })), hide: vi.fn(async () => {}), request: vi.fn(async () => {}), accept: vi.fn(async () => {}), decline: vi.fn(async () => {}) };
   return { adapter, model: new DirectoryController(adapter) };
 }
 describe("Discover local state, not a hosted directory", () => {

@@ -1,5 +1,6 @@
 import { createRelayHttpHandler } from '../../../packages/features/src/relay-http';
 import { createSupabaseRelayMembership, createSupabaseRelayStore } from '../../../packages/features/src/supabase-relay-store';
+import { verifyTurnstileToken } from '../../../packages/features/src/relay-enroll';
 
 declare const Deno: { env: { get(key: string): string | undefined }; serve(handler: (request: Request) => Promise<Response>): void };
 // Supabase supplies these only inside the Edge runtime. No admin key enters a
@@ -7,6 +8,8 @@ declare const Deno: { env: { get(key: string): string | undefined }; serve(handl
 const projectUrl = Deno.env.get('SUPABASE_URL');
 const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 if (!projectUrl || !serviceKey) throw new Error('Server configuration unavailable');
+// Self-enrollment is OFF unless the server-only Turnstile secret is set. No secret, no open door.
+const turnstileSecret = Deno.env.get('TURNSTILE_SECRET_KEY');
 const rpc = async (name: string, args: Record<string, unknown>) => {
   const response = await fetch(`${projectUrl}/rest/v1/rpc/${name}`, {
     method: 'POST', headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}`, 'content-type': 'application/json' },
@@ -28,6 +31,13 @@ Deno.serve(async request => {
       // checked inside eic_relay_is_member. Requires hosted-relay-v2-members.sql applied.
       enabled: true, membership: createSupabaseRelayMembership({ rpc }), origins: config.origins,
       maxPublishesPerWindow: 10, windowMs: 60000, now: () => new Date(),
+      selfEnroll: turnstileSecret ? {
+        verifyTurnstile: (token: string) => verifyTurnstileToken(turnstileSecret, token),
+        claimDailySlot: async () => {
+          const result = await rpc('eic_relay_claim_self_enroll', { p_limit: config.self_enroll_per_day ?? 0 });
+          return result.error === null && result.data === true;
+        },
+      } : undefined,
     })(request);
   } catch {
     return new Response(JSON.stringify({ error: 'Encrypted relay is unavailable.' }), { status: 503, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });

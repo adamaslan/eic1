@@ -2,7 +2,6 @@ import { type RouteConfig, index, layout, route } from "@react-router/dev/routes
 
 export default [
   index("routes/landing.tsx"),
-...(process.env.NODE_ENV !== "production" && process.env.EIC_LOCAL_DISCOVER_PREVIEW === "1" ? [route("discover-local-preview", "routes/discover-local-preview.tsx")] : []),
 
   layout("layouts/desktop.tsx", [
     route("feed", "routes/feed.tsx"),

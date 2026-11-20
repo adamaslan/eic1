@@ -69,11 +69,19 @@ test('local signed relay: two browser vaults exchange ciphertext and recover aft
  await a.getByLabel('Message',{exact:true}).fill('synthetic desktop to mobile sealed message');await a.getByRole('button',{name:'Send',exact:true}).click();
  await expect(a.getByRole('button',{name:'Text a chat link'})).toHaveCount(0);
  await expect(a.getByText(/Encrypted snapshot committed/)).toBeVisible();
+  // Accepted by the relay is shown as such, and is not yet delivery.
+  await expect(a.getByRole('status',{name:/Message status: .*Sent to relay/})).toBeVisible();
+  await expect(a.getByRole('status',{name:/Message status: .*Delivered/})).toHaveCount(0);
  await opts(b);await b.getByRole('button',{name:'Check for messages'}).click();await expect(b.getByText('synthetic desktop to mobile sealed message',{exact:true})).toBeVisible();
  await b.getByLabel('Message',{exact:true}).fill('synthetic mobile reply');await b.getByRole('button',{name:'Send',exact:true}).click();
  await expect(b.getByText(/Encrypted snapshot committed/)).toBeVisible();
  await opts(a);await a.getByRole('button',{name:'Check for messages'}).click();await expect(a.getByText('synthetic mobile reply',{exact:true})).toBeVisible();
+ // B's reply carried B's receipt for A's first message: now it is delivered, not merely accepted.
+ await expect(a.getByRole('status',{name:/Message status: .*Delivered/})).toBeVisible();
  await opts(a);await a.getByRole('button',{name:'Check for messages'}).click();await expect(a.getByText('synthetic mobile reply',{exact:true})).toHaveCount(1);
+ // Phone layout: no horizontal page scroll at 390px, and a screenshot for review.
+ expect(await b.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);
+ await b.screenshot({path:testInfo.outputPath('phone-b-chat.png'),fullPage:true});
  await Promise.all([a.reload(),b.reload()]);
  await expect(a.getByText('synthetic desktop to mobile sealed message',{exact:true})).toHaveCount(1);
  await expect(a.getByText('synthetic mobile reply',{exact:true})).toHaveCount(1);

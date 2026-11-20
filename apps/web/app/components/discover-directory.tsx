@@ -4,7 +4,7 @@ import { Window } from "~/ui95/Window";
 import { Button95 } from "~/ui95/Button95";
 import { DirectoryController, searchCards, type DirectoryCard } from "~/platform/discover-controller";
 
-export function DiscoverDirectory({ controller, synthetic = false }: { controller: DirectoryController; synthetic?: boolean }) {
+export function DiscoverDirectory({ controller }: { controller: DirectoryController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<DirectoryCard | null>(null);
@@ -15,7 +15,6 @@ export function DiscoverDirectory({ controller, synthetic = false }: { controlle
   const cards = searchCards(state.cards, query);
   return (
     <div className="mx-auto flex w-full max-w-[960px] flex-col gap-3 text-[12px]">
-      {synthetic && <p className="sticky top-0 z-50 bg-[#ffff00] p-2 font-bold text-black">LOCAL INTERACTIVE PROTOTYPE · SYNTHETIC PEOPLE · NO LIVE DIRECTORY</p>}
       <Window title="Discover">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -42,6 +41,19 @@ export function DiscoverDirectory({ controller, synthetic = false }: { controlle
           {!state.ready && !state.busy && <Button95 onClick={() => { void controller.load(); }}>Try again</Button95>}
           <label className="flex flex-col gap-1 font-bold">Search people<input className="min-h-[44px] w-full bg-white px-3 font-normal text-black" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, handle or interest" disabled={!state.ready} /></label>
           {state.busy && <p role="status">Working...</p>}
+          {state.ready && state.incoming.length > 0 && (
+            <section className="flex flex-col gap-2 border border-[var(--w95-muted)] p-2" aria-label="Incoming requests">
+              <p className="font-bold">{state.incoming.length} {state.incoming.length === 1 ? "person wants" : "people want"} to connect with you</p>
+              {state.incoming.map((id) => (
+                <div key={id} className="flex flex-wrap items-center gap-2">
+                  <span className="min-w-0 flex-1 break-all">{cards.find((card) => card.id === id)?.name ?? "Someone on Discover"}</span>
+                  <Button95 disabled={state.busy} onClick={() => { void controller.accept(id); }}>Accept</Button95>
+                  <Button95 disabled={state.busy} onClick={() => { void controller.decline(id); }}>Decline</Button95>
+                </div>
+              ))}
+              <p className="text-[12px] text-[var(--w95-muted)]">Accepting shares your connect with them and imports theirs. Nothing is shared until you accept.</p>
+            </section>
+          )}
           {state.ready && <p>{cards.length} {cards.length === 1 ? "person" : "people"}{query.trim() ? " found" : " to discover"}</p>}
           {state.ready && cards.length === 0 && <p>No people match. Try a different name or interest.</p>}
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="People to discover">

@@ -2,7 +2,7 @@ import { AppError } from "@veil/core";
 import { RelayStoreUnavailableError } from "./supabase-relay-store";
 import { RelayRateLimitError, admitRelayPublish, serveRelayRead, serveRelayChunk, type RelayAtomicStore, type RelayReadRequest } from "./relay-adapter";
 import type { RelayPublishRequest } from "./chat-relay";
-import { RelayEnrollDeniedError, admitRelayEnroll, isRelayEnrollRequest, staticRelayMembership, type RelayMembership } from "./relay-enroll";
+import { RelayEnrollDeniedError, admitRelayEnroll, admitRelaySelfEnroll, isRelayEnrollRequest, isRelaySelfEnrollRequest, staticRelayMembership, type RelayMembership, type RelaySelfEnrollPolicy } from "./relay-enroll";
 import type { DirectoryService } from "./discover-directory";
 
 export const RELAY_HTTP_MAX_BYTES = 2 * 1024 * 1024;
@@ -19,6 +19,8 @@ export interface RelayHttpOptions {
   now: () => Date;
   /** Discover directory. Absent means the directory action is not served. */
   directory?: DirectoryService;
+  /** Human-verified self-enrollment. Absent means self-enrollment is refused (404). */
+  selfEnroll?: RelaySelfEnrollPolicy;
 }
 
 class BadRequest extends Error {}
@@ -96,6 +98,17 @@ export function createRelayHttpHandler(store: RelayAtomicStore, options: RelayHt
         }
       }
       if (action === "enroll") {
+        if (isRelaySelfEnrollRequest(body)) {
+          if (!options.selfEnroll) return reply(404, { error: "Not found." });
+          try {
+            const { status } = await admitRelaySelfEnroll(store, membership!, body, { now: options.now(), policy: options.selfEnroll });
+            return reply(200, { status });
+          } catch (error) {
+            if (error instanceof RelayEnrollDeniedError && error.reason === "daily_limit") return reply(429, { error: "Joining is paused for today. Try again tomorrow." });
+            if (error instanceof RelayEnrollDeniedError && error.reason === "turnstile_failed") return reply(403, { error: "Verification did not pass. Try the check again." });
+            throw error;
+          }
+        }
         if (!isRelayEnrollRequest(body)) throw new BadRequest();
         const { status } = await admitRelayEnroll(store, membership!, body, { now: options.now() });
         return reply(200, { status });

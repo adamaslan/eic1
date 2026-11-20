@@ -39,7 +39,7 @@ export interface RelayEnrollRequest {
 }
 
 export type RelayEnrollStatus = "enrolled" | "member";
-export type RelayEnrollDenial = "inviter_not_member" | "invite_used" | "inviter_quota" | "capacity";
+export type RelayEnrollDenial = "inviter_not_member" | "invite_used" | "inviter_quota" | "capacity" | "turnstile_failed" | "daily_limit" | "self_enroll_disabled";
 
 export class RelayEnrollDeniedError extends AppError {
   constructor(readonly reason: RelayEnrollDenial) {
@@ -55,10 +55,13 @@ export interface RelayMembership {
    * and the member cap must hold. Denials return their reason; outages throw.
    */
   enroll(input: { pubkey: string; inviterPub: string; inviteId: string }): Promise<RelayEnrollStatus | RelayEnrollDenial>;
+  /** Self-enrollment (human-verified, rate-limited). Optional: a membership without it denies self-enrollment. */
+  admitSelf?(pubkey: string): Promise<RelayEnrollStatus | RelayEnrollDenial>;
 }
 
 const invitePayload = (inviteId: string, expiresAt: number) => new TextEncoder().encode(`eic-relay-invite:v1:${inviteId}:${expiresAt}`);
 const enrollPayload = (ts: number, nonce: string, inviteId: string) => new TextEncoder().encode(`enroll:${ts}:${nonce}:${inviteId}`);
+const selfEnrollPayload = (ts: number, nonce: string) => new TextEncoder().encode(`enroll-self:${ts}:${nonce}`);
 
 function randomId(): string {
   return encodeBase64(globalThis.crypto.getRandomValues(new Uint8Array(18))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -134,6 +137,83 @@ export async function admitRelayEnroll(
   return { status: result, ops };
 }
 
+/** Self-enrollment: a signed request that also carries a human-verification token. Separate signing domain
+ * ("enroll-self:") so an invite signature can never be replayed as a self-enrollment, or the reverse. */
+export interface RelaySelfEnrollRequest {
+  pubkey: string;
+  ts: number;
+  nonce: string;
+  /** Signature over `enroll-self:${ts}:${nonce}` with the applicant's secret key. */
+  signature: string;
+  /** Verification token from the human check. Single use, checked server-side. */
+  turnstile: string;
+}
+
+export interface RelaySelfEnrollPolicy {
+  /** Server-side check of the verification token. Must fail closed (false) on any doubt. */
+  verifyTurnstile(token: string): Promise<boolean>;
+  /** Atomic global daily slot. False means today's self-enrollment budget is spent. */
+  claimDailySlot(): Promise<boolean>;
+}
+
+export async function signRelaySelfEnroll(identity: { publicKey: Bytes; secretKey: Bytes }, turnstile: string, now: Date): Promise<RelaySelfEnrollRequest> {
+  const ts = now.getTime();
+  const nonce = encodeBase64(globalThis.crypto.getRandomValues(new Uint8Array(24)));
+  const signature = encodeBase64(await signPayload(identity.secretKey, selfEnrollPayload(ts, nonce)));
+  return { pubkey: encodeBase64(identity.publicKey), ts, nonce, signature, turnstile };
+}
+
+export function isRelaySelfEnrollRequest(value: unknown): value is RelaySelfEnrollRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return short(body.pubkey, RELAY_MAX_PUBKEY_CHARS) && short(body.signature, 128) && short(body.nonce, RELAY_MAX_NONCE_CHARS)
+    && typeof body.ts === "number" && Number.isFinite(body.ts) && short(body.turnstile, 2048);
+}
+
+/** Server-side verification with an injected fetch. The secret never leaves the server. Network failure throws
+ * (the caller answers 503); a well-formed "success: false" answer returns false. */
+export async function verifyTurnstileToken(secret: string, token: string, fetcher: typeof fetch = globalThis.fetch): Promise<boolean> {
+  if (!secret || !token || token.length > 2048) return false;
+  const response = await fetcher("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST", body: new URLSearchParams({ secret, response: token }), redirect: "error", signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) return false;
+  const data = await response.json() as { success?: unknown };
+  return data.success === true;
+}
+
+/**
+ * Self-enrollment gate. Order: shape and proof of possession, freshness, single-use nonce, then "already a
+ * member" (no token or slot spent), then the human check, then the global daily slot, then the capped insert.
+ * A failure after the nonce is spent is never retried with the same request.
+ */
+export async function admitRelaySelfEnroll(
+  rawStore: RelayAtomicStore,
+  membership: RelayMembership,
+  request: RelaySelfEnrollRequest,
+  opts: { now: Date; policy: RelaySelfEnrollPolicy },
+): Promise<{ status: RelayEnrollStatus; ops: RelayOps }> {
+  if (!isRelaySelfEnrollRequest(request)) throw new VaultCorruptError("That enroll request is damaged.");
+  const nowMs = opts.now.getTime();
+  if (!(await verifies(request.pubkey, selfEnrollPayload(request.ts, request.nonce), request.signature))) {
+    throw new VaultCorruptError("That enroll request's signature does not check out.");
+  }
+  if (Math.abs(nowMs - request.ts) > RELAY_READ_MAX_AGE_MS) throw new AppError("That enroll request is too old.");
+  const { store, ops } = countingStore(rawStore);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", decodeBase64(request.pubkey));
+  const nonceKey = `replay/${base32Lower(new Uint8Array(digest))}/enroll-self/${request.nonce}`;
+  if ((await store.compareAndSet(nonceKey, String(request.ts), { createOnly: true })) === null) {
+    throw new AppError("That enroll request has already been used.");
+  }
+  if (await membership.isMember(request.pubkey)) return { status: "member", ops };
+  if (!membership.admitSelf) throw new RelayEnrollDeniedError("self_enroll_disabled");
+  if (!(await opts.policy.verifyTurnstile(request.turnstile))) throw new RelayEnrollDeniedError("turnstile_failed");
+  if (!(await opts.policy.claimDailySlot())) throw new RelayEnrollDeniedError("daily_limit");
+  const result = await membership.admitSelf(request.pubkey);
+  if (result !== "enrolled" && result !== "member") throw new RelayEnrollDeniedError(result);
+  return { status: result, ops };
+}
+
 /** Static allowlist adapter: the pre-enrollment behavior, with enrollment always denied. */
 export function staticRelayMembership(keys: readonly string[]): RelayMembership {
   const set = new Set(keys);
@@ -149,6 +229,12 @@ export function createMemoryRelayMembership(roots: readonly string[], limits: Re
   return {
     members,
     async isMember(pubkey) { return members.has(pubkey); },
+    async admitSelf(pubkey) {
+      if (members.has(pubkey)) return "member";
+      if (members.size >= limits.maxMembers) return "capacity";
+      members.set(pubkey, { inviter: null, inviteId: null });
+      return "enrolled";
+    },
     async enroll({ pubkey, inviterPub, inviteId }) {
       if (members.has(pubkey)) return "member";
       if (!members.has(inviterPub)) return "inviter_not_member";
