@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { encodeBase64 } from "@veil/core";
 import { generateSigningKeyPair, signPayload } from "@veil/crypto";
 import { countingStore, type RelayAtomicStore, type StoreEntry } from "./relay-adapter";
-import { admitRelaySelfEnroll, createMemoryRelayMembership, RelayEnrollDeniedError, signRelaySelfEnroll, verifyTurnstileToken, type RelaySelfEnrollRequest } from "./relay-enroll";
+import { admitRelayEnroll, admitRelaySelfEnroll, createMemoryRelayMembership, RelayEnrollDeniedError, signRelayEnroll, signRelayInvite, signRelaySelfEnroll, verifyTurnstileToken, type RelaySelfEnrollRequest } from "./relay-enroll";
 import { createRelayHttpHandler } from "./relay-http";
 import { staticRelayMembership } from "./relay-enroll";
 
@@ -62,13 +62,17 @@ describe("self-enrollment gate", () => {
     expect(await membership.isMember(pubkey)).toBe(false);
   });
 
-  it("a replayed request is refused, even though the first one enrolled", async () => {
-    const { id } = await applicant();
+  it("a replayed request changes nothing: an enrolled key reports member, and a new key cannot reuse a nonce", async () => {
+    const { id, pubkey } = await applicant();
     const membership = createMemoryRelayMembership([]);
     const store = memStore();
     const request = await signRelaySelfEnroll(id, "t", NOW);
     await admitRelaySelfEnroll(store, membership, request, { now: NOW, policy: allow() });
-    await expect(admitRelaySelfEnroll(store, membership, request, { now: NOW, policy: allow() })).rejects.toThrow("already been used");
+    expect((await admitRelaySelfEnroll(store, membership, request, { now: NOW, policy: allow() })).status).toBe("member");
+    expect(await membership.isMember(pubkey)).toBe(true);
+    // The nonce is spent only by the first real admission. A forged reuse under another key fails the signature check.
+    const reused = { ...request, pubkey: (await applicant()).pubkey };
+    await expect(admitRelaySelfEnroll(store, membership, reused, { now: NOW, policy: allow() })).rejects.toThrow("does not check out");
   });
 
   it("a request signed by a different key is refused before any policy runs", async () => {
@@ -146,5 +150,41 @@ describe("self-enroll over the relay handler", () => {
   it("serves no self-enrollment when no policy is configured", async () => {
     const { id } = await applicant();
     expect((await post(handlerWith(undefined), await signRelaySelfEnroll(id, "t", NOW))).status).toBe(404);
+  });
+});
+
+describe("admission order and vouching rules (review fixes)", () => {
+  it("an invite from a non-member is denied before any relay row is written", async () => {
+    const { id, pubkey } = await applicant();
+    const inviter = await applicant();
+    const store = memStore();
+    let writes = 0;
+    const spy: RelayAtomicStore = { ...store, async compareAndSet(...args) { writes += 1; return store.compareAndSet(...args); } } as RelayAtomicStore;
+    const invite = await signRelayInvite(inviter.id, new Date(NOW.getTime() + 60_000));
+    const request = await signRelayEnroll(id, invite, NOW);
+    const error = await admitRelayEnroll(spy, createMemoryRelayMembership([]), request, { now: NOW }).catch((e) => e);
+    expect((error as RelayEnrollDeniedError).reason).toBe("inviter_not_member");
+    expect(writes).toBe(0);
+    expect(pubkey).toBeTruthy();
+  });
+
+  it("a failed human check writes no relay row", async () => {
+    const { id } = await applicant();
+    let writes = 0;
+    const store = memStore();
+    const spy = { ...store, async compareAndSet(...args: Parameters<RelayAtomicStore["compareAndSet"]>) { writes += 1; return store.compareAndSet(...args); } } as RelayAtomicStore;
+    const error = await admitRelaySelfEnroll(spy, createMemoryRelayMembership([]), await signRelaySelfEnroll(id, "bad", NOW), { now: NOW, policy: allow({ turnstile: false }) }).catch((e) => e);
+    expect((error as RelayEnrollDeniedError).reason).toBe("turnstile_failed");
+    expect(writes).toBe(0);
+  });
+
+  it("a self-enrolled key cannot vouch for anyone", async () => {
+    const self = await applicant();
+    const newcomer = await applicant();
+    const membership = createMemoryRelayMembership([]);
+    await membership.admitSelf!(self.pubkey);
+    const invite = await signRelayInvite(self.id, new Date(NOW.getTime() + 60_000));
+    const error = await admitRelayEnroll(memStore(), membership, await signRelayEnroll(newcomer.id, invite, NOW), { now: NOW }).catch((e) => e);
+    expect((error as RelayEnrollDeniedError).reason).toBe("inviter_quota");
   });
 });

@@ -48,7 +48,8 @@ const ChatPayloadSchema = z.object({
 
 // A receipt is a chat envelope whose sealed payload is an ack, not a message. The recipient
 // sends the signatures of the envelopes it has saved, newest first, capped so the chunk stays small.
-export const RECEIPT_MAX = 200;
+// Receipts cover the newest RECEIPT_MAX inbound messages per friend. Older unacknowledged ones remain a known limit.
+export const RECEIPT_MAX = 500;
 const ReceiptPayloadSchema = z.object({
   v: z.literal(1),
   ack: z.object({ ids: z.array(z.string().min(1).max(256)).max(RECEIPT_MAX) }),

@@ -3,7 +3,7 @@ import { openSyncEnvelope, sealSyncEnvelope, type SyncEnvelope } from "@veil/cry
 import type { UnlockedVault } from "@veil/vault";
 import { publisherPath } from "./chat-relay";
 import { buildShareBundle, importShareBundle, loadOrCreateShareIdentity } from "./sharing";
-import { loadSettings } from "./social";
+import { listConnections, loadSettings } from "./social";
 
 // Discover connect: a request carries my signed connect bundle, sealed so only the target can open it.
 // The target's acceptance returns its bundle, sealed to me. Both sides import only on that explicit step,
@@ -61,5 +61,14 @@ export async function importSealedConnect(
   let payload: { v?: unknown; bundle?: unknown };
   try { payload = JSON.parse(new TextDecoder().decode(opened.plaintext)); } catch { throw new AppError("The connect is damaged."); }
   if (payload.v !== 1 || typeof payload.bundle !== "string") throw new AppError("The connect is damaged.");
+  // The sealed envelope proves who sent it; the bundle must be that same author's signed v2 bundle.
+  // Otherwise a sender could carry someone else's bundle and overwrite that person's connection.
+  let author: { id?: unknown; pubkey?: unknown; format?: unknown; version?: unknown; author?: { id?: unknown; pubkey?: unknown } };
+  try { author = JSON.parse(payload.bundle); } catch { throw new AppError("The connect is damaged."); }
+  if (author.format !== "eic-share" || author.version !== 2 || typeof author.author?.id !== "string" || author.author?.pubkey !== senderPubkey) {
+    throw new AppError("That connect was not signed by the person who sent it.");
+  }
+  const existing = (await listConnections(vault)).find((c) => c.id === author.author!.id);
+  if (existing?.pubkey && existing.pubkey !== senderPubkey) throw new AppError("That connect would replace an existing friend. It was not imported.");
   await importShareBundle(vault, payload.bundle, { settings, newId: deps.newId, now: deps.now });
 }

@@ -9,7 +9,7 @@ const db = new PGlite();
 
 beforeAll(async () => {
   await db.exec("create role anon; create role authenticated; create role service_role;");
-  for (const file of ["hosted-relay.sql", "hosted-relay-v2-members.sql", "hosted-directory.sql", "hosted-self-enroll.sql"]) {
+  for (const file of ["hosted-relay.sql", "hosted-relay-v2-members.sql", "hosted-directory.sql", "hosted-self-enroll.sql", "hosted-relay-v3-admission.sql"]) {
     await db.exec(await readFile(`supabase/local-draft/${file}`, "utf8"));
   }
   await db.query("update eic_relay.config set enabled=true, public_keys=$1, origins=$2", [["root-key"], ["https://eic.example"]]);
@@ -35,6 +35,16 @@ describe("eic_relay_admit_self", () => {
     await db.query("update eic_relay.config set max_members = $1", [current]);
     expect((await admit("new-key-over-cap")).value).toBe("capacity");
     await db.query("update eic_relay.config set max_members = 1000");
+  });
+});
+
+describe("self-enrolled members cannot vouch (v3)", () => {
+  it("a self-enrolled key cannot invite, but a root can", async () => {
+    await admit("self-voucher");
+    const invite = "invite-0000000000000001";
+    const vouch = async (inviter: string) => (await db.query("select public.eic_relay_enroll($1, $2, $3) as value", ["invitee-" + inviter, inviter, invite])).rows[0] as { value: string };
+    expect((await vouch("self-voucher")).value).toBe("inviter_quota");
+    expect((await vouch("root-key")).value).toBe("enrolled");
   });
 });
 

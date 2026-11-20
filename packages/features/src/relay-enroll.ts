@@ -63,6 +63,8 @@ const invitePayload = (inviteId: string, expiresAt: number) => new TextEncoder()
 const enrollPayload = (ts: number, nonce: string, inviteId: string) => new TextEncoder().encode(`enroll:${ts}:${nonce}:${inviteId}`);
 const selfEnrollPayload = (ts: number, nonce: string) => new TextEncoder().encode(`enroll-self:${ts}:${nonce}`);
 
+const emptyOps = (): RelayOps => ({ reads: 0, casAttempts: 0, writes: 0, lists: 0, deletes: 0 });
+
 function randomId(): string {
   return encodeBase64(globalThis.crypto.getRandomValues(new Uint8Array(18))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
@@ -126,6 +128,8 @@ export async function admitRelayEnroll(
   if (invite.expiresAt <= nowMs) throw new AppError("That relay invite has expired. Ask your friend for a fresh connect link.");
   // An invite can never outlive the TTL, whatever its signer claimed.
   if (invite.expiresAt > nowMs + RELAY_INVITE_TTL_MS + RELAY_INVITE_SKEW_MS) throw new AppError("That relay invite is not valid.");
+  // Cheap membership gate before any store write: a stranger's invite must not cost a replay row.
+  if (!(await membership.isMember(invite.inviterPub))) throw new RelayEnrollDeniedError("inviter_not_member");
   const { store, ops } = countingStore(rawStore);
   const digest = await globalThis.crypto.subtle.digest("SHA-256", decodeBase64(request.pubkey));
   const nonceKey = `replay/${base32Lower(new Uint8Array(digest))}/enroll/${request.nonce}`;
@@ -199,15 +203,16 @@ export async function admitRelaySelfEnroll(
     throw new VaultCorruptError("That enroll request's signature does not check out.");
   }
   if (Math.abs(nowMs - request.ts) > RELAY_READ_MAX_AGE_MS) throw new AppError("That enroll request is too old.");
+  if (await membership.isMember(request.pubkey)) return { status: "member", ops: emptyOps() };
+  if (!membership.admitSelf) throw new RelayEnrollDeniedError("self_enroll_disabled");
+  // The human check comes BEFORE the replay row: a request that fails it writes nothing to the relay.
+  if (!(await opts.policy.verifyTurnstile(request.turnstile))) throw new RelayEnrollDeniedError("turnstile_failed");
   const { store, ops } = countingStore(rawStore);
   const digest = await globalThis.crypto.subtle.digest("SHA-256", decodeBase64(request.pubkey));
   const nonceKey = `replay/${base32Lower(new Uint8Array(digest))}/enroll-self/${request.nonce}`;
   if ((await store.compareAndSet(nonceKey, String(request.ts), { createOnly: true })) === null) {
     throw new AppError("That enroll request has already been used.");
   }
-  if (await membership.isMember(request.pubkey)) return { status: "member", ops };
-  if (!membership.admitSelf) throw new RelayEnrollDeniedError("self_enroll_disabled");
-  if (!(await opts.policy.verifyTurnstile(request.turnstile))) throw new RelayEnrollDeniedError("turnstile_failed");
   if (!(await opts.policy.claimDailySlot())) throw new RelayEnrollDeniedError("daily_limit");
   const result = await membership.admitSelf(request.pubkey);
   if (result !== "enrolled" && result !== "member") throw new RelayEnrollDeniedError(result);
@@ -226,6 +231,8 @@ export function staticRelayMembership(keys: readonly string[]): RelayMembership 
 /** In-memory membership for tests and the local fixture. Single-threaded JS keeps it atomic. */
 export function createMemoryRelayMembership(roots: readonly string[], limits: RelayEnrollLimits = RELAY_ENROLL_LIMITS): RelayMembership & { members: Map<string, { inviter: string | null; inviteId: string | null }> } {
   const members = new Map<string, { inviter: string | null; inviteId: string | null }>(roots.map((key) => [key, { inviter: null, inviteId: null }]));
+  // Self-enrolled keys are members but may not vouch (matches hosted-relay-v3-admission.sql).
+  const selfEnrolled = new Set<string>();
   return {
     members,
     async isMember(pubkey) { return members.has(pubkey); },
@@ -233,11 +240,13 @@ export function createMemoryRelayMembership(roots: readonly string[], limits: Re
       if (members.has(pubkey)) return "member";
       if (members.size >= limits.maxMembers) return "capacity";
       members.set(pubkey, { inviter: null, inviteId: null });
+      selfEnrolled.add(pubkey);
       return "enrolled";
     },
     async enroll({ pubkey, inviterPub, inviteId }) {
       if (members.has(pubkey)) return "member";
       if (!members.has(inviterPub)) return "inviter_not_member";
+      if (selfEnrolled.has(inviterPub)) return "inviter_quota";
       const vouched = [...members.values()].filter((m) => m.inviter === inviterPub);
       if (vouched.filter((m) => m.inviteId === inviteId).length >= limits.usesPerInvite) return "invite_used";
       if (vouched.length >= limits.invitesPerMember) return "inviter_quota";

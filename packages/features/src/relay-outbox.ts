@@ -62,10 +62,11 @@ export async function prepareRelayOutbox(vault: UnlockedVault, now: Date): Promi
   if (state.pending) return { seq: state.seq, reusedPending: true };
   if (state.seq === Number.MAX_SAFE_INTEGER) throw new AppError("Relay sequence limit reached.");
   const seq = state.seq + 1;
+  // Cutoff first: a message sent while the snapshot is being built may be in it, but is never marked accepted by mistake.
+  const pendingCutoff = await latestOutboundSentAt(vault);
   const pending = await buildChatFeedSnapshot(vault, ctx.settings, { now, seq });
   // HTTP candidate is deliberately stricter than the older feed's maximum backlog.
   if (new TextEncoder().encode(JSON.stringify(pending)).byteLength > 2 * 1024 * 1024) throw new AppError("The sealed chat backlog is too large for this relay. Nothing was sent.");
-  const pendingCutoff = await latestOutboundSentAt(vault);
   await vault.putJsonIfUnchanged("settings", ctx.id, { ...state, seq, pending, pendingCutoff }, raw);
   return { seq, reusedPending: false };
 }

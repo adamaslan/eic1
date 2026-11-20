@@ -3,9 +3,12 @@ import { SubtleCryptoPort } from "@veil/crypto";
 import { createVault, type UnlockedVault } from "@veil/vault";
 import { MemoryStore } from "../../../../packages/vault/src/memory-store";
 import {
+  buildShareBundle, importSealedConnect, loadOrCreateShareIdentity, sealConnectBundle,
   admitDirectoryPrincipal, defaultSettings, DirectoryService, emptyDirectory, listConnections, listChatThread,
   myPrincipal, saveSettings, sendChatMessage, vaultDirectoryClient, type DirectoryAtomicStore, type DirectoryDatabase,
 } from "@veil/features";
+import { sealSyncEnvelope } from "@veil/crypto";
+import { decodeBase64, encodeBase64 } from "@veil/core";
 import { signedDirectoryAdapter } from "./discover-signed-adapter";
 
 const NOW = Date.UTC(2026, 10, 20, 12, 0);
@@ -90,5 +93,37 @@ describe("Discover connect: request, accept, then chat", () => {
     // Eve has no request from Alice to accept.
     await expect(eve.adapter.accept(alice.principal)).rejects.toThrow("No incoming request");
     expect((await listConnections(bob.vault))).toEqual([]);
+  });
+
+  it("a sealed connect must carry its sender's own signed bundle", async () => {
+    const { alice, bob, eve } = await setup();
+    // Eve seals ALICE's bundle to Bob. The envelope is genuinely Eve's, but the bundle inside is not.
+    const aliceSettings = { ...defaultSettings(), authorId: "alice-id", handle: "alice" };
+    const bundle = (await buildShareBundle(alice.vault, aliceSettings, [], new Date(NOW))).text;
+    const eveKey = encodeBase64((await loadOrCreateShareIdentity(eve.vault)).publicKey);
+    const bobKey = encodeBase64((await loadOrCreateShareIdentity(bob.vault)).publicKey);
+    const sealed = JSON.stringify(await sealSyncEnvelope({
+      secretKey: (await loadOrCreateShareIdentity(eve.vault)).secretKey, authorId: eve.principal, recipientAuthorId: bob.principal,
+      recipientPublicKey: decodeBase64(bobKey), kind: "chat", plaintext: new TextEncoder().encode(JSON.stringify({ v: 1, bundle })),
+    }));
+    await expect(importSealedConnect(bob.vault, sealed, eveKey, { newId: () => "x", now: new Date(NOW) })).rejects.toThrow("not signed by the person who sent it");
+    expect((await listConnections(bob.vault)).map((c) => c.id)).toEqual([]);
+  });
+
+  it("nobody can replace an existing friend by claiming their author id", async () => {
+    const { alice, bob, eve } = await setup();
+    // Bob and Alice are connected for real.
+    await alice.adapter.request(bob.principal);
+    await bob.adapter.accept(alice.principal);
+    await alice.adapter.read();
+    const alicePubkey = encodeBase64((await loadOrCreateShareIdentity(alice.vault)).publicKey);
+    expect((await listConnections(bob.vault)).find((c) => c.id === "alice-id")?.pubkey).toBe(alicePubkey);
+    // Eve's vault now claims Alice's author id. Its genuine sealed connect is signed by Eve's key, not Alice's.
+    await saveSettings(eve.vault, { ...defaultSettings(), authorId: "alice-id", handle: "alice" });
+    const eveKey = encodeBase64((await loadOrCreateShareIdentity(eve.vault)).publicKey);
+    const bobKey = encodeBase64((await loadOrCreateShareIdentity(bob.vault)).publicKey);
+    const forged = await sealConnectBundle(eve.vault, bob.principal, bobKey, new Date(NOW));
+    await expect(importSealedConnect(bob.vault, forged, eveKey, { newId: () => "y", now: new Date(NOW) })).rejects.toThrow("would replace an existing friend");
+    expect((await listConnections(bob.vault)).find((c) => c.id === "alice-id")?.pubkey).toBe(alicePubkey);
   });
 });

@@ -1,6 +1,8 @@
 import { createRelayHttpHandler } from '../../../packages/features/src/relay-http';
 import { createSupabaseRelayMembership, createSupabaseRelayStore } from '../../../packages/features/src/supabase-relay-store';
 import { verifyTurnstileToken } from '../../../packages/features/src/relay-enroll';
+import { DirectoryService, admitDirectoryPrincipal } from '../../../packages/features/src/discover-directory';
+import { createSupabaseDirectoryStore } from '../../../packages/features/src/supabase-directory-store';
 
 declare const Deno: { env: { get(key: string): string | undefined }; serve(handler: (request: Request) => Promise<Response>): void };
 // Supabase supplies these only inside the Edge runtime. No admin key enters a
@@ -26,11 +28,14 @@ Deno.serve(async request => {
     const result = await rpc('eic_relay_config', {});
     const config = result.data;
     if (result.error || !config || config.enabled !== true || !Array.isArray(config.origins)) return new Response(JSON.stringify({ error: 'Encrypted relay is disabled.' }), { status: 503, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+    const membership = createSupabaseRelayMembership({ rpc });
     return await createRelayHttpHandler(createSupabaseRelayStore({ rpc }), {
       // v2: membership = enrolled members plus config.public_keys (manual override), both
       // checked inside eic_relay_is_member. Requires hosted-relay-v2-members.sql applied.
-      enabled: true, membership: createSupabaseRelayMembership({ rpc }), origins: config.origins,
+      enabled: true, membership, origins: config.origins,
       maxPublishesPerWindow: 10, windowMs: 60000, now: () => new Date(),
+      // Discover: a signed directory action. Admission binds each principal to a member key.
+      directory: new DirectoryService(createSupabaseDirectoryStore({ rpc }), (principal, pubkey) => admitDirectoryPrincipal(membership.isMember, principal, pubkey), () => Date.now()),
       selfEnroll: turnstileSecret ? {
         verifyTurnstile: (token: string) => verifyTurnstileToken(turnstileSecret, token),
         claimDailySlot: async () => {
