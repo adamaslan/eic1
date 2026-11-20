@@ -5,14 +5,13 @@ import { AppError, timeAgo } from "@veil/core";
 import {
   CHAT_BODY_MAX,
   configureRelayFeed, createRelayTransport, signedRelayFetcher,
-  publishRelaySnapshot, syncConnection, loadSettings,
+  publishRelaySnapshot, syncConnection, loadSettings, networkPolicy,
   buildChatShareLink,
   listChatThread,
   markThreadRead,
   describeSendError,
   sendChatMessage,
   outboundStatus,
-  relayConfirmedCutoff,
   type ChatMessage,
 } from "@veil/features";
 import type { Route } from "./+types/chat";
@@ -60,7 +59,6 @@ export function ChatThreadView({
   onShareLink,
   onOlderLink,
   relay,
-  confirmedCutoff = null,
 }: {
   handle: string;
   authorId?: string;
@@ -78,7 +76,6 @@ export function ChatThreadView({
   /** v2 (Supabase relay). When present it REPLACES the v1 chat-link handoff controls. */
   relay?: { notice: string | null; onRetry: () => void; onCheck: () => void };
   /** Newest sent message the relay committed. Drives queued / accepted; delivered comes from the receipt. */
-  confirmedCutoff?: string | null;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -138,7 +135,7 @@ export function ChatThreadView({
                   <span className="whitespace-pre-wrap break-words">{message.body}</span>
                   <span className="text-[var(--w95-muted)]">
                     {timeAgo(message.sentAt, new Date())} ago
-                    {message.direction === "out" && <> · <span role="status" aria-label={`Message status: ${DELIVERY_LABEL[outboundStatus(message, confirmedCutoff)]}`}>{DELIVERY_LABEL[outboundStatus(message, confirmedCutoff)]}</span></>}
+                    {message.direction === "out" && <> · <span role="status" aria-label={`Message status: ${DELIVERY_LABEL[outboundStatus(message)]}`}>{DELIVERY_LABEL[outboundStatus(message)]}</span></>}
                   </span>
                 </li>
               ))}
@@ -182,7 +179,7 @@ export function ChatThreadView({
             <p className="bg-[#ffffe1] px-1.5 py-1">
               Messages are sealed for @{handle} and live in your vault; everything you see renders from local data.
               When a relay endpoint is configured, Send also puts an encrypted snapshot on the relay, and Check for messages pulls @{handle}&apos;s replies.
-              An open chat checks for replies about once a minute while visible and unlocked, on Wi-Fi (or on cellular when you turn on cellular sync in Settings). Nothing runs after you close it, and the relay cannot read your messages or tell you when they are read.
+              An open chat checks for replies about once a minute while visible and unlocked, on Wi-Fi. If this browser cannot tell Wi-Fi from mobile data (Safari on iPhone), small encrypted messages still sync and large catches-up wait; reported mobile data waits unless you allow it in Settings. Nothing runs after you close it, there are no push notifications, and nothing is delivered while EIC is closed or locked, and the relay cannot read your messages or tell you when they are read.
             </p>
             </details>
           )}
@@ -201,7 +198,7 @@ export function ChatThreadView({
 // only these; manual Send/Check guidance (pending publish, retry hints) shares the same
 // notice slot and must survive auto ticks.
 const AUTO_NOTICE_WAITING_WIFI = "Some sealed data has not arrived yet; auto check keeps retrying about once a minute. Your local messages are kept.";
-const AUTO_NOTICE_WAITING_UNKNOWN = "Auto check is waiting for Wi-Fi - this browser may not know its connection type. Turn on cellular sync in Settings to auto-check anyway; your local messages are kept.";
+const AUTO_NOTICE_WAITING_UNKNOWN = "A larger update is waiting for Wi-Fi - this browser cannot tell its connection type, so only small messages sync now. Allow mobile data in Settings to fetch it anyway; your local messages are kept.";
 // Three distinct states. "Accepted" means the relay committed it, never that the friend has it.
 const DELIVERY_LABEL = { queued: "⏳ Saved on this device", accepted: "✓ Sent to relay", delivered: "✓✓ Delivered" } as const;
 
@@ -236,12 +233,10 @@ export default function Chat({ params }: Route.ComponentProps) {
     applyThread: setMessages,
     currentAuthorId: () => authorIdRef.current,
   }), [vault]);
-  const [confirmedCutoff, setConfirmedCutoff] = useState<string | null>(null);
   const reload = useCallback(async () => {
     const id = authorIdRef.current;
     if (!vault || !id) return;
     await threadReload(id);
-    setConfirmedCutoff(await relayConfirmedCutoff(vault));
   }, [vault, threadReload]);
 
   // authorId is an explicit dep: reload itself is param-stable (it reads authorIdRef at
@@ -413,13 +408,14 @@ export default function Chat({ params }: Route.ComponentProps) {
     setBusy(true);
     try {
       const settings = await loadSettings(vault);
-      if (detectSyncNetwork() !== "wifi" && !settings.syncOnCellular) throw new AppError("Waiting for Wi-Fi. This browser may not know its connection type; turn on cellular sync in Settings to allow this request.");
+      const policy = networkPolicy(detectSyncNetwork(), settings.syncOnCellular);
+      if (!policy.allowed) throw new AppError("Waiting for Wi-Fi. This device reports mobile data; turn on cellular sync in Settings to allow this request.");
       if (action === "publish") {
         // Idempotent; covers vaults connected before feeds were prepared automatically.
         if (!settings.feedUrl) await configureRelayFeed(vault, relayEndpoint);
-        const result = await publishRelaySnapshot(vault, createRelayTransport(relayEndpoint), () => new Date());
+        const result = await publishRelaySnapshot(vault, createRelayTransport(relayEndpoint), () => new Date(), { maxBytes: policy.budgetBytes });
         await reload();
-        setRelayNotice(result.status === "confirmed" ? "Encrypted snapshot committed to relay. This is not a recipient receipt. Sending another message commits a new snapshot." : "Relay confirmation is pending. Exact sealed snapshot is saved; open Relay options and use Retry relay send; do not retype the message.");
+        setRelayNotice(result.status === "confirmed" ? "Encrypted snapshot committed to relay. This is not a recipient receipt. Sending another message commits a new snapshot." : result.status === "deferred" ? "Your saved messages are too large to send while this browser cannot tell its connection type. Nothing was lost; they send on Wi-Fi, or allow mobile data in Settings." : "Relay confirmation is pending. Exact sealed snapshot is saved; open Relay options and use Retry relay send; do not retype the message.");
       } else {
         const result = await syncConnection(vault, connection, { fetch: signedRelayFetcher(vault, relayEndpoint), network: detectSyncNetwork(), retryFailed: true, newId: newItemId, now: new Date() });
         setRelayNotice(`Received ${result.appliedChat} new encrypted messages. ${result.status}.`);
@@ -478,7 +474,6 @@ export default function Chat({ params }: Route.ComponentProps) {
       authorId={connection.id}
       verified={connection.pubkey !== null}
       messages={messages}
-      confirmedCutoff={confirmedCutoff}
       draft={draft}
       busy={busy}
       error={error}

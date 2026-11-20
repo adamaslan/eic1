@@ -4,7 +4,7 @@ import { SubtleCryptoPort, signPayload } from "@veil/crypto";
 import { createVault, type UnlockedVault } from "@veil/vault";
 import { MemoryStore } from "../../vault/src/memory-store";
 import { buildFeedSnapshot, chunkUrl, manifestUrl, parseFeedManifest } from "./feed";
-import { MAX_CHUNK_FETCH_RETRIES, syncAllConnections, syncConnection, type SyncDeps, type SyncFetcher } from "./sync";
+import { MAX_CHUNK_FETCH_RETRIES, UNKNOWN_NETWORK_BUDGET_BYTES, syncAllConnections, syncConnection, type SyncDeps, type SyncFetcher } from "./sync";
 import { buildShareBundle, importShareBundle, loadOrCreateShareIdentity } from "./sharing";
 import { defaultSettings, listConnections, saveSettings, setConnectionSyncState } from "./social";
 import { listChatThread, sendChatMessage } from "./chat";
@@ -446,26 +446,30 @@ it("keeps budget-deferred chunks pending when fetch retries exhaust on another c
   expect((await listChatThread(bob, "alice-id")).map((m) => m.body)).toEqual(["chat for the small chunk"]);
 });
 
-it("defers truthfully on unknown connectivity instead of claiming cellular", async () => {
+it("unknown connectivity: small data syncs, a large backlog waits, reported cellular stays blocked (never treated as Wi-Fi)", async () => {
   const { bob } = await pairedVaults();
   const feedUrl = "https://f.example/alice";
   const alice = await open();
   await saveSettings(alice, settingsFor("alice-id", "alice"));
-  const { host } = await aliceFeed(alice, [shareable("itm-u", "held back")], 1, feedUrl);
+  const big = Array.from({ length: 60 }, (_, i) => ({ ...shareable(`itm-big-${i}`, `big ${i}`), description: "x".repeat(1900) }));
+  const { snapshot, host } = await aliceFeed(alice, [shareable("itm-u", "small one"), ...big], 1, feedUrl);
   // Alice's bundle here comes from a rebuilt vault (new key): explicit rotation consent.
   await importShareBundle(bob, (await buildShareBundle(alice, { ...settingsFor("alice-id", "alice"), feedUrl }, [], NOW)).text, { settings: settingsFor("bob-id", "bob"), newId: deps.newId, now: NOW }, { allowKeyRotation: true });
+  expect(JSON.stringify(snapshot.files).length).toBeGreaterThan(UNKNOWN_NETWORK_BUDGET_BYTES);
 
-  // Browser cannot report a transport: sync defers without fetching anything, and the
-  // persisted status says the connection type is unknown - it never claims "cellular".
-  const deferred = await syncAllConnections(bob, { fetch: host.fetch, network: "unknown", newId: deps.newId, now: NOW });
-  expect(deferred.get("alice-id")!.status).toBe("deferred");
+  // Reported cellular without opt-in: nothing is fetched at all, and the state says cellular.
+  const blocked = await syncAllConnections(bob, { fetch: host.fetch, network: "cellular", newId: deps.newId, now: NOW });
+  expect(blocked.get("alice-id")!.status).toBe("deferred");
   expect(host.requests).toHaveLength(0);
-  const conn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
-  expect(conn.syncStatus).toBe("deferred");
-  expect(conn.syncDetail).toContain("unknown");
-  expect(conn.syncDetail).not.toContain("cellular sync is off");
+  expect((await listConnections(bob)).find((c) => c.id === "alice-id")!.syncDetail).toContain("cellular sync is off");
 
-  // Explicit opt-in (settings.syncOnCellular) is the honest path through the budget.
+  // Unknown without opt-in: the manifest is read, but a chunk over the unknown byte budget is not downloaded.
+  const waiting = await syncAllConnections(bob, { fetch: host.fetch, network: "unknown", newId: deps.newId, now: NOW });
+  expect(waiting.get("alice-id")!.status).toBe("deferred");
+  expect(host.requests.every((url) => url === manifestUrl(feedUrl))).toBe(true);
+  expect(waiting.get("alice-id")!.pendingChunks.length).toBeGreaterThan(0);
+
+  // Explicit opt-in (settings.syncOnCellular) raises the budget to the cellular one and completes the catch-up.
   await saveSettings(bob, { ...settingsFor("bob-id", "bob"), syncOnCellular: true });
   const applied = await syncAllConnections(bob, { fetch: host.fetch, network: "unknown", newId: deps.newId, now: NOW });
   expect(applied.get("alice-id")!.status).toBe("applied");

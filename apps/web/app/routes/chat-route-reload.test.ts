@@ -73,7 +73,6 @@ vi.mock("@veil/features", async (original) => ({
   ...await original<typeof import("@veil/features")>(),
   listChatThread: vi.fn().mockResolvedValue([]),
   markThreadRead: vi.fn().mockResolvedValue(0),
-  relayConfirmedCutoff: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("~/platform/session", () => ({ useSessionStore: (select: (state: { vault: UnlockedVault }) => unknown) => select({ vault }) }));
 vi.mock("~/platform/use-social", () => ({

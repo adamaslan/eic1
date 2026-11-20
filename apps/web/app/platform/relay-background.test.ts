@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { relayAllowed, relayFeedConnections } from "./relay-background";
+import { relayPolicy, relayFeedConnections } from "./relay-background";
 
 const ENDPOINT = "https://relay.example";
 const conn = (id: string, feedUrl: string | null, pubkey: string | null = "pk") => ({ id, feedUrl, pubkey }) as never;
@@ -15,10 +15,11 @@ describe("background relay selection", () => {
     expect(picked.map((c) => c.id)).toEqual(["on-relay"]);
   });
 
-  it("uses cellular only when the owner allowed it", () => {
-    expect(relayAllowed("wifi", false)).toBe(true);
-    expect(relayAllowed("cellular", false)).toBe(false);
-    expect(relayAllowed("unknown", false)).toBe(false);
-    expect(relayAllowed("cellular", true)).toBe(true);
+  it("never treats unknown as Wi-Fi: small data only, reported cellular needs the owner's opt-in", () => {
+    expect(relayPolicy("wifi", false)).toEqual({ allowed: true, budgetBytes: null });
+    expect(relayPolicy("unknown", false)).toEqual({ allowed: true, budgetBytes: 64 * 1024 });
+    expect(relayPolicy("cellular", false).allowed).toBe(false);
+    expect(relayPolicy("cellular", true)).toEqual({ allowed: true, budgetBytes: 1024 * 1024 });
+    expect(relayPolicy("unknown", true)).toEqual({ allowed: true, budgetBytes: 1024 * 1024 });
   });
 });

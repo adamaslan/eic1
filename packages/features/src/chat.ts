@@ -37,6 +37,10 @@ export const ChatMessageSchema = z.object({
   envelopeSignature: z.string().nullable(),
   // Outbound only: set when the recipient's signed receipt says they saved this message.
   deliveredAt: z.string().nullish(),
+  // Outbound only: set when a relay snapshot that exactly contained this envelope was read back and confirmed.
+  acceptedAt: z.string().nullish(),
+  // Inbound only: set when a confirmed relay snapshot carried a receipt covering this message.
+  receiptPublishedAt: z.string().nullish(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
@@ -57,13 +61,13 @@ const ReceiptPayloadSchema = z.object({
 
 export type OutboundStatus = "queued" | "accepted" | "delivered";
 
-/** queued: saved on this device only. accepted: a relay snapshot that included it was committed
- * (confirmedCutoff comes from relay-outbox). delivered: the recipient's signed receipt arrived.
+/** queued: saved on this device only. accepted: a relay snapshot that contained this exact envelope was
+ * read back and confirmed (acceptedAt). delivered: the recipient's signed receipt arrived.
  * Accepted is NOT delivery: only the recipient's own receipt sets delivered. */
-export function outboundStatus(message: ChatMessage, confirmedCutoff: string | null): OutboundStatus {
+export function outboundStatus(message: ChatMessage): OutboundStatus {
   if (message.direction !== "out") throw new AppError("Only sent messages have a delivery status.");
   if (message.deliveredAt) return "delivered";
-  if (confirmedCutoff !== null && message.sentAt <= confirmedCutoff) return "accepted";
+  if (message.acceptedAt) return "accepted";
   return "queued";
 }
 
@@ -244,22 +248,46 @@ async function markDelivered(vault: UnlockedVault, threadAuthorId: string, ids: 
   }
 }
 
-/** Newest sentAt among my outbound messages. A relay snapshot built now includes everything up to here. */
-export async function latestOutboundSentAt(vault: UnlockedVault): Promise<string | null> {
-  let latest: string | null = null;
-  for (const message of await listOutboundMessages(vault)) {
-    if (message.envelope && (latest === null || message.sentAt > latest)) latest = message.sentAt;
+/** Marks exactly the messages whose envelopes were in a confirmed snapshot (outbound -> acceptedAt) and the
+ * inbound messages covered by a receipt in it (receiptPublishedAt). Membership is by envelope signature, never
+ * by time, so a message saved after the snapshot was built stays queued even with an identical sentAt. */
+export async function markSnapshotConfirmed(
+  vault: UnlockedVault,
+  members: { outbound: string[]; receipted: string[] },
+  at: string,
+): Promise<void> {
+  const out = new Set(members.outbound);
+  const rec = new Set(members.receipted);
+  for (const message of await listAllMessages(vault)) {
+    if (message.direction === "out") {
+      const signature = (message.envelope as Partial<SyncEnvelope> | null)?.signature;
+      if (signature && out.has(signature) && !message.acceptedAt) {
+        await vault.putJson(CHAT_KIND as never, recordIdFor(message.id), { ...message, acceptedAt: at });
+      }
+    } else if (message.envelopeSignature && rec.has(message.envelopeSignature) && !message.receiptPublishedAt) {
+      await vault.putJson(CHAT_KIND as never, recordIdFor(message.id), { ...message, receiptPublishedAt: at });
+    }
   }
-  return latest;
+}
+
+/** Inbound messages saved here whose receipt no confirmed snapshot has carried yet. */
+export async function countUnreceiptedInbound(vault: UnlockedVault): Promise<number> {
+  const settings = await loadSettings(vault);
+  if (!settings.authorId) return 0;
+  const known = new Set((await listConnections(vault)).filter((c) => c.pubkey).map((c) => c.id));
+  return (await listAllMessages(vault)).filter(
+    (m) => m.direction === "in" && m.envelopeSignature && !m.receiptPublishedAt && known.has(m.threadAuthorId),
+  ).length;
 }
 
 /** One signed receipt per connection that has sent me messages: the newest RECEIPT_MAX signatures
  * I have saved from them. Sealed to the sender, so the relay sees only an opaque envelope. */
-async function receiptEnvelopes(vault: UnlockedVault): Promise<Map<string, SyncEnvelope[]>> {
+async function receiptEnvelopes(vault: UnlockedVault, all: ChatMessage[]): Promise<{ out: Map<string, SyncEnvelope[]>; receipted: string[] }> {
   const out = new Map<string, SyncEnvelope[]>();
+  const receipted: string[] = [];
   const settings = await loadSettings(vault);
-  if (!settings.authorId) return out;
-  const inbound = (await listAllMessages(vault)).filter((m) => m.direction === "in" && m.envelopeSignature);
+  if (!settings.authorId) return { out, receipted };
+  const inbound = all.filter((m) => m.direction === "in" && m.envelopeSignature);
   const identity = await loadOrCreateShareIdentity(vault);
   for (const connection of await listConnections(vault)) {
     if (!connection.pubkey) continue;
@@ -278,23 +306,43 @@ async function receiptEnvelopes(vault: UnlockedVault): Promise<Map<string, SyncE
       plaintext: new TextEncoder().encode(JSON.stringify({ v: 1, ack: { ids } })),
     });
     out.set(connection.id, [envelope]);
+    receipted.push(...ids);
   }
-  return out;
+  return { out, receipted };
+}
+
+export interface OutboundChatCollection {
+  byRecipient: Map<string, SyncEnvelope[]>;
+  /** Signatures of the outbound message envelopes in byRecipient: the exact membership of a snapshot built from it. */
+  outbound: string[];
+  /** Signatures of inbound messages covered by the receipts in byRecipient. */
+  receipted: string[];
+}
+
+/** One consistent read of the thread store. A message saved after this read is in neither the envelopes nor the
+ * membership lists, so it can never be marked accepted by a snapshot that omitted it. */
+export async function collectOutboundChat(vault: UnlockedVault): Promise<OutboundChatCollection> {
+  const all = await listAllMessages(vault);
+  const byRecipient = new Map<string, SyncEnvelope[]>();
+  const outbound: string[] = [];
+  for (const message of all) {
+    if (message.direction !== "out" || !message.envelope || message.deliveredAt) continue;
+    const envelope = message.envelope as SyncEnvelope;
+    const list = byRecipient.get(message.threadAuthorId) ?? [];
+    list.push(envelope);
+    byRecipient.set(message.threadAuthorId, list);
+    outbound.push(envelope.signature);
+  }
+  const { out, receipted } = await receiptEnvelopes(vault, all);
+  for (const [recipientId, receipts] of out) {
+    byRecipient.set(recipientId, [...(byRecipient.get(recipientId) ?? []), ...receipts]);
+  }
+  return { byRecipient, outbound, receipted };
 }
 
 /** Outbound chat envelopes grouped by recipient, for the feed publish (#16). Envelopes only - bodies stay local.
  * Delivered messages are dropped (the recipient already has them), which bounds the feed. Each recipient's
  * receipt rides in the same chunk, so the existing pull path delivers it without a new route. */
 export async function listOutboundChatEnvelopes(vault: UnlockedVault): Promise<Map<string, SyncEnvelope[]>> {
-  const byRecipient = new Map<string, SyncEnvelope[]>();
-  for (const message of await listOutboundMessages(vault)) {
-    if (!message.envelope || message.deliveredAt) continue;
-    const list = byRecipient.get(message.threadAuthorId) ?? [];
-    list.push(message.envelope as SyncEnvelope);
-    byRecipient.set(message.threadAuthorId, list);
-  }
-  for (const [recipientId, receipts] of await receiptEnvelopes(vault)) {
-    byRecipient.set(recipientId, [...(byRecipient.get(recipientId) ?? []), ...receipts]);
-  }
-  return byRecipient;
+  return (await collectOutboundChat(vault)).byRecipient;
 }

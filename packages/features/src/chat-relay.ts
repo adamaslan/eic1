@@ -1,7 +1,7 @@
 import { AppError, VaultCorruptError, decodeBase64, encodeBase64, type Settings } from "@veil/core";
 import { signPayload, verifySignature } from "@veil/crypto";
 import type { UnlockedVault } from "@veil/vault";
-import { listOutboundChatEnvelopes } from "./chat";
+import { collectOutboundChat } from "./chat";
 import { loadOrCreateShareIdentity } from "./sharing";
 import {
   FEED_FORMAT,
@@ -62,11 +62,21 @@ export async function publisherPath(pubkeyBase64: string): Promise<string> {
   return `feeds/${base32Lower(new Uint8Array(digest))}`;
 }
 
-export async function buildChatFeedSnapshot(
+export interface ChatSnapshotMembers {
+  outbound: string[];
+  receipted: string[];
+}
+
+export async function buildChatFeedSnapshot(vault: UnlockedVault, settings: Settings, deps: { now: Date; seq: number }): Promise<FeedSnapshot> {
+  return (await buildChatFeedSnapshotWithMembers(vault, settings, deps)).snapshot;
+}
+
+/** The snapshot plus the exact envelope signatures it contains, taken from the same single read. */
+export async function buildChatFeedSnapshotWithMembers(
   vault: UnlockedVault,
   settings: Settings,
   deps: { now: Date; seq: number },
-): Promise<FeedSnapshot> {
+): Promise<{ snapshot: FeedSnapshot; members: ChatSnapshotMembers }> {
   if (!settings.authorId || !settings.handle) throw new AppError("Choose a handle before publishing.");
   if (!settings.feedUrl) throw new AppError("Set a feed URL before publishing.");
   if (!Number.isInteger(deps.seq) || deps.seq < 1) throw new AppError("The feed sequence must be a positive integer.");
@@ -75,8 +85,8 @@ export async function buildChatFeedSnapshot(
   const files: FeedSnapshotFile[] = [];
   const chunks: FeedManifest["chunks"] = [];
 
-  const outbound = await listOutboundChatEnvelopes(vault);
-  for (const [recipientId, envelopes] of [...outbound.entries()].sort()) {
+  const collected = await collectOutboundChat(vault);
+  for (const [recipientId, envelopes] of [...collected.byRecipient.entries()].sort()) {
     const chunk = { format: "eic-feed-chunk", version: 1, kind: "chat", envelopes } as const;
     const id = `chat-${recipientId}.json`;
     if (!CHUNK_ID_PATTERN.test(id)) throw new AppError("A chat recipient id cannot be published as a relay chunk.");
@@ -105,7 +115,10 @@ export async function buildChatFeedSnapshot(
   if (new TextEncoder().encode(manifest).byteLength >= FEED_MANIFEST_MAX_BYTES) {
     throw new AppError("The feed manifest is too large.");
   }
-  return { manifest, files: [{ path: "feed.json", text: manifest }, ...files] };
+  return {
+    snapshot: { manifest, files: [{ path: "feed.json", text: manifest }, ...files] },
+    members: { outbound: collected.outbound, receipted: collected.receipted },
+  };
 }
 
 /** Static key list, or an async membership check (vouched enrollment). */

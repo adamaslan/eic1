@@ -474,7 +474,7 @@ export default function Connections() {
                 disabled={busy || !social.settingsReady}
                 onChange={(e) => { void social.update({ ...settings, syncOnCellular: e.target.checked }); }}
               />
-              <span>Allow feed sync on cellular or unknown connections (larger posts may use mobile data)</span>
+              <span>Allow larger syncs on mobile data or when this browser cannot tell the connection (small encrypted messages already sync; larger posts may use mobile data)</span>
             </label>
             <div>
               <Button95 onClick={syncNow} disabled={busy || !social.settingsReady}>Sync feeds now</Button95>

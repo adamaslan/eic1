@@ -21,6 +21,8 @@ import { listConnections, loadSettings, setConnectionSyncState } from "./social"
 // local records. Wi-fi only by default; oversized chunks defer on cellular.
 
 export const CELLULAR_CHUNK_BUDGET_BYTES = 1024 * 1024;
+/** Unknown connection type, no owner opt-in: only small encrypted chat data moves automatically. */
+export const UNKNOWN_NETWORK_BUDGET_BYTES = 64 * 1024;
 
 // A chunk that cannot be fetched is retried on the next pull (pending skips the etag
 // shortcut), but only a bounded number of times per manifest seq: a permanently-missing
@@ -41,6 +43,23 @@ export type SyncFetcher = (url: string, etag: string | null) => Promise<SyncFetc
 // navigator.connection). Treated as metered - never silently authorizes unrestricted
 // downloads - but reported truthfully so the UI can say "unknown", not "cellular".
 export type SyncNetwork = "wifi" | "cellular" | "unknown";
+
+export interface NetworkPolicy {
+  /** False: nothing moves automatically (reported cellular without the owner's opt-in). */
+  allowed: boolean;
+  /** Largest chunk (pull) or snapshot (publish) allowed; null means unrestricted (Wi-Fi). */
+  budgetBytes: number | null;
+}
+
+/** The one honest connectivity policy. "unknown" is never treated as Wi-Fi: without the owner's opt-in it gets a small
+ * byte budget (chat text and receipts fit; large backlogs wait), so Safari/iPhone, which cannot report a transport,
+ * still catches up. Reported cellular stays blocked without opt-in, and opted-in cellular keeps its byte budget. */
+export function networkPolicy(network: SyncNetwork, syncOnCellular: boolean): NetworkPolicy {
+  if (network === "wifi") return { allowed: true, budgetBytes: null };
+  if (syncOnCellular) return { allowed: true, budgetBytes: CELLULAR_CHUNK_BUDGET_BYTES };
+  if (network === "unknown") return { allowed: true, budgetBytes: UNKNOWN_NETWORK_BUDGET_BYTES };
+  return { allowed: false, budgetBytes: null };
+}
 
 export interface SyncDeps {
   fetch: SyncFetcher;
@@ -71,12 +90,9 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
   if (!connection.feedUrl) return { status: "no-feed", appliedPosts: 0, appliedChat: 0, pendingChunks: [], rejectedChunks: [], appliedProfile: false };
   if (!isValidFeedUrl(connection.feedUrl)) throw new AppError("That connection's feed URL must be an https URL (http is allowed only for localhost).");
   if (!connection.pubkey) throw new AppError("This connection has no verified key.");
-  const metered = deps.network !== "wifi";
-  if (metered && !settings.syncOnCellular) {
-    const detail =
-      deps.network === "unknown"
-        ? "waiting for Wi-Fi - connection type unknown to this browser, so large chunks wait; turn on cellular sync to download anyway"
-        : "waiting for Wi-Fi - cellular sync is off in Settings";
+  const policy = networkPolicy(deps.network, settings.syncOnCellular);
+  if (!policy.allowed) {
+    const detail = "waiting for Wi-Fi - cellular sync is off in Settings";
     await setConnectionSyncState(vault, connection.id, {
       seq: connection.syncSeq,
       etag: connection.syncEtag,
@@ -124,7 +140,8 @@ export async function syncConnection(vault: UnlockedVault, connection: Connectio
   const fetchFailedChunks: string[] = [];
   const rejectedChunks: string[] = [];
   for (const ref of manifest.chunks) {
-    if (metered && ref.bytes > (deps.chunkBudgetBytes ?? CELLULAR_CHUNK_BUDGET_BYTES)) {
+    const budget = deps.chunkBudgetBytes ?? policy.budgetBytes;
+    if (budget !== null && ref.bytes > budget) {
       // Budget deferral is not a failure and does not count against the retry bound.
       pendingChunks.push(ref.id);
       continue;

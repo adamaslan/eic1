@@ -36,7 +36,7 @@ describe("delivery receipts", () => {
     const { alice, bob } = await pairedVaults();
     const aliceConn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
     const sent = await sendChatMessage(bob, aliceConn, "hi alice", deps);
-    expect(outboundStatus(sent, null)).toBe("queued");
+    expect(outboundStatus(sent)).toBe("queued");
     // The sender's feed carries the message envelope, not the body.
     expect(envelopesFor(await listOutboundChatEnvelopes(bob), "alice-id")).toHaveLength(1);
     await applyInboundChatEnvelope(alice, sent.envelope, deps);
@@ -47,7 +47,7 @@ describe("delivery receipts", () => {
     expect(receiptResult).toEqual({ applied: false, message: null });
     const [stored] = await listChatThread(bob, "alice-id");
     expect(stored.deliveredAt).toBe(NOW.toISOString());
-    expect(outboundStatus(stored, null)).toBe("delivered");
+    expect(outboundStatus(stored)).toBe("delivered");
   });
 
   it("a delivered message is pruned from the sender's next feed", async () => {
@@ -82,22 +82,11 @@ describe("delivery receipts", () => {
     expect(thread.find((m) => m.id === unsaved.id)?.deliveredAt).toBeFalsy();
   });
 
-  it("accepted is set by the confirmed relay cutoff, and never means delivered", async () => {
-    const { bob } = await pairedVaults();
-    const aliceConn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
-    const early = await sendChatMessage(bob, aliceConn, "in snapshot", { newId: deps.newId, now: () => new Date("2026-11-20T12:00:00Z") });
-    const late = await sendChatMessage(bob, aliceConn, "after snapshot", { newId: deps.newId, now: () => new Date("2026-11-20T12:05:00Z") });
-    const cutoff = early.sentAt;
-    expect(outboundStatus(early, cutoff)).toBe("accepted");
-    expect(outboundStatus(late, cutoff)).toBe("queued");
-    expect(outboundStatus(early, cutoff)).not.toBe("delivered");
-  });
-
   it("rejects a status request for an inbound message", async () => {
     const { alice, bob } = await pairedVaults();
     const aliceConn = (await listConnections(bob)).find((c) => c.id === "alice-id")!;
     const sent = await sendChatMessage(bob, aliceConn, "x", deps);
     const inbound = (await applyInboundChatEnvelope(alice, sent.envelope, deps)).message!;
-    expect(() => outboundStatus(inbound, null)).toThrow("Only sent messages");
+    expect(() => outboundStatus(inbound)).toThrow("Only sent messages");
   });
 });
