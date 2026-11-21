@@ -44,17 +44,20 @@ export default function DiscoverRoute() {
     return () => { cancelled = true; };
   }, [vault, endpoint]);
 
+  // DiscoverDirectory draws its own "Discover" window, so the route adds one only while there is no directory yet.
   return (
-    <Window title="Discover">
+    <div className="mx-auto flex w-full max-w-[960px] flex-col gap-3">
       {endpoint && vault && (
         <JoinGate controller={controller}>
-          <RelayJoin onJoin={async (token) => {
-            await joinRelaySelf(vault, endpoint, token);
-            await controller?.load();
-          }} />
+          <Window title="Join Discover">
+            <RelayJoin onJoin={async (token) => {
+              await joinRelaySelf(vault, endpoint, token);
+              await controller?.load();
+            }} />
+          </Window>
         </JoinGate>
       )}
-      {controller ? <DiscoverDirectory controller={controller} /> : <p className="text-[12px]">{problem ?? "Connecting to Discover…"}</p>}
-    </Window>
+      {controller ? <DiscoverDirectory controller={controller} /> : <Window title="Discover"><p className="text-[12px]">{problem ?? "Connecting to Discover…"}</p></Window>}
+    </div>
   );
 }
