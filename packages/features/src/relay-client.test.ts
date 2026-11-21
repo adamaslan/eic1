@@ -55,4 +55,24 @@ describe("configureRelayFeed", () => {
     expect(persisted.feedUrl).toBe(feedUrl);
     expect(persisted.handle).toBe("edited-during-setup");
   });
+
+  it("refuses, and keeps the other URL, when a different feedUrl lands between the read and the write", async () => {
+    const vault = await openVault();
+    await saveSettings(vault, { ...defaultSettings(), authorId: "a1", handle: "h1" });
+    let collided = false;
+    const racing: UnlockedVault = {
+      ...vault,
+      putJsonIfUnchanged: async (kind, id, value, expected) => {
+        if (!collided && kind === "settings") {
+          collided = true;
+          const current = (await vault.getJson(id)) as Record<string, unknown>;
+          await vault.putJsonIfUnchanged(kind, id, { ...current, feedUrl: "https://other.example/feeds/mine" }, current);
+        }
+        return vault.putJsonIfUnchanged(kind, id, value, expected);
+      },
+    };
+    await expect(configureRelayFeed(racing, "https://eic.example/relay")).rejects.toThrow(/different feed URL/);
+    expect(collided).toBe(true);
+    expect((await loadSettings(vault)).feedUrl).toBe("https://other.example/feeds/mine");
+  });
 });

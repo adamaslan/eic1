@@ -52,7 +52,7 @@ export function ConnectionsList({
   now: Date;
 }) {
   if (connections.length === 0) {
-    return <p className="text-[12px]">No connections yet. Import a friend's share file to add one.</p>;
+    return <p className="text-[12px]">No connections yet. Share your connect link with a friend to get started.</p>;
   }
   return (
     <ul className="flex flex-col gap-1 text-[12px]">
@@ -382,7 +382,7 @@ export default function Connections() {
         </form>
       </Window>
 
-      <Window title="Share and connect">
+      <Window title="Find friends">
         <div
           className="flex flex-col gap-2 text-[12px]"
           onDragOver={(e) => e.preventDefault()}
@@ -391,6 +391,13 @@ export default function Connections() {
             importFile(e.dataTransfer.files[0]);
           }}
         >
+          <div className="flex flex-wrap items-center gap-2">
+            <Button95 onClick={copyConnectLink} disabled={busy || !social.settingsReady || !settings.handle}>Text my connect link</Button95>
+          </div>
+          <p className="text-[var(--w95-muted)]">Send your link to a friend. Their link opens your conversation.</p>
+          <details>
+            <summary className="cursor-pointer text-[var(--w95-muted)]">Older imports and exports</summary>
+            <div className="mt-2 flex flex-col gap-2">
           <p>
             There is no server. Press Share on any post, or export a share file here, send it any way you like, and import what your friend sends back by file, drop, or paste.
             Importing adds their posts to your feed, lists them as a connection, and brings in any likes they gave you.
@@ -399,12 +406,8 @@ export default function Connections() {
             A share file is <b>not encrypted</b>. It holds your shareable posts, their photos, your handle, and the posts you liked.
             Private posts, notes, and settings are never in an exported file - but pressing ↗ Share on one of your own posts sends just that post, even a private one.
           </p>
-          <p>
-            Or skip the file: a connect link carries just your signed card (handle + key, no posts). Text it - your
-            friend taps it, adds you, and lands right in your chat.
-          </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Button95 onClick={copyConnectLink} disabled={busy || !social.settingsReady || !settings.handle}>Text my connect link</Button95>
+
             <Button95 onClick={exportFile} disabled={busy || !social.settingsReady || !settings.handle}>Export share file ({Math.min(shareable, 100)} post{Math.min(shareable, 100) === 1 ? "" : "s"})</Button95>
             <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(e) => importFile(e.target.files?.[0])} aria-label="Choose a share file" />
             <Button95 onClick={() => fileInput.current?.click()} disabled={busy || !social.settingsReady || !settings.handle}>Import a share file…</Button95>
@@ -423,6 +426,8 @@ export default function Connections() {
           <div>
             <Button95 onClick={importPasted} disabled={busy || !social.settingsReady || !settings.handle || !pasted.trim()}>Import pasted text</Button95>
           </div>
+            </div>
+          </details>
           {!settings.handle && <p className="text-[var(--w95-muted)]">Choose a handle first.</p>}
           {rotationPrompt && (
             <div className="flex flex-col gap-1 bg-[#ffffe1] px-1.5 py-1">
@@ -458,7 +463,7 @@ export default function Connections() {
 
       <Window title={`Connections (${visible.length})`}>
         {connections.length === 0 ? (
-          <p className="text-[12px]">No connections yet. Import a friend's share file to add one.</p>
+          <p className="text-[12px]">No connections yet. Share your connect link with a friend to get started.</p>
         ) : (
           <div className="flex flex-col gap-2 text-[12px]">
             <p>To refresh someone's posts, import their newest share file again - importing updates in place. If they publish a feed, sync pulls it over the network instead.</p>
@@ -469,7 +474,7 @@ export default function Connections() {
                 disabled={busy || !social.settingsReady}
                 onChange={(e) => { void social.update({ ...settings, syncOnCellular: e.target.checked }); }}
               />
-              <span>Allow feed sync on cellular or unknown connections (larger posts may use mobile data)</span>
+              <span>Allow larger syncs on mobile data or when this browser cannot tell the connection (small encrypted messages already sync; larger posts may use mobile data)</span>
             </label>
             <div>
               <Button95 onClick={syncNow} disabled={busy || !social.settingsReady}>Sync feeds now</Button95>

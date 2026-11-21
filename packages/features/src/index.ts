@@ -12,6 +12,8 @@ export * from "./journal";
 export * from "./calendar";
 export * from "./journal-share";
 export * from "./chat";
+export * from "./chat-draft";
+export * from "./discover-blocks";
 export * from "./share-link";
 export * from "./chat-link";
 export * from "./palette-png";
@@ -33,4 +35,9 @@ export { loadDisplayAvatar } from "./display-avatar";
 
 export * from "./relay-client";
 export * from "./relay-outbox";
+export type { RelayInvite, RelayEnrollStatus } from "./relay-enroll";
 export * from "./sticker-remix";
+
+export * from "./discover-directory";
+export * from "./discover-vault";
+export * from "./discover-connect";

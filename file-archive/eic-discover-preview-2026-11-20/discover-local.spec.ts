@@ -1,0 +1,38 @@
+import { expect, test } from "@playwright/test";
+
+test("synthetic directory browse, search, request and hide do not open messaging", async ({ page }, testInfo) => {
+  await page.goto("/discover-local-preview");
+  await expect(page.getByRole("heading", { name: "Find your people" })).toBeVisible();
+  await expect(page.getByText("You are hidden from Discover", { exact: true })).toBeVisible();
+  await expect(page.getByRole("list", { name: "People to discover" }).getByRole("listitem")).toHaveCount(6);
+  await page.bringToFront();
+  await page.evaluate(async () => { await Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => {}))); });
+  await page.screenshot({ path: testInfo.outputPath("discover-desktop.png"), fullPage: true });
+  await page.getByLabel("Search people", { exact: true }).fill("film");
+  await expect(page.getByRole("list", { name: "People to discover" }).getByRole("listitem")).toHaveCount(1);
+  await page.getByRole("button", { name: "View River", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Profile for River" })).toBeVisible();
+  await page.getByRole("button", { name: "Add River", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Request sent", exact: true })).toBeDisabled();
+  await expect(page.getByText("Request sent. This does not open a chat or allow messages.", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/discover-local-preview$/);
+  await page.getByRole("button", { name: "Close profile", exact: true }).click();
+  await page.getByLabel("Search people", { exact: true }).fill("nobody-matches");
+  await expect(page.getByText("No people match. Try a different name or interest.", { exact: true })).toBeVisible();
+  await page.getByLabel("Search people", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Show me in Discover", exact: true }).click();
+  await expect(page.getByLabel("Public name", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Public handle", { exact: true })).toHaveValue("");
+  await page.getByLabel("Public name", { exact: true }).fill("Synthetic Artist");
+  await page.getByLabel("Public handle", { exact: true }).fill("synthetic.artist");
+  await page.getByLabel("Short bio (optional)", { exact: true }).fill("Only the words chosen for this synthetic card.");
+  await page.getByRole("button", { name: "List this card", exact: true }).click();
+  await expect(page.getByText("You are in Discover", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Hide me from Discover", exact: true }).click();
+  await expect(page.getByText("Hidden from Discover. Your existing friends and chats are unchanged.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.bringToFront();
+  await page.screenshot({ path: testInfo.outputPath("discover-phone.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});

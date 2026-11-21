@@ -8,7 +8,7 @@ The server-only `supabase-relay-store.ts` implements `RelayAtomicStore` through 
 
 The HTTP handler verifies signed publish/read/chunk requests before store access, with an explicit nonempty signing-key allowlist, exact-origin CORS, streamed 2 MiB request cap and generic errors. CORS is not authentication. `supabase/functions/eic-relay/entry.ts` supplies the Deno listener, disabled-config gate and runtime-only Supabase credentials. RPC success handling includes PostgREST's empty HTTP204 replies for void functions.
 
-The feature index exports the client and outbox. The chat UI shows explicit setup, publish/retry and receive controls only when `VITE_EIC_RELAY_ENDPOINT` is set. Without that variable, manual handoff remains unchanged. There are no timers or background polling. The client has bounded bodies, deadlines, a fixed endpoint, no redirects or ambient cookies, and honors the existing network policy.
+The feature index exports the client and outbox. The chat UI shows publish/retry and receive controls (no setup step; vouched enrollment runs on connect-link accept, see hosted-relay-v2-members.sql) only when `VITE_EIC_RELAY_ENDPOINT` is set. Without that variable, manual handoff remains unchanged. There are no timers or background polling. The client has bounded bodies, deadlines, a fixed endpoint, no redirects or ambient cookies, and honors the existing network policy.
 
 Outbox preparation encrypts an exact signed snapshot in the local vault under CAS before transport. Retrying keeps its bytes and sequence. Only a verified exact signed readback clears pending state under CAS. Confirmation is a relay commit, not recipient delivery or a read receipt. Local messages stay in the vault. Locking cannot unsend ciphertext already handed off. Another device advancing the same identity still requires explicit reconciliation.
 
@@ -25,7 +25,7 @@ EIC_PGLITE_MODULE=/absolute/local/node_modules/@electric-sql/pglite/dist/index.j
   npx vitest run --config supabase/local-draft/hosted-vitest.config.ts
 ```
 
-The first suite uses the original local SQL fixture. The second applies the actual production migration and checks disabled configuration, privileges, reader isolation/rate, logical byte capacity, CAS, immutable writes, pagination, signed protocol and two local vaults. Its entry regression models PostgREST HTTP204 void replies and checks a nonempty publish commits. PGlite is in-process PostgreSQL, not hosted Supabase or multi-session concurrency evidence. Ordinary CI does not install it.
+The first suite uses the original local SQL fixture. The second applies the actual production migration plus the v2 members migration (hosted-members.test.ts: roots, quotas, per-publisher cap, HTTP enroll) and checks disabled configuration, privileges, reader isolation/rate, logical byte capacity, CAS, immutable writes, pagination, signed protocol and two local vaults. Its entry regression models PostgREST HTTP204 void replies and checks a nonempty publish commits. PGlite is in-process PostgreSQL, not hosted Supabase or multi-session concurrency evidence. Ordinary CI does not install it.
 
 Build the dashboard-compatible Edge entry with:
 

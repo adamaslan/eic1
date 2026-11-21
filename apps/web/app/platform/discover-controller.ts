@@ -1,0 +1,118 @@
+export type DirectoryCard = { id: string; name: string; handle: string; bio: string };
+export type PublicCardDraft = Omit<DirectoryCard, "id">;
+export type BlockedPerson = { id: string; name: string; handle: string };
+export interface DirectoryAdapter {
+  read(): Promise<{ cards: DirectoryCard[]; ownCard: DirectoryCard | null; incoming: string[]; blocked: BlockedPerson[] }>;
+  publish(draft: PublicCardDraft): Promise<DirectoryCard>;
+  hide(): Promise<void>;
+  // Idempotent per signed identity + target: retrying after a lost response must not duplicate requests.
+  request(id: string): Promise<void>;
+  accept(id: string): Promise<void>;
+  decline(id: string): Promise<void>;
+  // Local only: hides their card and declines their requests here. Connections and chats are untouched.
+  block(person: BlockedPerson): Promise<BlockedPerson[]>;
+  unblock(id: string): Promise<BlockedPerson[]>;
+}
+export type DirectoryState = {
+  visibility: "hidden" | "listed" | "unknown"; ready: boolean; busy: boolean; cards: DirectoryCard[]; ownCard: DirectoryCard | null;
+  requested: string[]; incoming: string[]; blocked: BlockedPerson[]; error: string; notice: string;
+};
+
+// Explicit projection: a directory adapter cannot accidentally expose extra vault fields.
+export function publicCard(card: DirectoryCard): DirectoryCard {
+  if (!card.id || typeof card.id !== "string") throw new Error("Invalid directory card.");
+  return { id: card.id, ...validateDraft(card) };
+}
+export function validateDraft(draft: PublicCardDraft): PublicCardDraft {
+  if (typeof draft.name !== "string" || typeof draft.handle !== "string" || typeof draft.bio !== "string") throw new Error("Invalid directory card.");
+  const name = draft.name.trim(); const handle = draft.handle.trim().replace(/^@/, ""); const bio = draft.bio.trim();
+  if (!name || name.length > 40 || !/^[a-zA-Z0-9_.-]{1,30}$/.test(handle) || bio.length > 160) throw new Error("Enter a name, a handle using letters, numbers, dots, dashes or underscores, and a bio up to 160 characters.");
+  return { name, handle, bio };
+}
+export function searchCards(cards: DirectoryCard[], query: string): DirectoryCard[] {
+  const q = query.trim().toLocaleLowerCase();
+  return cards.filter((card) => `${card.name} ${card.handle} ${card.bio}`.toLocaleLowerCase().includes(q));
+}
+
+// Talks only to the injected adapter. The adapter owns signing, sealing and imports.
+export class DirectoryController {
+  state: DirectoryState = { visibility: "unknown", ready: false, busy: false, cards: [], ownCard: null, requested: [], incoming: [], blocked: [], error: "", notice: "" };
+  private listeners = new Set<() => void>();
+  constructor(private readonly adapter: DirectoryAdapter) {}
+  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  snapshot = () => this.state;
+  private update(patch: Partial<DirectoryState>) { this.state = { ...this.state, ...patch }; this.listeners.forEach((fn) => fn()); }
+  async load() {
+    if (this.state.busy) return;
+    this.update({ busy: true, error: "" });
+    try {
+      const data = await this.adapter.read(); const ownCard = data.ownCard ? publicCard(data.ownCard) : null;
+      const cards = data.cards.map(publicCard).filter((card) => card.id !== ownCard?.id);
+      this.update({ ready: true, ownCard, cards, incoming: data.incoming, blocked: data.blocked, visibility: ownCard ? "listed" : "hidden" });
+    } catch { this.update({ error: "Couldn't load Discover. Try again.", ready: false }); }
+    finally { this.update({ busy: false }); }
+  }
+  async publish(draft: PublicCardDraft) {
+    if (!this.state.ready || this.state.busy) return;
+    let chosen: PublicCardDraft;
+    try { chosen = validateDraft(draft); } catch (error) { this.update({ error: (error as Error).message }); return; }
+    this.update({ busy: true, error: "", notice: "" });
+    try { const card = publicCard(await this.adapter.publish(chosen)); this.update({ ownCard: card, visibility: "listed", notice: "Your chosen card is visible in this directory." }); }
+    catch { this.update({ visibility: "unknown", error: "Couldn't list your card. Your visibility has not been confirmed. Try again." }); }
+    finally { this.update({ busy: false }); }
+  }
+  async hide() {
+    if (!this.state.ready || this.state.busy || this.state.visibility === "hidden") return;
+    this.update({ busy: true, error: "", notice: "" });
+    try { await this.adapter.hide(); this.update({ ownCard: null, visibility: "hidden", notice: "Hidden from Discover. Your existing friends and chats are unchanged." }); }
+    catch { this.update({ visibility: "unknown", error: "Couldn't hide your card. It may still be visible. Try again." }); }
+    finally { this.update({ busy: false }); }
+  }
+  async request(id: string) {
+    if (!this.state.ready || this.state.busy || this.state.requested.includes(id) || !this.state.cards.some((card) => card.id === id)) return;
+    this.update({ busy: true, error: "", notice: "" });
+    try { await this.adapter.request(id); this.update({ requested: [...this.state.requested, id], notice: "Request sent. This does not open a chat or allow messages." }); }
+    catch (error) {
+      // A card hidden or expired since the list loaded is not retryable: say so, and drop it from the list.
+      if (error instanceof Error && error.message === "That card is no longer listed.") this.update({ cards: this.state.cards.filter((c) => c.id !== id), error: "That person is no longer in Discover." });
+      else this.update({ error: "Couldn't send the request. Try again." });
+    }
+    finally { this.update({ busy: false }); }
+  }
+  // Accepting imports the requester's connect and sends mine back. Only this explicit step creates a chat.
+  async accept(id: string) {
+    if (!this.state.ready || this.state.busy || !this.state.incoming.includes(id)) return;
+    this.update({ busy: true, error: "", notice: "" });
+    try { await this.adapter.accept(id); this.update({ incoming: this.state.incoming.filter((x) => x !== id), notice: "Accepted. Your chat opens once you both have each other's connect." }); }
+    catch { this.update({ error: "Couldn't accept. Try again." }); }
+    finally { this.update({ busy: false }); }
+  }
+  async decline(id: string) {
+    if (!this.state.ready || this.state.busy || !this.state.incoming.includes(id)) return;
+    this.update({ busy: true, error: "", notice: "" });
+    try { await this.adapter.decline(id); this.update({ incoming: this.state.incoming.filter((x) => x !== id), notice: "Declined. Nothing was shared with them." }); }
+    catch { this.update({ error: "Couldn't decline. Try again." }); }
+    finally { this.update({ busy: false }); }
+  }
+  async block(id: string) {
+    if (!this.state.ready || this.state.busy || this.state.blocked.some((p) => p.id === id)) return;
+    const card = this.state.cards.find((c) => c.id === id);
+    if (!card && !this.state.incoming.includes(id)) return;
+    this.update({ busy: true, error: "", notice: "" });
+    try {
+      const blocked = await this.adapter.block({ id, name: card?.name ?? "Someone on Discover", handle: card?.handle ?? "" });
+      this.update({ blocked, cards: this.state.cards.filter((c) => c.id !== id), incoming: this.state.incoming.filter((x) => x !== id),
+        notice: "Blocked on this device. You won't see their card or requests. Existing friends and chats are unchanged." });
+    } catch (error) {
+      this.update({ error: error instanceof Error && error.message.startsWith("You can block") ? error.message : "Couldn't block. Try again." });
+    }
+    finally { this.update({ busy: false }); }
+  }
+  async unblock(id: string) {
+    if (!this.state.ready || this.state.busy || !this.state.blocked.some((p) => p.id === id)) return;
+    this.update({ busy: true, error: "", notice: "" });
+    try { const blocked = await this.adapter.unblock(id); this.update({ blocked, notice: "Unblocked. Their card shows again if they are listed. Requests you already declined stay declined." }); }
+    catch { this.update({ error: "Couldn't unblock. Try again." }); }
+    finally { this.update({ busy: false }); void this.load(); }
+  }
+}

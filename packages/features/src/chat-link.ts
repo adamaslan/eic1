@@ -13,6 +13,7 @@ import { applyInboundChatEnvelope, listChatThread, type ChatDeps } from "./chat"
 import { isValidFeedUrl } from "./feed";
 import { loadOrCreateShareIdentity } from "./sharing";
 import { addNote, listConnections, loadSettings } from "./social";
+import { RELAY_INVITE_ID_PATTERN, signRelayInvite, type RelayInvite } from "./relay-enroll";
 import { fromBase64Url, toBase64Url } from "./share-link";
 
 // decodeBase64 (inside fromBase64Url) is strict about padding, and link encoding strips it.
@@ -79,6 +80,13 @@ const ConnectCardSchema = z.object({
   // Advisory and unsigned: invalid previews are discarded, never allowed to veto
   // the signed base card. Build-time validation remains strict.
   profile: ConnectProfilePreviewSchema.optional().catch(undefined),
+  // Relay invite, signed separately by author.pubkey (outside the card subset, so old
+  // readers still verify). The relay checks it; a bad one is dropped, never a veto.
+  relayInvite: z.object({
+    id: z.string().regex(RELAY_INVITE_ID_PATTERN),
+    expiresAt: z.number().int().positive(),
+    signature: z.string().min(1).max(128),
+  }).optional().catch(undefined),
   signature: z.string().min(1),
 });
 export type ConnectCard = z.infer<typeof ConnectCardSchema>;
@@ -232,8 +240,12 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
   // The preview rides OUTSIDE the signed subset on purpose: display-only, re-proven by the
   // signed feed profile chunk after connecting. Caps enforced here, never assumed.
   const profile = preview ? ConnectProfilePreviewSchema.parse(preview) : undefined;
+  // A vault with a feed vouches for whoever accepts this link. The relay decides whether
+  // that vouch counts (the author must be a member, under quota); a non-member's invite is inert.
+  const invite = settings.feedUrl ? await signRelayInvite(identity, now) : null;
+  const relayInvite = invite ? { id: invite.inviteId, expiresAt: invite.expiresAt, signature: invite.signature } : undefined;
   const link = `${baseUrl}${CONNECT_LINK_PREFIX}${toBase64Url(
-    JSON.stringify({ ...unsigned, ...(profile ? { profile } : {}), signature: encodeBase64(signature) }),
+    JSON.stringify({ ...unsigned, ...(profile ? { profile } : {}), ...(relayInvite ? { relayInvite } : {}), signature: encodeBase64(signature) }),
   )}`;
   if (link.length > MAX_CHAT_LINK_CHARS) {
     throw new AppError("That connect link is too long.");
@@ -286,7 +298,7 @@ export async function importConnectCard(
   vault: UnlockedVault,
   text: string,
   deps: { settings: Settings; newId: () => string; now: Date },
-): Promise<{ authorId: string; handle: string; isNew: boolean }> {
+): Promise<{ authorId: string; handle: string; isNew: boolean; relayInvite: RelayInvite | null }> {
   if (new TextEncoder().encode(text).byteLength > MAX_CHAT_LINK_CHARS) {
     throw new AppError("That connect link is too large.");
   }
@@ -344,5 +356,8 @@ export async function importConnectCard(
     schemaVersion: 1,
   });
   await addNote(vault, `Connected with @${author.handle} from a link.`, deps);
-  return { authorId: author.id, handle: author.handle, isNew: keep === null };
+  const relayInvite = card.relayInvite
+    ? { inviterPub: author.pubkey, inviteId: card.relayInvite.id, expiresAt: card.relayInvite.expiresAt, signature: card.relayInvite.signature }
+    : null;
+  return { authorId: author.id, handle: author.handle, isNew: keep === null, relayInvite };
 }

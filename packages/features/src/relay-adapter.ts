@@ -1,7 +1,7 @@
 import { AppError, VaultCorruptError, type Bytes } from "@veil/core";
 import { signPayload, verifySignature } from "@veil/crypto";
 import { decodeBase64, encodeBase64 } from "@veil/core";
-import { CHUNK_ID_PATTERN, base32Lower, verifyRelayPublish, type RelayPublishRequest } from "./chat-relay";
+import { CHUNK_ID_PATTERN, base32Lower, relayAllows, verifyRelayPublish, type RelayAllowlist, type RelayPublishRequest } from "./chat-relay";
 
 // Relay endpoint core (proposal; nothing deployed or wired). Host-neutral: the caller
 // supplies an atomic store with compare-and-set semantics and owns the transport. The
@@ -131,7 +131,7 @@ interface PublisherState {
 }
 
 export interface RelayAdmissionOptions {
-  allowlist?: string[];
+  allowlist?: RelayAllowlist;
   maxPublishesPerWindow: number;
   windowMs: number;
   now: Date;
@@ -280,17 +280,20 @@ async function gateRelayRead(
   rawStore: RelayAtomicStore,
   request: RelayReadRequest,
   objectPath: string,
-  opts: { allowlist?: string[]; now: Date },
+  opts: { allowlist?: RelayAllowlist; now: Date },
 ): Promise<{ store: RelayAtomicStore; ops: RelayOps; state: PublisherState }> {
   validateReadFields(request);
-  if (opts.allowlist && !opts.allowlist.includes(request.pubkey)) {
-    throw new AppError("That reader key is not on the allowlist.");
-  }
   const payload = new TextEncoder().encode(`${objectPath}:${request.ts}:${request.nonce}`);
-  const ok = await verifySignature(decodeBase64(request.pubkey), payload, decodeBase64(request.signature));
+  let ok = false;
+  try { ok = await verifySignature(decodeBase64(request.pubkey), payload, decodeBase64(request.signature)); } catch { ok = false; }
   if (!ok) throw new VaultCorruptError("That read request's signature does not check out.");
   if (Math.abs(opts.now.getTime() - request.ts) > RELAY_READ_MAX_AGE_MS) {
     throw new AppError("That read request is too old.");
+  }
+  // After the pure checks: a membership lookup may be a database call, so forged or
+  // stale requests must never reach it.
+  if (!(await relayAllows(opts.allowlist, request.pubkey))) {
+    throw new AppError("That reader key is not on the allowlist.");
   }
   const { store, ops } = countingStore(rawStore);
   const readerDigest = await globalThis.crypto.subtle.digest("SHA-256", decodeBase64(request.pubkey));
@@ -315,7 +318,7 @@ async function gateRelayRead(
 export async function serveRelayRead(
   rawStore: RelayAtomicStore,
   request: RelayReadRequest,
-  opts: { allowlist?: string[]; now: Date },
+  opts: { allowlist?: RelayAllowlist; now: Date },
 ): Promise<{ manifest: string; ops: RelayOps }> {
   const { store, ops, state } = await gateRelayRead(rawStore, request, request.feedPath, opts);
   const entry = await store.get(`${request.feedPath}/${state.current}`);
@@ -332,7 +335,7 @@ export async function serveRelayRead(
 export async function serveRelayChunk(
   rawStore: RelayAtomicStore,
   request: RelayReadRequest & { chunkId: string },
-  opts: { allowlist?: string[]; now: Date },
+  opts: { allowlist?: RelayAllowlist; now: Date },
 ): Promise<{ chunk: string; ops: RelayOps }> {
   if (!CHUNK_ID_PATTERN.test(request.chunkId)) throw new VaultCorruptError("That read request is damaged.");
   const objectPath = `${request.feedPath}/chunks/${request.chunkId}`;

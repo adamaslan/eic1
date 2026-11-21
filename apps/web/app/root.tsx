@@ -14,6 +14,7 @@ import {
   MAX_CHAT_LINK_CHARS,
   applyChatShareLink,
   importConnectCard,
+  enrollWithRelayInvite,
   importShareBundle,
   loadSettings,
   parseShareBundle,
@@ -415,6 +416,11 @@ function PendingLinkHandler({ vault }: { vault: ReturnType<typeof useSessionStor
     try {
       const settings = await loadSettings(vault);
       const result = await importConnectCard(vault, pending.text, { settings, newId: newItemId, now: new Date() });
+      // Vouched relay enrollment: the friend's invite admits this vault's key so chat works
+      // without any setup step. Best effort - the connection is saved either way, and an
+      // already-enrolled vault gets "member" without spending the invite.
+      const relayEndpoint = import.meta.env.VITE_EIC_RELAY_ENDPOINT as string | undefined;
+      if (relayEndpoint && result.relayInvite) await enrollWithRelayInvite(vault, relayEndpoint, result.relayInvite).catch(() => undefined);
       consumeHash("connect");
       setPending(null);
       // A chat link that arrived before the connection existed has been waiting in its slot.
