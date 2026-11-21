@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
 
+/** The paste box sits in the collapsed "Older imports and exports" section; open it if it is closed. */
+async function openOlderImports(page: import("@playwright/test").Page) {
+  const details = page.locator("details", { has: page.getByText("Older imports and exports", { exact: true }) });
+  if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) await page.getByText("Older imports and exports", { exact: true }).click();
+}
+
+
 test("unsigned chat offers its signed reimport path on desktop and phone", async ({ page }, testInfo) => {
   const passphrase = `legacy-upgrade-${Date.now()}`;
   await page.goto("/unlock");
@@ -16,6 +23,7 @@ test("unsigned chat offers its signed reimport path on desktop and phone", async
     format: "eic-share", version: 1, exportedAt: "2026-11-01T14:00:00Z",
     author: { id: "sunny01", handle: "sunny" }, posts: [], likes: [], likesComplete: true,
   });
+  await openOlderImports(page);
   await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(legacyBundle);
   await page.getByRole("button", { name: "Import pasted text" }).click();
   await expect(page.getByText(/Unsigned file - trust the sender \(@sunny\)/)).toBeVisible();

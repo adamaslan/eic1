@@ -86,11 +86,9 @@ export function ChatThreadView({
         {authorId && <div className="flex items-center gap-2"><Avatar authorId={authorId} label={`${handle}'s avatar`} />@{handle}</div>}
         <div className="flex flex-col gap-2 text-[12px]">
           {relay ? (
-            <p className="bg-[#ffffe1] px-1.5 py-1">
-              Messages are sealed for @{handle} and live in your vault; everything you see renders from local data.
-              Sending puts an encrypted snapshot on the relay and retries automatically if it fails. Friends&apos; messages arrive while EIC is open and unlocked, about once a minute, on Wi-Fi (or on cellular when you turn on cellular sync in Settings).
-              ⏳ Saved on this device means the message is only here. ✓ Sent to relay means the relay committed it. ✓✓ Delivered means @{handle}&apos;s device saved it. The relay cannot read your messages.
-              Closed-app or background delivery is not supported on iPhone.
+            // Short legend only; the full privacy text lives once, in "Privacy and delivery details" below.
+            <p className="text-[var(--w95-muted)]">
+              ⏳ Saved on this device · ✓ Sent to relay · ✓✓ Delivered to @{handle}
             </p>
           ) : (
             <>
@@ -181,7 +179,8 @@ export function ChatThreadView({
               <summary className="cursor-pointer text-[var(--w95-muted)]">Privacy and delivery details</summary>
             <p className="bg-[#ffffe1] px-1.5 py-1">
               Messages are sealed for @{handle} and live in your vault; everything you see renders from local data.
-              When a relay endpoint is configured, Send also puts an encrypted snapshot on the relay, and Check for messages pulls @{handle}&apos;s replies.
+              When a relay endpoint is configured, Send also puts an encrypted snapshot on the relay and retries automatically if it fails, and Check for messages pulls @{handle}&apos;s replies.
+              ⏳ Saved on this device means the message is only here. ✓ Sent to relay means the relay committed it. ✓✓ Delivered means @{handle}&apos;s device saved it.
               An open chat checks for replies about once a minute while visible and unlocked, on Wi-Fi. If this browser cannot tell Wi-Fi from mobile data (Safari on iPhone), small encrypted messages still sync and large catches-up wait; reported mobile data waits unless you allow it in Settings. Nothing runs after you close it, there are no push notifications, and nothing is delivered while EIC is closed or locked, and the relay cannot read your messages or tell you when they are read.
             </p>
             </details>

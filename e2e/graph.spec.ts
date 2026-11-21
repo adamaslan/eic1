@@ -1,6 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import { unexpectedConsoleErrors, watchRuntime, type WatchedRuntime } from "./fixtures/runtime-watch";
 
+/** The paste box sits in the collapsed "Older imports and exports" section; open it if it is closed. */
+async function openOlderImports(page: import("@playwright/test").Page) {
+  const details = page.locator("details", { has: page.getByText("Older imports and exports", { exact: true }) });
+  if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) await page.getByText("Older imports and exports", { exact: true }).click();
+}
+
+
 /**
  * Social graph: maps the vault's connections, posts, and listings; proves edge facts and
  * hidden-connection exclusion. Seeds ONLY through production UI (compose, share-file import) -
@@ -175,6 +182,7 @@ test("graph maps a connection's authorship and likes, and honors hiding", async 
   await page.getByLabel("Handle").fill("tester");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Handle saved.")).toBeVisible();
+  await openOlderImports(page);
   await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(V1_BUNDLE);
   await page.getByRole("button", { name: "Import pasted text" }).click();
   await expect(page.getByText(/Unsigned file - trust the sender \(@sunny\)/)).toBeVisible();
@@ -221,6 +229,7 @@ test("graph stays consistent when the graph tab is opened during the hide write"
   await page.getByLabel("Handle").fill("tester");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Handle saved.")).toBeVisible();
+  await openOlderImports(page);
   await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(V1_BUNDLE);
   await page.getByRole("button", { name: "Import pasted text" }).click();
   await expect(page.getByText(/Unsigned file - trust the sender \(@sunny\)/)).toBeVisible();
@@ -289,6 +298,7 @@ test("graph filters and search narrow the map honestly, and clear restores it", 
   await page.getByLabel("Handle").fill("tester");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Handle saved.")).toBeVisible();
+  await openOlderImports(page);
   await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(V1_BUNDLE);
   await page.getByRole("button", { name: "Import pasted text" }).click();
   await expect(page.getByText(/Unsigned file - trust the sender \(@sunny\)/)).toBeVisible();
@@ -344,6 +354,7 @@ test("connections Map link preselects the person on the graph, and hiding keeps 
   await page.getByLabel("Handle").fill("tester");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Handle saved.")).toBeVisible();
+  await openOlderImports(page);
   await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(V1_BUNDLE);
   await page.getByRole("button", { name: "Import pasted text" }).click();
   await expect(page.getByText(/Unsigned file - trust the sender \(@sunny\)/)).toBeVisible();
@@ -398,6 +409,7 @@ function bundleWithPosts(authorId: string, handle: string, count: number, baseIs
 
 async function importBundle(page: Page, bundle: string, handle: string) {
   await page.goto("/connections");
+  await openOlderImports(page);
   await page.getByPlaceholder("Paste a shared post here, or drop a .json file anywhere in this box").fill(bundle);
   await page.getByRole("button", { name: "Import pasted text" }).click();
   await expect(page.getByText(new RegExp(`Unsigned file - trust the sender \\(@${handle}\\)`))).toBeVisible();
