@@ -11,6 +11,8 @@ import {
   markThreadRead,
   describeSendError,
   sendChatMessage,
+  loadChatDraft,
+  saveChatDraft,
   outboundStatus,
   type ChatMessage,
 } from "@veil/features";
@@ -223,6 +225,46 @@ export default function Chat({ params }: Route.ComponentProps) {
   const [error, setError] = useState<string | null>(null);
   const [linkNotice, setLinkNotice] = useState<string | null>(null);
 
+  // The message box survives a reload: its text is saved encrypted in the vault, per chat. Saves run one at a
+  // time so an older write never lands after a newer one, and a draft is only saved for the chat it was loaded for.
+  const draftOwnerRef = useRef<string | null>(null);
+  const draftPendingRef = useRef<{ owner: string; body: string } | null>(null);
+  const draftChainRef = useRef<Promise<void>>(Promise.resolve());
+  const writeDraft = useCallback((owner: string, body: string) => {
+    if (!vault) return draftChainRef.current;
+    draftChainRef.current = draftChainRef.current.then(() => saveChatDraft(vault, owner, body)).catch(() => undefined);
+    return draftChainRef.current;
+  }, [vault]);
+  useEffect(() => {
+    draftOwnerRef.current = null;
+    setDraft("");
+    if (!vault || !authorId) return;
+    let cancelled = false;
+    void loadChatDraft(vault, authorId).catch(() => "").then((saved) => {
+      if (cancelled) return;
+      draftOwnerRef.current = authorId;
+      setDraft((typed) => typed || saved);
+    });
+    return () => {
+      cancelled = true;
+      // Leaving this chat: save what was typed in the last moments before the debounce fired.
+      const pending = draftPendingRef.current;
+      draftPendingRef.current = null;
+      if (pending) void writeDraft(pending.owner, pending.body);
+    };
+  }, [vault, authorId, writeDraft]);
+  useEffect(() => {
+    const owner = draftOwnerRef.current;
+    if (!owner || owner !== authorId) return;
+    draftPendingRef.current = { owner, body: draft };
+    const timer = setTimeout(() => {
+      const pending = draftPendingRef.current;
+      draftPendingRef.current = null;
+      if (pending) void writeDraft(pending.owner, pending.body);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [authorId, draft, writeDraft]);
+
   // Guards the thread paint against route changes that happen DURING an awaited reload:
   // this screen stays mounted across /chat/:authorId param changes, so an in-flight load
   // for chat A must never overwrite chat B's visible thread.
@@ -395,6 +437,9 @@ export default function Chat({ params }: Route.ComponentProps) {
       return;
     }
     // The message is persisted from here on: a refresh failure must not suggest resending.
+    // Drop the saved draft now, not after the debounce, so a quick reload cannot bring back text that was sent.
+    draftPendingRef.current = null;
+    await writeDraft(connection.id, "");
     setDraft("");
     try {
       setMessages(await listChatThread(vault, connection.id));
