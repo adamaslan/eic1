@@ -170,13 +170,32 @@ CodeRabbit's four open findings on #128, checked against current code: requester
 
 ### Request and accept, verified (item 2)
 
-Sealed request and accept bind the sender key at request time. Only the listed key can accept. A pending or declined request grants nothing: no connection, no chat. Declined requests keep no sealed material and do not come back on retry. A sealed connect must carry its sender's own signed bundle, and cannot replace an existing friend's key. **Missing: block and report.** There is no code for either. Declining is not blocking, because the sender can still see the card and the card is the only gate.
+Sealed request and accept bind the sender key at request time. Only the listed key can accept. A pending or declined request grants nothing: no connection, no chat. Declined requests keep no sealed material and do not come back on retry. A sealed connect must carry its sender's own signed bundle, and cannot replace an existing friend's key. **Missing: block and report.** There is no code for either. Declining is not blocking, because the sender can still see the card and the card is the only gate. *(Later the same day: a local block now exists; report still does not. See "Follow-up" below.)*
 
 ### Not proved, or found and not fixed
 
 - **transition-smoke CI is red for a reason outside the code.** `e2e/ci-preview.mjs wait` polls for the Netlify deploy-preview status and the footer build stamp. Commit `5cf8748` has zero commit statuses, so Netlify never reported a preview. PRs through #125 got `netlify/everybodyiscool/deploy-preview=success`; #126, #127 and #128 have none, and all three smoke jobs fail after about 16 minutes. Lint, tsc and vitest show `skipping` because they only run on manual dispatch, and **skipped is not passed**. Cause is on the Netlify side (not visible from here). Nothing was deployed or removed.
-- A draft typed in the message box is not persisted across a reload (state only). Messages already sent are.
-- The Discover route wraps the component's own window, so two "Discover" title bars show on desktop. Cosmetic.
+- ~~A draft typed in the message box is not persisted across a reload (state only).~~ Fixed in `7e6b351`, see "Follow-up" below.
+- ~~The Discover route wraps the component's own window, so two "Discover" title bars show on desktop.~~ Fixed in `d40a99d`.
 - A pull of a friend's never-published feed still counts as `failed: 1` in `runRelayPass` (pre-existing).
 - Screenshots were taken under a mocked clock, which leaves the window fade-in at opacity 0 (a test-clock artifact, not a product defect). The capture helper forces those wrappers visible.
 - 45 synthetic hosted `feeds/` objects from earlier runs were not touched. Deleting them needs a yes first.
+
+### Follow-up, 2026-11-20 evening: block, drafts, title bar, #126 overlap
+
+Same limits as above: synthetic vaults, in-memory relay, nothing hosted, nothing pushed or merged. The two-vault spec now also covers the three items below and passed 3 of 3 consecutive runs (about 45 to 55 s each). vitest 81 files and 845 tests pass, eslint 0 errors (the old `player-audio.tsx` warning), typecheck clean.
+
+| Item | Status | What it does, and where |
+|---|---|---|
+| Block | Done, local only (`bbbadf9`) | "Block" on a profile and on an incoming request. The person goes into an encrypted vault record (`discover-blocks`, at most 500). Discover hides their card, declines their pending requests with the existing `decline` action (the relay keeps a declined request declined and drops its sealed material), and never imports an accept from them, even one I asked for before blocking. Connections and chats are untouched. A failed decline is retried on the next read. "Blocked on this device" lists them, with Unblock. |
+| Report | Not built, needs an owner decision | There is no moderator, no server-side report store, and no policy for what a report triggers. Building one means a new relay action, retention rules and someone to read reports. That is a product and hosting decision, not a code gap. |
+| Draft across reload | Done (`7e6b351`) | The message box is saved per chat as an encrypted settings record `chat-draft:<author>`, debounced 300 ms and written one at a time; flushed when leaving a chat; deleted before the box clears on a successful send, so a fast reload cannot bring back sent text. Chat and relay code list only `chat` records, so a draft is never published. |
+| Double "Discover" title bar | Done (`d40a99d`) | The route adds a window only for the join check ("Join Discover") and the loading or error line. The e2e asserts exactly one "Discover" title. |
+
+What the block does **not** do: my card stays visible to the person I blocked while I am listed, because every directory read returns every live card and the relay knows nothing of the block. Hiding my card from one person needs a server-side filter, which is an owner decision (it would tell the relay who blocked whom). A block on one device does not reach my other devices.
+
+**PR #126 overlap, measured read-only** (`git merge-tree`, nothing merged or rebased). #126 has two commits on the same `main` base as this branch. Three of its five files (`DISCOVER-MESSAGING-TODO.md`, `landing-dashboard.tsx`, `e2e/dashboard-friend-chat.spec.ts`) are byte-identical here: `025b427` carried them in. `connections.tsx` auto-merges. `chat.tsx` has the only real conflict, two hunks, both relay-notice copy: #126 shortens the notice to "Encrypted chat. Check the send status below." where this branch explains the three delivery states, and #126 keeps the "Set up relay feed" hint for a button this branch removed. So #126 adds nothing this branch lacks except the shorter copy. Which copy wins, and whether #126 closes as superseded, is the owner's call.
+
+**A lead on transition-smoke, not a conclusion.** #126's commits carry `[skip netlify]`, and the titles of #126, #127 and #128 all do. Netlify skips a build when the commit message carries that marker, which fits "no deploy-preview status on #126 to #128". This branch's own commit messages do not carry it, so on #128 that would only explain the missing preview if Netlify reads the PR title too. Unverified.
+
+<!-- model-stamp: Claude Opus 5.5 (claude-opus-5-5) | session dd6622bc | 2026-11-20 | editor -->
