@@ -185,6 +185,8 @@ async function join(p: Person) {
   // Joined people do not keep a Join panel: it goes away once Discover has loaded.
   await expect(p.page.getByRole('region', { name: 'Join the encrypted relay' })).toHaveCount(0);
   await expect(p.page.getByText('Visibility not confirmed').or(p.page.getByText('You are hidden from Discover'))).toBeVisible();
+  // The route used to wrap the directory's own window, so two "Discover" title bars showed.
+  await expect(p.page.locator('.w95-title span.truncate', { hasText: /^Discover$/ })).toHaveCount(1);
 }
 
 async function list(p: Person, name: string, bio: string) {
@@ -257,6 +259,11 @@ test('Discover to chat: two isolated vaults, honest states, privacy, recovery', 
     await send(bob, 'synthetic reply from bob');
     await expect(statusOf(bob, /Message status: .*Sent to relay/)).toBeVisible();
     await untilAutomatic(fx, people, async () => (await count(alice, 'synthetic reply from bob')) > 0, 'alice-gets-reply');
+    // An unsent draft is saved encrypted in the vault, so the reload must not lose it.
+    await alice.page.getByLabel('Message', { exact: true }).fill('synthetic unsent draft');
+    // The save is debounced by a page timer, and the page clock is mocked: move it past the debounce.
+    await advance(fx, people, 1_000);
+    await new Promise((r) => setTimeout(r, 500));
     await alice.page.reload();
     // A reload resumes the saved session; if it ever asks for the passphrase instead, unlock honestly.
     const asked = await alice.page.getByText('Enter your passphrase to unlock the vault.').waitFor({ timeout: 8000 }).then(() => true, () => false);
@@ -268,7 +275,9 @@ test('Discover to chat: two isolated vaults, honest states, privacy, recovery', 
     expect(await count(alice, 'synthetic hello from alice')).toBe(1);
     expect(await count(alice, 'synthetic reply from bob')).toBe(1);
     await expect(statusOf(alice, /Message status: .*Delivered/)).toBeVisible();
+    await expect(alice.page.getByLabel('Message', { exact: true })).toHaveValue('synthetic unsent draft');
     await snap(alice, '10-alice-after-reload-desktop');
+    await alice.page.getByLabel('Message', { exact: true }).fill('');
   });
 
   await test.step('offline: saved locally, retries never duplicate, reconnect sends exactly once', async () => {
@@ -357,6 +366,32 @@ test('Discover to chat: two isolated vaults, honest states, privacy, recovery', 
     expect(await count(alice, 'synthetic hello from alice')).toBe(1);
     await send(alice, 'synthetic after hide');
     await untilAutomatic(fx, people, async () => (await count(bob, 'synthetic after hide')) > 0, 'bob-gets-after-hide');
+  });
+
+  await test.step('block: local only, their card goes, their later request ends declined, chats are kept', async () => {
+    await goto(bob.page, '/connections'); await goto(bob.page, '/discover');
+    await bob.page.getByRole('button', { name: 'View Synthetic Carol' }).click();
+    await bob.page.getByRole('button', { name: 'Block Synthetic Carol' }).click();
+    await expect(bob.page.getByText(/^Blocked on this device\. You won't see their card or requests/)).toBeVisible();
+    await expect(bob.page.getByRole('button', { name: 'View Synthetic Carol' })).toHaveCount(0);
+    await expect(bob.page.getByText('Blocked on this device (1)')).toBeVisible();
+    // Nothing about the block reached the relay: Carol still sees Bob's card and can ask.
+    await goto(carol.page, '/connections'); await goto(carol.page, '/discover');
+    await carol.page.getByRole('button', { name: 'View Synthetic Bob' }).click();
+    await carol.page.getByRole('button', { name: 'Add Synthetic Bob' }).click();
+    await expect(carol.page.getByText('Request sent. This does not open a chat or allow messages.')).toBeVisible();
+    await goto(bob.page, '/connections'); await goto(bob.page, '/discover');
+    await expect(bob.page.getByText('Blocked on this device (1)')).toBeVisible();
+    await expect(bob.page.getByRole('region', { name: 'Incoming requests' })).toHaveCount(0);
+    const ids = Object.fromEntries(Object.entries(fx.directoryStore.value.cards).map(([id, c]) => [c.handle, id]));
+    await expect.poll(() => fx.directoryStore.value.requests[`${ids['disc-carol']}:${ids['disc-bob']}`]?.status).toBe('declined');
+    expect(fx.directoryStore.value.requests[`${ids['disc-carol']}:${ids['disc-bob']}`]!.requestSealed).toBeNull();
+    await snap(bob, '15a-bob-blocked-carol-mobile');
+    await goto(carol.page, '/connections');
+    await expect(carol.page.getByRole('link', { name: 'Chat' })).toHaveCount(0);
+    await openChat(bob);
+    await send(bob, 'synthetic after block');
+    await untilAutomatic(fx, people, async () => (await count(alice, 'synthetic after block')) > 0, 'alice-gets-after-block');
   });
 
   await test.step('locked vault: no relay traffic while locked, and work resumes after unlock', async () => {
