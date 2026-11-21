@@ -49,6 +49,7 @@ export function DiscoverDirectory({ controller }: { controller: DirectoryControl
                   <span className="min-w-0 flex-1 break-all">{state.cards.find((card) => card.id === id)?.name ?? "Someone on Discover"}</span>
                   <Button95 disabled={state.busy} onClick={() => { void controller.accept(id); }}>Accept</Button95>
                   <Button95 disabled={state.busy} onClick={() => { void controller.decline(id); }}>Decline</Button95>
+                  <Button95 disabled={state.busy} onClick={() => { void controller.block(id); }}>Block</Button95>
                 </div>
               ))}
               <p className="text-[12px] text-[var(--w95-muted)]">Accepting shares your connect with them and imports theirs. Nothing is shared until you accept.</p>
@@ -63,11 +64,24 @@ export function DiscoverDirectory({ controller }: { controller: DirectoryControl
               <Button95 onClick={() => setSelected(card)}>View {card.name}</Button95>
             </li>)}
           </ul>
+          {state.ready && state.blocked.length > 0 && (
+            <details className="border border-[var(--w95-muted)] p-2">
+              <summary className="min-h-[44px] cursor-pointer content-center font-bold">Blocked on this device ({state.blocked.length})</summary>
+              <p>Blocking is kept only on this device and is never sent to them. Their requests are declined; friends and chats you already have are unchanged.</p>
+              <ul className="flex flex-col gap-2" aria-label="Blocked people">
+                {state.blocked.map((person) => <li key={person.id} className="flex flex-wrap items-center gap-2">
+                  <span className="min-w-0 flex-1 break-all">{person.name}{person.handle && ` @${person.handle}`}</span>
+                  <Button95 disabled={state.busy} onClick={() => { void controller.unblock(person.id); }}>Unblock</Button95>
+                </li>)}
+              </ul>
+            </details>
+          )}
         </div>
       </Window>
       {selected && <Window title={`About ${selected.name}`}><section aria-label={`Profile for ${selected.name}`} className="flex flex-col gap-3">
         <h2 className="text-base font-bold">{selected.name} <span className="text-[12px] font-normal">@{selected.handle}</span></h2><p className="break-words">{selected.bio || "No bio yet."}</p><p>Adding sends a request, not a message. No chat opens until both people agree.</p>
-        <div className="flex flex-wrap gap-2"><Button95 disabled={state.busy || state.requested.includes(selected.id)} onClick={() => { void controller.request(selected.id); }}>{state.requested.includes(selected.id) ? "Request sent" : `Add ${selected.name}`}</Button95><Button95 onClick={() => setSelected(null)}>Close profile</Button95></div>
+        <div className="flex flex-wrap gap-2"><Button95 disabled={state.busy || state.requested.includes(selected.id)} onClick={() => { void controller.request(selected.id); }}>{state.requested.includes(selected.id) ? "Request sent" : `Add ${selected.name}`}</Button95><Button95 onClick={() => setSelected(null)}>Close profile</Button95><Button95 disabled={state.busy} onClick={() => { const id = selected.id; void controller.block(id).then(() => { if (controller.snapshot().blocked.some((p) => p.id === id)) setSelected(null); }); }}>Block {selected.name}</Button95></div>
+        <p className="text-[var(--w95-muted)]">Blocking hides their card and refuses their requests on this device. It does not remove an existing friend or chat.</p>
       </section></Window>}
     </div>
   );

@@ -3,7 +3,7 @@ import { DirectoryController, publicCard, searchCards, type DirectoryAdapter, ty
 
 const card = { id: "person-1", name: "River", handle: "river", bio: "Film photos and long walks" };
 function fixture(ownCard: DirectoryCard | null = null) {
-  const adapter: DirectoryAdapter = { read: vi.fn(async () => ({ cards: [card], ownCard, incoming: [] })), publish: vi.fn(async (draft) => ({ id: "self", ...draft })), hide: vi.fn(async () => {}), request: vi.fn(async () => {}), accept: vi.fn(async () => {}), decline: vi.fn(async () => {}) };
+  const adapter: DirectoryAdapter = { read: vi.fn(async () => ({ cards: [card], ownCard, incoming: [], blocked: [] })), publish: vi.fn(async (draft) => ({ id: "self", ...draft })), hide: vi.fn(async () => {}), request: vi.fn(async () => {}), accept: vi.fn(async () => {}), decline: vi.fn(async () => {}), block: vi.fn(async (person) => [person]), unblock: vi.fn(async () => []) };
   return { adapter, model: new DirectoryController(adapter) };
 }
 describe("Discover local state, not a hosted directory", () => {
@@ -59,5 +59,21 @@ describe("Discover local state, not a hosted directory", () => {
   it("blocks concurrent visibility mutations until the server outcome is known", async () => {
     const { model, adapter } = fixture(); let resolve!: (value: DirectoryCard) => void;
     vi.mocked(adapter.publish).mockImplementation(() => new Promise((r) => { resolve = r; })); await model.load(); const pending = model.publish(card); await model.hide(); expect(adapter.hide).not.toHaveBeenCalled(); resolve({ ...card, id: "self" }); await pending; expect(model.state.visibility).toBe("listed");
+  });
+  it("block removes the card and its request, and a failed save keeps both and says so", async () => {
+    const { model, adapter } = fixture(); vi.mocked(adapter.read).mockResolvedValueOnce({ cards: [card], ownCard: null, incoming: [card.id], blocked: [] });
+    await model.load();
+    vi.mocked(adapter.block).mockRejectedValueOnce(new Error("disk")); await model.block(card.id);
+    expect(model.state.cards).toEqual([card]); expect(model.state.incoming).toEqual([card.id]); expect(model.state.error).toBe("Couldn't block. Try again.");
+    await model.block(card.id);
+    expect(adapter.block).toHaveBeenLastCalledWith({ id: card.id, name: "River", handle: "river" });
+    expect(model.state.cards).toEqual([]); expect(model.state.incoming).toEqual([]); expect(model.state.blocked.map((p) => p.id)).toEqual([card.id]);
+    expect(adapter.decline).not.toHaveBeenCalled();
+  });
+  it("unblock clears the entry and reloads", async () => {
+    const { model, adapter } = fixture(); vi.mocked(adapter.read).mockResolvedValueOnce({ cards: [], ownCard: null, incoming: [], blocked: [{ id: card.id, name: "River", handle: "river" }] });
+    await model.load(); expect(model.state.blocked).toHaveLength(1);
+    await model.unblock(card.id); await vi.waitFor(() => expect(model.state.cards).toEqual([card]));
+    expect(model.state.blocked).toEqual([]);
   });
 });

@@ -1,17 +1,21 @@
 export type DirectoryCard = { id: string; name: string; handle: string; bio: string };
 export type PublicCardDraft = Omit<DirectoryCard, "id">;
+export type BlockedPerson = { id: string; name: string; handle: string };
 export interface DirectoryAdapter {
-  read(): Promise<{ cards: DirectoryCard[]; ownCard: DirectoryCard | null; incoming: string[] }>;
+  read(): Promise<{ cards: DirectoryCard[]; ownCard: DirectoryCard | null; incoming: string[]; blocked: BlockedPerson[] }>;
   publish(draft: PublicCardDraft): Promise<DirectoryCard>;
   hide(): Promise<void>;
   // Idempotent per signed identity + target: retrying after a lost response must not duplicate requests.
   request(id: string): Promise<void>;
   accept(id: string): Promise<void>;
   decline(id: string): Promise<void>;
+  // Local only: hides their card and declines their requests here. Connections and chats are untouched.
+  block(person: BlockedPerson): Promise<BlockedPerson[]>;
+  unblock(id: string): Promise<BlockedPerson[]>;
 }
 export type DirectoryState = {
   visibility: "hidden" | "listed" | "unknown"; ready: boolean; busy: boolean; cards: DirectoryCard[]; ownCard: DirectoryCard | null;
-  requested: string[]; incoming: string[]; error: string; notice: string;
+  requested: string[]; incoming: string[]; blocked: BlockedPerson[]; error: string; notice: string;
 };
 
 // Explicit projection: a directory adapter cannot accidentally expose extra vault fields.
@@ -32,7 +36,7 @@ export function searchCards(cards: DirectoryCard[], query: string): DirectoryCar
 
 // Talks only to the injected adapter. The adapter owns signing, sealing and imports.
 export class DirectoryController {
-  state: DirectoryState = { visibility: "unknown", ready: false, busy: false, cards: [], ownCard: null, requested: [], incoming: [], error: "", notice: "" };
+  state: DirectoryState = { visibility: "unknown", ready: false, busy: false, cards: [], ownCard: null, requested: [], incoming: [], blocked: [], error: "", notice: "" };
   private listeners = new Set<() => void>();
   constructor(private readonly adapter: DirectoryAdapter) {}
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -44,7 +48,7 @@ export class DirectoryController {
     try {
       const data = await this.adapter.read(); const ownCard = data.ownCard ? publicCard(data.ownCard) : null;
       const cards = data.cards.map(publicCard).filter((card) => card.id !== ownCard?.id);
-      this.update({ ready: true, ownCard, cards, incoming: data.incoming, visibility: ownCard ? "listed" : "hidden" });
+      this.update({ ready: true, ownCard, cards, incoming: data.incoming, blocked: data.blocked, visibility: ownCard ? "listed" : "hidden" });
     } catch { this.update({ error: "Couldn't load Discover. Try again.", ready: false }); }
     finally { this.update({ busy: false }); }
   }
@@ -89,5 +93,26 @@ export class DirectoryController {
     try { await this.adapter.decline(id); this.update({ incoming: this.state.incoming.filter((x) => x !== id), notice: "Declined. Nothing was shared with them." }); }
     catch { this.update({ error: "Couldn't decline. Try again." }); }
     finally { this.update({ busy: false }); }
+  }
+  async block(id: string) {
+    if (!this.state.ready || this.state.busy || this.state.blocked.some((p) => p.id === id)) return;
+    const card = this.state.cards.find((c) => c.id === id);
+    if (!card && !this.state.incoming.includes(id)) return;
+    this.update({ busy: true, error: "", notice: "" });
+    try {
+      const blocked = await this.adapter.block({ id, name: card?.name ?? "Someone on Discover", handle: card?.handle ?? "" });
+      this.update({ blocked, cards: this.state.cards.filter((c) => c.id !== id), incoming: this.state.incoming.filter((x) => x !== id),
+        notice: "Blocked on this device. You won't see their card or requests. Existing friends and chats are unchanged." });
+    } catch (error) {
+      this.update({ error: error instanceof Error && error.message.startsWith("You can block") ? error.message : "Couldn't block. Try again." });
+    }
+    finally { this.update({ busy: false }); }
+  }
+  async unblock(id: string) {
+    if (!this.state.ready || this.state.busy || !this.state.blocked.some((p) => p.id === id)) return;
+    this.update({ busy: true, error: "", notice: "" });
+    try { const blocked = await this.adapter.unblock(id); this.update({ blocked, notice: "Unblocked. Their card shows again if they are listed. Requests you already declined stay declined." }); }
+    catch { this.update({ error: "Couldn't unblock. Try again." }); }
+    finally { this.update({ busy: false }); void this.load(); }
   }
 }

@@ -1,4 +1,4 @@
-import { importSealedConnect, myPrincipal, sealConnectBundle, SignedDirectoryClient, type DirectoryRead } from "@veil/features";
+import { blockDiscoverPerson, importSealedConnect, listDiscoverBlocks, myPrincipal, sealConnectBundle, SignedDirectoryClient, unblockDiscoverPerson, type DirectoryRead } from "@veil/features";
 import type { UnlockedVault } from "@veil/vault";
 import type { DirectoryAdapter } from "./discover-controller";
 
@@ -28,16 +28,24 @@ export function signedDirectoryAdapter(client: SignedDirectoryClient, vault: Unl
     read: async () => {
       const data = await fetchRaw();
       const me = await myPrincipal(vault);
-      // Accepted connects I requested: import the bundle the target sent back.
+      const blocked = await listDiscoverBlocks(vault);
+      const isBlocked = (id: string) => blocked.some((person) => person.id === id);
+      // Accepted connects I requested: import the bundle the target sent back. Never from someone I blocked,
+      // even if I asked them before blocking.
       for (const request of data.requests) {
-        if (request.from === me && request.status === "accepted" && request.acceptSealed) {
+        if (request.from === me && request.status === "accepted" && request.acceptSealed && !isBlocked(request.to)) {
           await importIfNew(request.from, request.to, request.acceptSealed, request.toPubkey);
         }
       }
+      // A blocked person's pending request is declined, so it keeps no sealed material and cannot come back.
+      const pending = data.requests.filter((r) => r.to === me && r.status === "pending");
+      // A failed decline is retried on the next read; their request stays hidden either way.
+      for (const request of pending.filter((r) => isBlocked(r.from))) await client.execute({ action: "decline", target: request.from }).catch(() => undefined);
       return {
-        cards: data.cards.map(({ id, name, handle, bio }) => ({ id, name, handle, bio })),
+        cards: data.cards.filter((card) => !isBlocked(card.id)).map(({ id, name, handle, bio }) => ({ id, name, handle, bio })),
         ownCard: data.ownCard ? { id: data.ownCard.id, name: data.ownCard.name, handle: data.ownCard.handle, bio: data.ownCard.bio } : null,
-        incoming: data.requests.filter((r) => r.to === me && r.status === "pending").map((r) => r.from),
+        incoming: pending.filter((r) => !isBlocked(r.from)).map((r) => r.from),
+        blocked,
       };
     },
     publish: async (card) => {
@@ -74,5 +82,18 @@ export function signedDirectoryAdapter(client: SignedDirectoryClient, vault: Unl
     decline: async (requester) => {
       await client.execute({ action: "decline", target: requester });
     },
+    // Saved locally first, so a failed decline still hides them. The next read retries the decline.
+    block: async (person) => {
+      const blocked = await blockDiscoverPerson(vault, person);
+      try {
+        const data = await fetchRaw();
+        const me = await myPrincipal(vault);
+        if (data.requests.some((r) => r.from === person.id && r.to === me && r.status === "pending")) await client.execute({ action: "decline", target: person.id });
+      } catch {
+        // Left for the next read.
+      }
+      return blocked;
+    },
+    unblock: (id) => unblockDiscoverPerson(vault, id),
   };
 }

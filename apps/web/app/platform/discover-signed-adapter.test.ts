@@ -164,3 +164,47 @@ describe("Discover connect: request, accept, then chat", () => {
     expect((await listConnections(bob.vault)).find((c) => c.id === "alice-id")?.pubkey).toBe(alicePubkey);
   });
 });
+
+describe("Discover block: local, refuses requests, keeps chats", () => {
+  it("hides the blocked card, declines their pending request, and their retry stays declined", async () => {
+    const { alice, bob, eve } = await setup();
+    await eve.adapter.request(bob.principal);
+    await bob.adapter.block({ id: eve.principal, name: "eve", handle: "eve" });
+    const seen = await bob.adapter.read();
+    expect(seen.cards.map((c) => c.id)).toEqual([alice.principal]);
+    expect(seen.incoming).toEqual([]);
+    expect(seen.blocked.map((p) => p.id)).toEqual([eve.principal]);
+    // Declined on the relay: eve learns nothing new and cannot bring the request back.
+    await expect(eve.adapter.request(bob.principal)).rejects.toThrow("No pending request was confirmed.");
+    expect((await listConnections(bob.vault))).toEqual([]);
+  });
+
+  it("a request that arrives after the block is declined on the next read", async () => {
+    const { bob, eve } = await setup();
+    await bob.adapter.block({ id: eve.principal, name: "eve", handle: "eve" });
+    await eve.adapter.request(bob.principal).catch(() => undefined);
+    expect((await bob.adapter.read()).incoming).toEqual([]);
+    await expect(eve.adapter.request(bob.principal)).rejects.toThrow("No pending request was confirmed.");
+  });
+
+  it("never imports an accept from someone blocked after I asked them", async () => {
+    const { alice, bob } = await setup();
+    await alice.adapter.request(bob.principal);
+    await alice.adapter.block({ id: bob.principal, name: "bob", handle: "bob" });
+    await bob.adapter.accept(alice.principal);
+    await alice.adapter.read();
+    expect((await listConnections(alice.vault))).toEqual([]);
+  });
+
+  it("keeps an existing friend and chat, and unblocking shows the card again", async () => {
+    const { alice, bob } = await setup();
+    await alice.adapter.request(bob.principal); await bob.adapter.accept(alice.principal); await alice.adapter.read();
+    await alice.adapter.block({ id: bob.principal, name: "bob", handle: "bob" });
+    const bobConn = (await listConnections(alice.vault)).find((c) => c.id === "bob-id")!;
+    await sendChatMessage(alice.vault, bobConn, "still friends", { newId: () => "m-block", now: () => new Date(NOW) });
+    expect((await listChatThread(alice.vault, "bob-id")).map((m) => m.body)).toEqual(["still friends"]);
+    expect((await alice.adapter.read()).cards.map((c) => c.id)).not.toContain(bob.principal);
+    expect(await alice.adapter.unblock(bob.principal)).toEqual([]);
+    expect((await alice.adapter.read()).cards.map((c) => c.id)).toContain(bob.principal);
+  });
+});
