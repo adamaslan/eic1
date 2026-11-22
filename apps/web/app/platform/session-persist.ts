@@ -1,8 +1,9 @@
 import { openDB } from "idb";
 import type { VaultKey } from "@veil/core";
+import { STANDARD_SESSION_MS, DEFAULT_SESSION_POLICY, beginSessionActivity, clearSessionActivity, newSessionTiming, sessionDuration, sessionIdleRemaining, validTiming, type SessionTiming } from "./session-policy";
 
 /** How long an unlock survives a page reload. */
-export const SESSION_MS = 8 * 60 * 60_000;
+export const SESSION_MS = STANDARD_SESSION_MS;
 
 const DB_NAME = "veil-session";
 const STORE = "session";
@@ -12,6 +13,7 @@ export interface PersistedSession {
   key: VaultKey;
   expiresAt: number;
   lockMarker?: string | null;
+  timing?: SessionTiming;
 }
 
 const db = () =>
@@ -21,27 +23,41 @@ const db = () =>
     },
   });
 
-// The key is a non-extractable CryptoKey, stored by structured clone: script on this page can
-// use it within the fixed eight-hour window but can never read its bytes, and it is deleted on lock, wipe, or expiry.
-export async function saveSession(key: VaultKey, now: number): Promise<number> {
-  const expiresAt = now + SESSION_MS;
+// The non-extractable key stays on this device for a fixed chosen window, never a sliding expiry.
+export async function saveSession(key: VaultKey, now: number, timing = newSessionTiming(DEFAULT_SESSION_POLICY, now)): Promise<number> {
+  if (!validTiming(timing, now) || timing.startedAt !== now) throw new Error("Invalid session timing.");
+  const expiresAt = now + sessionDuration(timing.policy);
   const lockMarker = currentLockMarker();
   if (lockMarker === "storage-unavailable") throw new Error("Session revocation storage is unavailable.");
-  await (await db()).put(STORE, { key, expiresAt, lockMarker } satisfies PersistedSession, KEY);
+  beginSessionActivity(timing);
+  await (await db()).put(STORE, { key, expiresAt, lockMarker, timing } satisfies PersistedSession, KEY);
+  if (currentLockMarker() !== lockMarker) {
+    await clearSession();
+    throw new Error("The remembered session was revoked while saving.");
+  }
   return expiresAt;
 }
 
-/** Returns the saved session, or null if there is none or it has expired (expired ones are deleted). */
-export async function loadSession(now: number): Promise<PersistedSession | null> {
+/** Legacy records keep their earlier deadline; only explicit new opt-in can create a thirty-day record. */
+export async function loadSession(now: number): Promise<(PersistedSession & { timing: SessionTiming }) | null> {
   const saved = (await (await db()).get(STORE, KEY)) as PersistedSession | undefined;
-  if (currentLockMarker() === "storage-unavailable" || !saved || !Number.isFinite(saved.expiresAt) || saved.expiresAt > now + SESSION_MS || saved.expiresAt <= now || (saved.lockMarker ?? null) !== currentLockMarker()) {
-    if (saved) await clearSession();
+  if (!saved) return null;
+  const legacy = saved.timing === undefined;
+  const timing = legacy
+    ? { id: `legacy:${saved.expiresAt}`, startedAt: Math.max(0, saved.expiresAt - SESSION_MS), policy: { ...DEFAULT_SESSION_POLICY } }
+    : saved.timing;
+  if (currentLockMarker() === "storage-unavailable" || !Number.isFinite(saved.expiresAt)
+    || !validTiming(timing, now) || saved.expiresAt <= now
+    || (legacy ? saved.expiresAt > now + SESSION_MS : saved.expiresAt !== timing.startedAt + sessionDuration(timing.policy))
+    || sessionIdleRemaining(timing, now) <= 0 || (saved.lockMarker ?? null) !== currentLockMarker()) {
+    await clearSession();
     return null;
   }
-  return saved;
+  return { ...saved, timing };
 }
 
 export async function clearSession(): Promise<void> {
+  clearSessionActivity();
   let database: Awaited<ReturnType<typeof db>>;
   try {
     database = await db();
