@@ -117,3 +117,31 @@ it("manual cleanup waiting for DB opening preserves a fresh unlock after the loc
   await clearSession();expect(disk.value).toEqual(replacement);
   expect((await loadSession(now))?.timing.id).toBe(timing.id);
 });
+
+it.each([false, true])("samples resume validation after the read; genuinely future activity rejects=%s", async (future) => {
+  const data = new Map<string, string>();
+  vi.stubGlobal("window", {});
+  vi.stubGlobal("localStorage", { getItem: (name: string) => data.get(name) ?? null, setItem: (name: string, value: string) => data.set(name, value), removeItem: (name: string) => data.delete(name) });
+  const now = 1_000_000;
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  try {
+    const timing = newSessionTiming({ privateDevice: false, idleMinutes: 60 }, now);
+    await saveSession(key, now, timing);
+    disk.afterRead = () => {
+      clock.mockReturnValue(now + 20);
+      // Another tab updates this session while our IndexedDB read is pending.
+      data.set("eic.vault-activity.v1", JSON.stringify({ id: timing.id, at: now + (future ? 30 : 10) }));
+    };
+    const resumed = await vaultResume();
+    if (future) {
+      expect(resumed).toBeNull();
+      expect(vaults.resume).not.toHaveBeenCalled();
+      expect(disk.value).toBeUndefined();
+    } else {
+      expect(resumed).not.toBeNull();
+      expect(resumed?.timing.id).toBe(timing.id);
+      expect(vaults.resume).toHaveBeenCalledOnce();
+      expect(disk.value?.timing.id).toBe(timing.id);
+    }
+  } finally { clock.mockRestore(); }
+});
