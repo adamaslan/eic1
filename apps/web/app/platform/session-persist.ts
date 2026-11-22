@@ -50,19 +50,21 @@ export async function saveSession(key: VaultKey, now: number, timing = newSessio
 }
 
 /** Legacy records keep their earlier deadline; only explicit new opt-in can create a thirty-day record. */
-export async function loadSession(now: number): Promise<(PersistedSession & { timing: SessionTiming }) | null> {
+export async function loadSession(now: number | (() => number)): Promise<(PersistedSession & { timing: SessionTiming }) | null> {
   const transaction = (await db()).transaction(STORE, "readwrite");
   try {
     const saved = await transaction.store.get(KEY) as PersistedSession | undefined;
     if (!saved) { await transaction.done; return null; }
+    // Real callers sample after the async read; numeric clocks stay fixed for controlled tests.
+    const checkedAt = typeof now === "function" ? now() : now;
     const legacy = saved.timing === undefined;
     const timing = legacy
       ? { id: `legacy:${saved.expiresAt}`, startedAt: Math.max(0, saved.expiresAt - SESSION_MS), policy: { ...DEFAULT_SESSION_POLICY } }
       : saved.timing;
     if (currentLockMarker() === "storage-unavailable" || !Number.isFinite(saved.expiresAt)
-      || !validTiming(timing, now) || saved.expiresAt <= now
-      || (legacy ? saved.expiresAt > now + SESSION_MS : saved.expiresAt !== timing.startedAt + sessionDuration(timing.policy))
-      || hasReplacedSessionActivity(timing) || sessionIdleRemaining(timing, now) <= 0
+      || !validTiming(timing, checkedAt) || saved.expiresAt <= checkedAt
+      || (legacy ? saved.expiresAt > checkedAt + SESSION_MS : saved.expiresAt !== timing.startedAt + sessionDuration(timing.policy))
+      || hasReplacedSessionActivity(timing) || sessionIdleRemaining(timing, checkedAt) <= 0
       || (saved.lockMarker ?? null) !== currentLockMarker()) {
       // Read, reject and delete are one transaction. Never clear newer activity.
       await transaction.store.delete(KEY);
