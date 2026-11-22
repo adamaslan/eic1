@@ -51,27 +51,38 @@ export function beginSessionActivity(timing: SessionTiming): void {
   memoryActivity = { id: timing.id, at: timing.startedAt };
   if (typeof window !== "undefined") localStorage.setItem(ACTIVITY_KEY, JSON.stringify(memoryActivity));
 }
-export function lastSessionActivity(timing: SessionTiming, now: number): number {
-  try {
-    const stored = storedActivity();
-    const candidates = [timing.startedAt];
-    if (stored?.id === timing.id) candidates.push(stored.at);
-    if (memoryActivity?.id === timing.id) candidates.push(memoryActivity.at);
-    if (candidates.some((at) => !Number.isFinite(at) || at < timing.startedAt || at > now)) return NaN;
-    return Math.max(...candidates);
-  } catch { return NaN; }
+type SessionClock = number | (() => number);
+function checkedActivity(timing: SessionTiming, clock: SessionClock) {
+  const stored = storedActivity();
+  // A synchronous browser-storage read can wait on another tab. Sample only after it returns.
+  const now = typeof clock === "function" ? clock() : clock;
+  const candidates = [timing.startedAt];
+  if (stored?.id === timing.id) candidates.push(stored.at);
+  if (memoryActivity?.id === timing.id) candidates.push(memoryActivity.at);
+  const last = !Number.isFinite(now) || candidates.some((at) => !Number.isFinite(at) || at < timing.startedAt || at > now)
+    ? NaN : Math.max(...candidates);
+  return { stored, now, last };
 }
-export function sessionIdleRemaining(timing: SessionTiming, now: number): number {
-  const last = lastSessionActivity(timing, now);
-  return Number.isFinite(last) && Number.isFinite(now) ? timing.policy.idleMinutes * 60_000 - (now - last) : 0;
+function idleRemaining(timing: SessionTiming, activity: ReturnType<typeof checkedActivity>): number {
+  return Number.isFinite(activity.last) && Number.isFinite(activity.now)
+    ? timing.policy.idleMinutes * 60_000 - (activity.now - activity.last) : 0;
+}
+export function lastSessionActivity(timing: SessionTiming, now: SessionClock): number {
+  try { return checkedActivity(timing, now).last; }
+  catch { return NaN; }
+}
+export function sessionIdleRemaining(timing: SessionTiming, now: SessionClock): number {
+  try { return idleRemaining(timing, checkedActivity(timing, now)); }
+  catch { return 0; }
 }
 /** A late input cannot revive an idle session. Older tabs never overwrite a newer session's record. */
-export function recordSessionActivity(timing: SessionTiming, now: number): boolean {
+export function recordSessionActivity(timing: SessionTiming, now: SessionClock): boolean {
   if (sessionIdleRemaining(timing, now) <= 0) return false;
   try {
-    const stored = storedActivity();
-    memoryActivity = { id: timing.id, at: now };
-    if (typeof window !== "undefined" && (!stored || stored.id === timing.id)) {
+    const activity = checkedActivity(timing, now);
+    if (idleRemaining(timing, activity) <= 0) return false;
+    memoryActivity = { id: timing.id, at: activity.now };
+    if (typeof window !== "undefined" && (!activity.stored || activity.stored.id === timing.id)) {
       localStorage.setItem(ACTIVITY_KEY, JSON.stringify(memoryActivity));
     }
     return true;
