@@ -58,7 +58,7 @@ export function vaultUnlock(passphrase: string, policy: SessionPolicy = DEFAULT_
 /** Reopens only an unexpired, non-idle, unrevoked remembered session. */
 export async function vaultResume() {
   try {
-    const saved = await loadSession(Date.now());
+    const saved = await loadSession(Date.now);
     if (!saved) return null;
     const vault = await resumeVault(deps, saved.key);
     const lockMarker = currentLockMarker();
