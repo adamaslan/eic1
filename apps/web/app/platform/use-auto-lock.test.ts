@@ -28,3 +28,18 @@ it("late input after suspended timers cannot revive an idle session", () => {
   vi.setSystemTime(Date.now()+60*60_000);window.dispatchEvent(new Event("pointerdown"));
   expect(idle).toHaveBeenCalled();
 });
+
+it.each([false, true])("samples the idle clock after a storage read; genuinely future=%s", (future) => {
+  const timing = newSessionTiming({ privateDevice: true, idleMinutes: 60 }, Date.now());
+  beginSessionActivity(timing);
+  const get = localStorage.getItem.bind(localStorage);
+  vi.spyOn(localStorage, "getItem").mockImplementation((key: string) => {
+    if (key !== "eic.vault-activity.v1") return get(key);
+    vi.setSystemTime(Date.now() + 5);
+    return JSON.stringify({ id: timing.id, at: Date.now() + (future ? 1 : 0) });
+  });
+  const idle = vi.fn();
+  useAutoLock(true, idle, timing);
+  if (!future) window.dispatchEvent(new Event("pointerdown"));
+  expect(idle).toHaveBeenCalledTimes(future ? 1 : 0);
+});
