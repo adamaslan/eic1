@@ -147,12 +147,24 @@ describe("dashboard navigation", () => {
 
   it("navigates to the dashboard after successfully unlocking", async () => {
     mocks.vault = null;
-    mocks.states = [true, "pass phrase", "", null, false, null];
-    vi.mocked(vaultUnlock).mockResolvedValue({ vault: {} as UnlockedVault, expiresAt: Date.now() + 28_800_000 });
+    mocks.states = [true, "pass phrase", "", null, false, false, 60, null];
+    vi.mocked(vaultUnlock).mockResolvedValue({ vault: {} as UnlockedVault, expiresAt: Date.now() + 28_800_000, lockMarker: null, timing: { id: "fixture-session", startedAt: Date.now(), policy: { privateDevice: false, idleMinutes: 60 } } });
     const form = findForm(Unlock());
     expect(form).toBeDefined();
     await form!.props.onSubmit({ preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>);
     expect(mocks.navigate).toHaveBeenCalledWith("/", { replace: true });
+    expect(vaultUnlock).toHaveBeenCalledWith("pass phrase", { privateDevice: false, idleMinutes: 60 });
+  });
+
+  it("passes the explicit private-device and selected idle policy into unlock", async () => {
+    mocks.vault = null;
+    mocks.states = [true, "pass phrase", "", null, false, true, 1440, null];
+    vi.mocked(vaultUnlock).mockResolvedValue({ vault: {} as UnlockedVault, expiresAt: Date.now() + 30 * 24 * 60 * 60_000, lockMarker: null, timing: { id: "fixture-private", startedAt: Date.now(), policy: { privateDevice: true, idleMinutes: 1440 } } });
+    const tree = Unlock();
+    expect(findNode(tree, (node) => node.type === "input" && node.props.type === "checkbox")?.props.checked).toBe(true);
+    expect(findNode(tree, (node) => node.type === "select")?.props.value).toBe(1440);
+    await findForm(tree)!.props.onSubmit({ preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>);
+    expect(vaultUnlock).toHaveBeenCalledWith("pass phrase", { privateDevice: true, idleMinutes: 1440 });
   });
 
   it("redirects an unlocked session to the dashboard", () => {
