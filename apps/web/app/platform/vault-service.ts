@@ -11,8 +11,8 @@ import {
   type VaultDeps,
 } from "@veil/vault";
 import { IndexedDbVaultStore } from "./indexeddb-store";
-import { clearSession, currentLockMarker, loadSession, saveSession } from "./session-persist";
-import { DEFAULT_SESSION_POLICY, newSessionTiming, sessionDuration, sessionIdleRemaining, validPolicy, type SessionPolicy } from "./session-policy";
+import { clearSession, discardSavedSession, currentLockMarker, loadSession, saveSession } from "./session-persist";
+import { DEFAULT_SESSION_POLICY, newSessionTiming, sessionDuration, sessionIdleRemaining, validPolicy, currentSessionActivityId, hasReplacedSessionActivity, type SessionPolicy } from "./session-policy";
 
 // One app-wide set of platform adapters. Shared packages receive these by
 // argument and never import browser globals themselves.
@@ -30,7 +30,12 @@ async function remember(key: Parameters<typeof saveSession>[0], policy: SessionP
   const timing = newSessionTiming(policy, now);
   let expiresAt = now + sessionDuration(policy);
   try { expiresAt = await saveSession(key, now, timing); }
-  catch { /* Memory stays bounded; storage refusal never extends its fixed deadline. */ }
+  catch (error) {
+    let removed = false;
+    try { removed = await discardSavedSession(timing); } catch { /* the durable activity id still revokes the older key */ }
+    // Never accept memory-only fallback unless reload cannot reopen the old key.
+    if (!removed && currentSessionActivityId() !== timing.id) throw error;
+  }
   if (currentLockMarker() !== lockMarker) throw new VaultLockedError("The vault was locked in another tab.");
   return { expiresAt, timing, lockMarker };
 }
@@ -57,14 +62,14 @@ export async function vaultResume() {
     if (!saved) return null;
     const vault = await resumeVault(deps, saved.key);
     const lockMarker = currentLockMarker();
-    if (saved.expiresAt <= Date.now() || sessionIdleRemaining(saved.timing, Date.now()) <= 0 || (saved.lockMarker ?? null) !== lockMarker) {
+    if (saved.expiresAt <= Date.now() || hasReplacedSessionActivity(saved.timing) || sessionIdleRemaining(saved.timing, Date.now()) <= 0 || (saved.lockMarker ?? null) !== lockMarker) {
       vault.lock();
-      await clearSession();
       return null;
     }
     return { vault, expiresAt: saved.expiresAt, lockMarker: saved.lockMarker ?? null, timing: saved.timing };
   } catch {
-    await clearSession();
+    // loadSession already rejects invalid records atomically. A stale/failed
+    // resume must not delete another tab's replacement or its durable fence.
     return null;
   }
 }
