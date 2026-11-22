@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VaultKey } from "@veil/core";
 const storage = vi.hoisted(() => ({ value: undefined as unknown, refuse: false, afterPut: null as (() => void) | null }));
-vi.mock("idb", () => ({ openDB: async () => ({
-  put: async (_store: string, value: unknown) => { if (storage.refuse) throw new Error("storage refused"); storage.value = value; storage.afterPut?.(); },
-  get: async () => storage.value,
-  delete: async () => { storage.value = undefined; },
-}) }));
+vi.mock("idb", () => ({ openDB: async () => {
+  const put = async (_store: string, value: unknown) => { if (storage.refuse) throw new Error("storage refused"); storage.value = value; storage.afterPut?.(); };
+  const get = async () => storage.value;
+  const remove = async () => { storage.value = undefined; };
+  return { put, get, delete: remove,
+    transaction: () => ({ store: { get, put: (value: unknown) => put("session", value), delete: remove }, done: Promise.resolve() }),
+  };
+} }));
 import { SESSION_MS, clearSession, loadSession, saveSession } from "./session-persist";
 import { clearSessionActivity, recordSessionActivity } from "./session-policy";
 const key = {} as VaultKey;
