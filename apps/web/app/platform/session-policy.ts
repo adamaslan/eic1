@@ -35,6 +35,17 @@ function storedActivity(): { id: string; at: number } | null {
   if (!record || typeof record.id !== "string" || !Number.isFinite(record.at)) throw new Error("Invalid activity record.");
   return record as { id: string; at: number };
 }
+/** The durable activity id also fences an older key after a failed replacement save.
+ * Browser reads deliberately do not fall back to memory when durable storage refuses. */
+export function currentSessionActivityId(): string | null | undefined {
+  try {
+    return typeof window === "undefined" ? memoryActivity?.id ?? null : storedActivity()?.id ?? null;
+  } catch { return undefined; }
+}
+export function hasReplacedSessionActivity(timing: SessionTiming): boolean {
+  const id = currentSessionActivityId();
+  return id === undefined || (id !== null && id !== timing.id);
+}
 /** Activity timestamps are not keys. Only fresh passphrase unlock initializes a new id. */
 export function beginSessionActivity(timing: SessionTiming): void {
   memoryActivity = { id: timing.id, at: timing.startedAt };
