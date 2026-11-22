@@ -6,6 +6,8 @@ import { Button95 } from "~/ui95/Button95";
 import { Link, Navigate, useNavigate } from "react-router";
 import { vaultCreate, vaultExists, vaultImport, vaultUnlock } from "~/platform/vault-service";
 import { useSessionStore } from "~/platform/session";
+import { SignInNav } from "~/components/sign-in-nav";
+import { IDLE_MINUTES, type IdleMinutes } from "~/platform/session-policy";
 
 export function meta(_args: Route.MetaArgs) {
   return [{ title: "Vault — Everybody is Cool" }];
@@ -24,6 +26,8 @@ export default function Unlock() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [privateDevice, setPrivateDevice] = useState(false);
+  const [idleMinutes, setIdleMinutes] = useState<IdleMinutes>(60);
   const [restored, setRestored] = useState<number | null>(null);
 
   useEffect(() => {
@@ -72,8 +76,9 @@ export default function Unlock() {
 
     setBusy(true);
     try {
-      const opened = exists ? await vaultUnlock(passphrase) : await vaultCreate(passphrase);
-      setVault(opened.vault, opened.expiresAt);
+      const policy = { privateDevice, idleMinutes };
+      const opened = exists ? await vaultUnlock(passphrase, policy) : await vaultCreate(passphrase, policy);
+      setVault(opened.vault, opened.expiresAt, opened.lockMarker, opened.timing);
       navigate("/", { replace: true });
       setPassphrase("");
       setConfirm("");
@@ -90,6 +95,9 @@ export default function Unlock() {
 
   return (
     <main className="w95-desktop min-h-screen p-3">
+      <div className="mx-auto flex max-w-5xl flex-col gap-5">
+      <SignInNav />
+      <div className="w-full max-w-xl self-center">
       <Window title="Vault — encrypted local storage">
         {exists === null && <p className="text-[12px]">Checking this device…</p>}
         {exists === null && error && <p role="alert" className="text-[12px] text-[#800000]">{error}</p>}
@@ -104,7 +112,20 @@ export default function Unlock() {
                 ? "Enter your passphrase to unlock the vault."
                 : "No vault yet. Choose a passphrase. It is never sent anywhere, and if you lose it the data cannot be recovered."}
             </p>
-            <p>Stay unlocked for up to 8 hours on this browser, with auto-lock after 60 minutes idle. Lock ends it sooner. Anyone using this browser during that time can open your vault; browser storage may be cleared or unavailable.</p>
+            <fieldset className="flex flex-col gap-2 border border-[var(--w95-ink)] p-2" disabled={busy}>
+              <legend className="px-1">Stay signed in on this browser</legend>
+              <label className="flex min-h-[44px] items-center gap-2">
+                <input type="checkbox" checked={privateDevice} onChange={(event) => setPrivateDevice(event.target.checked)} className="h-5 w-5 shrink-0" />
+                <span>Remember for up to 30 days, only on my private device</span>
+              </label>
+              <label className="flex flex-col gap-1">
+                Lock after no activity
+                <select value={idleMinutes} onChange={(event) => setIdleMinutes(Number(event.target.value) as IdleMinutes)} className={`${inputClass} min-h-[44px]`}>
+                  {IDLE_MINUTES.map((minutes) => <option key={minutes} value={minutes}>{minutes === 15 ? "15 minutes" : minutes === 60 ? "1 hour (default)" : minutes === 480 ? "8 hours" : "24 hours"}</option>)}
+                </select>
+              </label>
+              <p role="note">{privateDevice ? "Up to 30 days" : "Up to 8 hours"} from this unlock, never extended by reloads. The idle timer or Manual Lock can end it sooner. Anyone using this browser while unlocked can open your private vault. Do not choose a longer window on a shared device. Browser storage may be cleared or unavailable.</p>
+            </fieldset>
             <label className="flex flex-col gap-0.5">
               Passphrase
               <input
@@ -153,6 +174,8 @@ export default function Unlock() {
           </Link>
         </p>
       </Window>
+      </div>
+      </div>
     </main>
   );
 }
