@@ -8,6 +8,7 @@ vi.mock("./session-persist", () => ({
 }));
 
 import { discardResumedVault, useSessionStore } from "./session";
+import { beginSessionActivity, newSessionTiming } from "./session-policy";
 
 const fakeVault = () => ({ lock: vi.fn() }) as never;
 
@@ -70,6 +71,20 @@ describe("session store", () => {
     expect(useSessionStore.getState().vault).toBeNull();
   });
 
+  it("blocks idle-expired operations before any timer or focus event", () => {
+    vi.useFakeTimers();
+    try {
+      const read = vi.fn();
+      const timing = newSessionTiming({ privateDevice: true, idleMinutes: 60 }, Date.now());
+      beginSessionActivity(timing);
+      useSessionStore.getState().setVault({ lock: vi.fn(), getJson: read } as never, Date.now() + 30 * 24 * 60 * 60_000, null, timing);
+      vi.setSystemTime(Date.now() + 60 * 60_000);
+      expect(() => useSessionStore.getState().vault!.getJson("private")).toThrow("The vault is locked.");
+      expect(read).not.toHaveBeenCalled();
+      expect(useSessionStore.getState().vault).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
   it("blocks a new operation immediately if revocation storage becomes unavailable without focus events", () => {
     const read = vi.fn();
     useSessionStore.getState().setVault({ lock: vi.fn(), getJson: read } as unknown as import("@veil/vault").UnlockedVault);
@@ -84,7 +99,8 @@ describe("session store", () => {
   describe("resumed vault adoption", () => {
     const stubStorage = (marker: { v: string | null }) => {
       vi.stubGlobal("window", {});
-      vi.stubGlobal("localStorage", { getItem: () => marker.v, setItem: vi.fn() });
+      const activity = new Map<string, string>();
+      vi.stubGlobal("localStorage", { getItem: (name: string) => name === "eic.vault-lock" ? marker.v : activity.get(name) ?? null, setItem: (name: string, value: string) => activity.set(name, value), removeItem: (name: string) => activity.delete(name) });
     };
 
     it("locks and clears the saved key when the marker changed after resume validated it", () => {
