@@ -109,3 +109,67 @@ test("compose listing -> market loads populated with the new listing", async ({ 
   await expect(page.getByText("Saved - encrypted in this vault.")).toHaveCount(0);
   expectCleanRuntime(watched);
 });
+
+
+/** Hold only metadata-read completion, not the database transaction or the app mount. */
+async function holdVaultMetadata(page: import('@playwright/test').Page) {
+  await page.addInitScript(() => {
+    const pending: (() => void)[] = [];
+    let released = false;
+    (window as any).__unlockProof = { pending, release: () => { released = true; pending.splice(0).forEach(fn => fn()); } };
+    const get = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function(query) {
+      const request = get.call(this, query);
+      if (this.name === 'meta' && query === 'vault') {
+        const add = request.addEventListener.bind(request);
+        request.addEventListener = function(type: string, listener: any, options?: any) {
+          if (type !== 'success') return add(type as any, listener, options);
+          return add('success', event => {
+            const deliver = () => typeof listener === 'function' ? listener.call(request, event) : listener.handleEvent(event);
+            if (released) deliver(); else pending.push(deliver);
+          }, options);
+        } as typeof request.addEventListener;
+      }
+      return request;
+    };
+  });
+}
+
+test('Unlock keeps the same navigation node through a controlled metadata loading transition', async ({ page }, testInfo) => {
+  const watched = await watchRuntime(page);
+  await holdVaultMetadata(page);
+  await page.goto('/unlock');
+  await expect(page.getByText('Checking this device…')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__unlockProof.pending.length)).toBeGreaterThan(0);
+  const navigation = await page.getByRole('navigation', { name: 'Sign-in navigation' }).elementHandle();
+  await page.screenshot({ path: testInfo.outputPath('unlock-loading.png') });
+  await page.evaluate(() => (window as any).__unlockProof.release());
+  await expect(page.getByRole('button', { name: 'Create vault', exact: true })).toBeVisible();
+  expect(await navigation!.evaluate(node => node.isConnected && node === document.querySelector('nav[aria-label="Sign-in navigation"]'))).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('unlock-loaded-same-instance.png') });
+  expect(watched.pageErrors).toEqual([]);
+  expect(unexpectedConsoleErrors(watched.consoleErrors)).toEqual([]);
+});
+
+test('Unlock redirects a restored existing vault after controlled metadata resolution', async ({ page }, testInfo) => {
+  const watched = await watchRuntime(page);
+  await holdVaultMetadata(page);
+  await page.goto('/unlock');
+  await expect.poll(() => page.evaluate(() => (window as any).__unlockProof.pending.length)).toBeGreaterThan(0);
+  await page.evaluate(() => (window as any).__unlockProof.release());
+  const fixture = 'disposable local render proof only';
+  await page.getByLabel('Passphrase', { exact: true }).fill(fixture);
+  await page.getByLabel('Confirm passphrase').fill(fixture);
+  await page.getByRole('button', { name: 'Create vault', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+  // A fresh document starts locked in memory. No submit handler runs on this visit.
+  await page.goto('/unlock');
+  await expect(page.getByText('Checking this device…')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__unlockProof.pending.length)).toBeGreaterThan(0);
+  await page.evaluate(() => (window as any).__unlockProof.release());
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('existing-vault-redirect.png') });
+  expect(watched.pageErrors).toEqual([]);
+  expect(unexpectedConsoleErrors(watched.consoleErrors)).toEqual([]);
+});
