@@ -45,7 +45,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       }
       const timing = bound[1] ?? newSessionTiming(DEFAULT_SESSION_POLICY, Date.now());
       if (!bound[1]) beginSessionActivity(timing);
-      if (sessionIdleRemaining(timing, Date.now()) <= 0) {
+      if (sessionIdleRemaining(timing, Date.now) <= 0) {
         vault.lock();
         throw new VaultLockedError("The vault session is idle-locked.");
       }
@@ -73,7 +73,7 @@ if (typeof window !== "undefined") {
     // before this synchronous revocation check and React commit.
     if (document.visibilityState === "hidden") { document.body.style.visibility = "hidden"; return; }
     const state = useSessionStore.getState();
-    if (state.vault && (readLockMarker() === "storage-unavailable" || readLockMarker() !== lockMarkerAtUnlock || state.expiresAt === null || Date.now() >= state.expiresAt || !state.timing || sessionIdleRemaining(state.timing, Date.now()) <= 0)) {
+    if (state.vault && (readLockMarker() === "storage-unavailable" || readLockMarker() !== lockMarkerAtUnlock || state.expiresAt === null || Date.now() >= state.expiresAt || !state.timing || sessionIdleRemaining(state.timing, Date.now) <= 0)) {
       flushSync(() => { void lockSession(false); });
     }
     document.body.style.visibility = "";
@@ -109,7 +109,7 @@ function guardedVault(vault: UnlockedVault, expiresAt: number, marker: string | 
     const value = Reflect.get(target, property);
     if (typeof value !== "function" || property === "lock") return value;
     return (...args: unknown[]) => {
-      if (Date.now() >= expiresAt || sessionIdleRemaining(timing, Date.now()) <= 0 || readLockMarker() === "storage-unavailable" || readLockMarker() !== marker) {
+      if (Date.now() >= expiresAt || sessionIdleRemaining(timing, Date.now) <= 0 || readLockMarker() === "storage-unavailable" || readLockMarker() !== marker) {
         void lockSession(false);
         throw new VaultLockedError("The vault is locked.");
       }
