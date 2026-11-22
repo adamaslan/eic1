@@ -403,3 +403,15 @@ html[data-motion=off] .eic-tape-reels i { animation:none; }
  .eic-tape-body { transition:none; }
  .eic-tape-reels i { animation:none; }
 }
+
+/* The unlock page shares the landing's playful, device-theme-aware desktop style. */
+.eic-sign-in-nav { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; padding:12px; color:var(--w95-ink); background:var(--w95-face); border:2px outset var(--w95-light); box-shadow:4px 5px 0 var(--w95-shade); }
+.eic-sign-in-brand { display:flex; align-items:center; gap:9px; min-height:44px; min-width:0; font:700 18px Georgia,serif; }
+.eic-sign-in-brand img { flex-shrink:0; image-rendering:pixelated; transform:rotate(-8deg); }
+.eic-sign-in-brand b { background:var(--w95-accent); color:var(--w95-ink); padding:0 3px; }
+.eic-sign-in-brand small { display:block; margin-top:4px; font:10px monospace; }
+.eic-sign-in-links { display:flex; flex-wrap:wrap; gap:6px; }
+.eic-sign-in-links>a,.eic-sign-in-links>button { display:flex; align-items:center; justify-content:center; min-height:44px; padding:6px 10px; cursor:pointer; font-size:12px; border:2px outset var(--w95-light); background:var(--w95-face); color:var(--w95-ink); }
+.eic-sign-in-links>[aria-current=page] { border-style:inset; font-weight:700; }
+.eic-sign-in-nav a:focus-visible,.eic-sign-in-nav button:focus-visible { outline:3px solid var(--w95-link); outline-offset:3px; }
+@media (max-width:600px) { .eic-sign-in-nav { gap:10px; } .eic-sign-in-links { width:100%; } .eic-sign-in-links>a,.eic-sign-in-links>button { flex:1 1 auto; } }
