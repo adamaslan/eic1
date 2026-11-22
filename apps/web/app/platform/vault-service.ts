@@ -62,7 +62,7 @@ export async function vaultResume() {
     if (!saved) return null;
     const vault = await resumeVault(deps, saved.key);
     const lockMarker = currentLockMarker();
-    if (saved.expiresAt <= Date.now() || hasReplacedSessionActivity(saved.timing) || sessionIdleRemaining(saved.timing, Date.now()) <= 0 || (saved.lockMarker ?? null) !== lockMarker) {
+    if (saved.expiresAt <= Date.now() || hasReplacedSessionActivity(saved.timing) || sessionIdleRemaining(saved.timing, Date.now) <= 0 || (saved.lockMarker ?? null) !== lockMarker) {
       vault.lock();
       return null;
     }
