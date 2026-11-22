@@ -10,7 +10,7 @@ export function useAutoLock(active: boolean, onIdle: () => void, timing: Session
     if (!active) return;
     let lastActivity = Date.now();
     let timer: ReturnType<typeof setTimeout>;
-    const remaining = () => timing ? sessionIdleRemaining(timing, Date.now()) : AUTO_LOCK_MS - (Date.now() - lastActivity);
+    const remaining = () => timing ? sessionIdleRemaining(timing, Date.now) : AUTO_LOCK_MS - (Date.now() - lastActivity);
     const check = () => {
       clearTimeout(timer);
       const left = remaining();
@@ -18,7 +18,7 @@ export function useAutoLock(active: boolean, onIdle: () => void, timing: Session
       else timer = setTimeout(check, Math.min(left, MAX_TIMER_MS));
     };
     const restart = () => {
-      if (remaining() <= 0 || (timing && !recordSessionActivity(timing, Date.now()))) { onIdle(); return; }
+      if (remaining() <= 0 || (timing && !recordSessionActivity(timing, Date.now))) { onIdle(); return; }
       lastActivity = Date.now();
       check();
     };
