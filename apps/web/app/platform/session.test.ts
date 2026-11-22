@@ -132,3 +132,61 @@ describe("session store", () => {
     });
   });
 });
+
+describe("fresh-clock guards around native synchronous activity reads", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+  it.each([false, true])("guards an operation after reading newer activity; genuinely future=%s", (future) => {
+    vi.useFakeTimers(); vi.setSystemTime(1_000_000);
+    vi.stubGlobal("window", {});
+    const data = new Map<string, string>();
+    let armed = false;
+    const timing = newSessionTiming({ privateDevice: true, idleMinutes: 60 }, Date.now());
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => {
+        if (key === "eic.vault-activity.v1" && armed) {
+          vi.setSystemTime(Date.now() + 5);
+          return JSON.stringify({ id: timing.id, at: Date.now() + (future ? 1 : 0) });
+        }
+        return data.get(key) ?? null;
+      },
+      setItem: (key: string, value: string) => data.set(key, value),
+      removeItem: (key: string) => data.delete(key),
+    });
+    beginSessionActivity(timing);
+    const read = vi.fn(); const vault = { lock: vi.fn(), getJson: read } as never;
+    useSessionStore.getState().setVault(vault, Date.now() + 28_800_000, null, timing);
+    armed = true;
+    const operation = () => useSessionStore.getState().vault!.getJson("private");
+    if (future) expect(operation).toThrow("The vault is locked.");
+    else expect(operation).not.toThrow();
+    expect(read).toHaveBeenCalledTimes(future ? 0 : 1);
+  });
+  it.each([false, true])("checks visibility after reading newer activity; genuinely future=%s", async (future) => {
+    vi.useFakeTimers(); vi.setSystemTime(1_000_000); vi.resetModules();
+    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible", body: { style: { visibility: "" } } }));
+    vi.stubGlobal("BroadcastChannel", undefined);
+    const data = new Map<string, string>(); let armed = false;
+    const policy = await import("./session-policy");
+    const timing = policy.newSessionTiming({ privateDevice: true, idleMinutes: 60 }, Date.now());
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => {
+        if (key === "eic.vault-activity.v1" && armed) {
+          vi.setSystemTime(Date.now() + 5);
+          return JSON.stringify({ id: timing.id, at: Date.now() + (future ? 1 : 0) });
+        }
+        return data.get(key) ?? null;
+      },
+      setItem: (key: string, value: string) => data.set(key, value),
+      removeItem: (key: string) => data.delete(key),
+    });
+    const { useSessionStore: store } = await import("./session");
+    policy.beginSessionActivity(timing);
+    const vault = { lock: vi.fn() };
+    store.getState().setVault(vault as never, Date.now() + 28_800_000, null, timing);
+    armed = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(store.getState().vault === null).toBe(future);
+    expect(vault.lock).toHaveBeenCalledTimes(future ? 1 : 0);
+  });
+});
