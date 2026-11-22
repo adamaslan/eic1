@@ -142,11 +142,11 @@ test('Unlock keeps the same navigation node through a controlled metadata loadin
   await expect(page.getByText('Checking this device…')).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as any).__unlockProof.pending.length)).toBeGreaterThan(0);
   const navigation = await page.getByRole('navigation', { name: 'Sign-in navigation' }).elementHandle();
-  await page.screenshot({ path: testInfo.outputPath('unlock-loading.png') });
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('unlock-loading.png') });
   await page.evaluate(() => (window as any).__unlockProof.release());
   await expect(page.getByRole('button', { name: 'Create vault', exact: true })).toBeVisible();
   expect(await navigation!.evaluate(node => node.isConnected && node === document.querySelector('nav[aria-label="Sign-in navigation"]'))).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('unlock-loaded-same-instance.png') });
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('unlock-loaded-same-instance.png') });
   expect(watched.pageErrors).toEqual([]);
   expect(unexpectedConsoleErrors(watched.consoleErrors)).toEqual([]);
 });
@@ -169,7 +169,15 @@ test('Unlock redirects a restored existing vault after controlled metadata resol
   await page.evaluate(() => (window as any).__unlockProof.release());
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('existing-vault-redirect.png') });
+  // Settle the JS-driven landing fade before capturing its pixels.
+  await expect.poll(() => page.getByText('No posts yet.', { exact: false }).evaluate(element => {
+    let opacity = 1;
+    for (let node: Element | null = element; node; node = node.parentElement) {
+      opacity *= Number(getComputedStyle(node).opacity);
+    }
+    return opacity;
+  })).toBe(1);
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('existing-vault-redirect.png') });
   expect(watched.pageErrors).toEqual([]);
   expect(unexpectedConsoleErrors(watched.consoleErrors)).toEqual([]);
 });
