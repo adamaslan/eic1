@@ -104,10 +104,11 @@ export default function App() {
   const vault = useSessionStore((state) => state.vault);
   const lock = useSessionStore((state) => state.lock);
   const expiresAt = useSessionStore((state) => state.expiresAt);
-  useAutoLock(vault !== null, lock);
+  const timing = useSessionStore((state) => state.timing);
+  useAutoLock(vault !== null, lock, timing);
   useSessionExpiry(expiresAt, lock);
 
-  // A reload drops the in-memory vault; reopen it from the session saved in the last hour, if any.
+  // Reopen only the saved fixed-duration session that still passes idle and revocation checks.
   useEffect(() => {
     let cancelled = false;
     const startRevision = useSessionStore.getState().revision;
@@ -123,7 +124,7 @@ export default function App() {
         return;
       }
       if (resumed) {
-        try { state.setVault(resumed.vault, resumed.expiresAt, resumed.lockMarker); }
+        try { state.setVault(resumed.vault, resumed.expiresAt, resumed.lockMarker, resumed.timing); }
         catch { useSessionStore.getState().doneResuming(); }
       } else state.doneResuming();
     });
