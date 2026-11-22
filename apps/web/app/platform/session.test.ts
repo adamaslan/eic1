@@ -103,7 +103,7 @@ describe("session store", () => {
       vi.stubGlobal("localStorage", { getItem: (name: string) => name === "eic.vault-lock" ? marker.v : activity.get(name) ?? null, setItem: (name: string, value: string) => activity.set(name, value), removeItem: (name: string) => activity.delete(name) });
     };
 
-    it("locks and clears the saved key when the marker changed after resume validated it", () => {
+    it("locks only the stale vault when the marker changed after resume validated it", () => {
       const marker = { v: "A" as string | null };
       stubStorage(marker);
       const vault = fakeVault();
@@ -112,7 +112,7 @@ describe("session store", () => {
       expect((vault as { lock: ReturnType<typeof vi.fn> }).lock).toHaveBeenCalled();
       expect(useSessionStore.getState().vault).toBeNull();
       expect(useSessionStore.getState().expiresAt).toBeNull();
-      expect(clearSession).toHaveBeenCalled();
+      expect(clearSession).not.toHaveBeenCalled();
     });
 
     it("adopts a resumed vault whose marker is unchanged", () => {
