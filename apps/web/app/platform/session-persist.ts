@@ -64,7 +64,7 @@ export async function loadSession(now: number | (() => number)): Promise<(Persis
     if (currentLockMarker() === "storage-unavailable" || !Number.isFinite(saved.expiresAt)
       || !validTiming(timing, checkedAt) || saved.expiresAt <= checkedAt
       || (legacy ? saved.expiresAt > checkedAt + SESSION_MS : saved.expiresAt !== timing.startedAt + sessionDuration(timing.policy))
-      || hasReplacedSessionActivity(timing) || sessionIdleRemaining(timing, checkedAt) <= 0
+      || hasReplacedSessionActivity(timing) || sessionIdleRemaining(timing, now) <= 0
       || (saved.lockMarker ?? null) !== currentLockMarker()) {
       // Read, reject and delete are one transaction. Never clear newer activity.
       await transaction.store.delete(KEY);
