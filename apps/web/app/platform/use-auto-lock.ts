@@ -1,26 +1,32 @@
 import { useEffect } from "react";
+import { MAX_TIMER_MS, recordSessionActivity, sessionIdleRemaining, type SessionTiming } from "./session-policy";
 
-// Idle safety is independent of the remembered-unlock maximum.
 export const AUTO_LOCK_MS = 60 * 60_000;
 const ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart"] as const;
 
-/** Calls `onIdle` once after AUTO_LOCK_MS with no input. Any input restarts the timer. */
-export function useAutoLock(active: boolean, onIdle: () => void): void {
+/** Input never revives an expired idle window; timestamps survive reload and suspended timers. */
+export function useAutoLock(active: boolean, onIdle: () => void, timing: SessionTiming | null = null): void {
   useEffect(() => {
     if (!active) return;
     let lastActivity = Date.now();
-    const check = () => { if (Date.now() - lastActivity >= AUTO_LOCK_MS) onIdle(); };
-    let timer = setTimeout(check, AUTO_LOCK_MS);
-    const restart = () => {
-      if (Date.now() - lastActivity >= AUTO_LOCK_MS) { onIdle(); return; }
-      lastActivity = Date.now();
+    let timer: ReturnType<typeof setTimeout>;
+    const remaining = () => timing ? sessionIdleRemaining(timing, Date.now) : AUTO_LOCK_MS - (Date.now() - lastActivity);
+    const check = () => {
       clearTimeout(timer);
-      timer = setTimeout(check, AUTO_LOCK_MS);
+      const left = remaining();
+      if (left <= 0) onIdle();
+      else timer = setTimeout(check, Math.min(left, MAX_TIMER_MS));
+    };
+    const restart = () => {
+      if (remaining() <= 0 || (timing && !recordSessionActivity(timing, Date.now))) { onIdle(); return; }
+      lastActivity = Date.now();
+      check();
     };
     window.addEventListener("focus", check);
     window.addEventListener("pageshow", check);
     document.addEventListener("visibilitychange", check);
     for (const name of ACTIVITY_EVENTS) window.addEventListener(name, restart, { passive: true });
+    check();
     return () => {
       clearTimeout(timer);
       window.removeEventListener("focus", check);
@@ -28,16 +34,20 @@ export function useAutoLock(active: boolean, onIdle: () => void): void {
       document.removeEventListener("visibilitychange", check);
       for (const name of ACTIVITY_EVENTS) window.removeEventListener(name, restart);
     };
-  }, [active, onIdle]);
+  }, [active, onIdle, timing]);
 }
 
-/** Locks when the session's fixed deadline is reached, even if the user has been active the whole time. */
+/** Chunk long deadlines: thirty days exceeds the browser's signed32-bit timer range. */
 export function useSessionExpiry(expiresAt: number | null, onExpire: () => void): void {
   useEffect(() => {
     if (expiresAt === null) return;
-    const check = () => { if (Date.now() >= expiresAt) onExpire(); };
-    const timer = setTimeout(check, Math.max(0, expiresAt - Date.now()));
-    // Phone timers can be suspended. Re-check the wall-clock deadline on return.
+    let timer: ReturnType<typeof setTimeout>;
+    const check = () => {
+      clearTimeout(timer);
+      const left = expiresAt - Date.now();
+      if (left <= 0) onExpire();
+      else timer = setTimeout(check, Math.min(left, MAX_TIMER_MS));
+    };
     window.addEventListener("focus", check);
     window.addEventListener("pageshow", check);
     document.addEventListener("visibilitychange", check);

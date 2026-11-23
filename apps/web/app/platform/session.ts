@@ -3,17 +3,19 @@ import { VaultLockedError } from "@veil/core";
 import { flushSync } from "react-dom";
 import type { UnlockedVault } from "@veil/vault";
 import { SESSION_MS, clearSession } from "./session-persist";
+import { DEFAULT_SESSION_POLICY, beginSessionActivity, newSessionTiming, sessionIdleRemaining, type SessionTiming } from "./session-policy";
 
 interface SessionState {
   vault: UnlockedVault | null;
-  /** When the eight-hour session ends (ms since epoch). Null while locked. */
+  timing: SessionTiming | null;
+  /** Fixed remembered-session deadline. Null while locked. */
   expiresAt: number | null;
   /** True until the first check for a session saved before a reload has finished. */
   resuming: boolean;
   /** Bumped on every unlock and lock, so a slow resume cannot apply a stale vault. */
   revision: number;
   /** `boundMarker`: the lock marker a resumed vault was validated against; adoption fails closed if it changed. */
-  setVault: (vault: UnlockedVault, expiresAt?: number, boundMarker?: string | null) => void;
+  setVault: (vault: UnlockedVault, expiresAt?: number, boundMarker?: string | null, timing?: SessionTiming) => void;
   doneResuming: () => void;
   lock: () => Promise<void>;
 }
@@ -27,21 +29,28 @@ export function discardResumedVault(vault: UnlockedVault | null | undefined): vo
 // does not ask for the passphrase again (see session-persist.ts); locking always removes it.
 export const useSessionStore = create<SessionState>((set) => ({
   vault: null,
+  timing: null,
   expiresAt: null,
   resuming: true,
   revision: 0,
-  setVault: (vault, expiresAt = Date.now() + SESSION_MS, ...bound) =>
+  setVault: (vault, expiresAt = Date.now() + SESSION_MS, ...bound: [boundMarker?: string | null, timing?: SessionTiming]) =>
     set((state) => {
-      lockMarkerAtUnlock = readLockMarker();
-      if (lockMarkerAtUnlock === "storage-unavailable") { vault.lock(); throw new VaultLockedError("Session storage is unavailable. Allow browser storage to unlock safely."); }
+      const marker = readLockMarker();
+      if (marker === "storage-unavailable") { vault.lock(); throw new VaultLockedError("Session storage is unavailable. Allow browser storage to unlock safely."); }
       // A resumed vault must still match the marker it was validated against. A lock from another tab
-      // in the gap (with its event missed) changes the marker: lock this vault and drop the saved key.
-      if (bound.length > 0 && bound[0] !== lockMarkerAtUnlock) {
+      // in the gap (with its event missed) changes the marker: reject only this stale vault.
+      if (bound.length > 0 && bound[0] !== marker) {
         vault.lock();
-        void clearSession().catch((err) => console.error("veil: saved session key could not be deleted", err));
         throw new VaultLockedError("The vault was locked in another tab.");
       }
-      return { vault: guardedVault(vault, expiresAt, lockMarkerAtUnlock), expiresAt, resuming: false, revision: state.revision + 1 };
+      const timing = bound[1] ?? newSessionTiming(DEFAULT_SESSION_POLICY, Date.now());
+      if (!bound[1]) beginSessionActivity(timing);
+      if (sessionIdleRemaining(timing, Date.now) <= 0) {
+        vault.lock();
+        throw new VaultLockedError("The vault session is idle-locked.");
+      }
+      lockMarkerAtUnlock = marker;
+      return { vault: guardedVault(vault, expiresAt, marker, timing), timing, expiresAt, resuming: false, revision: state.revision + 1 };
     }),
   doneResuming: () => set({ resuming: false }),
   lock: () => lockSession(true),
@@ -64,7 +73,7 @@ if (typeof window !== "undefined") {
     // before this synchronous revocation check and React commit.
     if (document.visibilityState === "hidden") { document.body.style.visibility = "hidden"; return; }
     const state = useSessionStore.getState();
-    if (state.vault && (readLockMarker() === "storage-unavailable" || readLockMarker() !== lockMarkerAtUnlock || state.expiresAt === null || Date.now() >= state.expiresAt)) {
+    if (state.vault && (readLockMarker() === "storage-unavailable" || readLockMarker() !== lockMarkerAtUnlock || state.expiresAt === null || Date.now() >= state.expiresAt || !state.timing || sessionIdleRemaining(state.timing, Date.now) <= 0)) {
       flushSync(() => { void lockSession(false); });
     }
     document.body.style.visibility = "";
@@ -79,9 +88,13 @@ if (typeof window !== "undefined") {
 
 async function lockSession(announce: boolean): Promise<void> {
   if (announce) announceLock();
+  const timing = useSessionStore.getState().timing;
   useSessionStore.getState().vault?.lock();
-  useSessionStore.setState((state) => ({ vault: null, expiresAt: null, revision: state.revision + 1 }));
-  try { await clearSession(); }
+  useSessionStore.setState((state) => ({ vault: null, timing: null, expiresAt: null, revision: state.revision + 1 }));
+  try {
+    if (announce) await clearSession();
+    else if (timing) await clearSession(timing);
+  }
   catch (err) { console.error("veil: saved session key could not be deleted", err); }
 }
 
@@ -91,12 +104,12 @@ function readLockMarker(): string | null {
   try { return localStorage.getItem("eic.vault-lock"); }
   catch { return "storage-unavailable"; }
 }
-function guardedVault(vault: UnlockedVault, expiresAt: number, marker: string | null): UnlockedVault {
+function guardedVault(vault: UnlockedVault, expiresAt: number, marker: string | null, timing: SessionTiming): UnlockedVault {
   return new Proxy(vault, { get(target, property) {
     const value = Reflect.get(target, property);
     if (typeof value !== "function" || property === "lock") return value;
     return (...args: unknown[]) => {
-      if (Date.now() >= expiresAt || readLockMarker() === "storage-unavailable" || readLockMarker() !== marker) {
+      if (Date.now() >= expiresAt || sessionIdleRemaining(timing, Date.now) <= 0 || readLockMarker() === "storage-unavailable" || readLockMarker() !== marker) {
         void lockSession(false);
         throw new VaultLockedError("The vault is locked.");
       }

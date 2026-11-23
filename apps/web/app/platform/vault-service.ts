@@ -1,4 +1,5 @@
 import { SubtleCryptoPort } from "@veil/crypto";
+import { VaultLockedError } from "@veil/core";
 import {
   createVaultKeyed,
   exportBackup,
@@ -10,7 +11,8 @@ import {
   type VaultDeps,
 } from "@veil/vault";
 import { IndexedDbVaultStore } from "./indexeddb-store";
-import { SESSION_MS, clearSession, currentLockMarker, loadSession, saveSession } from "./session-persist";
+import { clearSession, discardSavedSession, currentLockMarker, loadSession, saveSession } from "./session-persist";
+import { DEFAULT_SESSION_POLICY, newSessionTiming, sessionDuration, sessionIdleRemaining, validPolicy, currentSessionActivityId, hasReplacedSessionActivity, type SessionPolicy } from "./session-policy";
 
 // One app-wide set of platform adapters. Shared packages receive these by
 // argument and never import browser globals themselves.
@@ -22,41 +24,52 @@ const deps: VaultDeps = {
 };
 
 // Keeping the session is a convenience. If storage refuses, the vault still opens and just locks on reload.
-async function remember(key: Parameters<typeof saveSession>[0]): Promise<number> {
+async function remember(key: Parameters<typeof saveSession>[0], policy: SessionPolicy, lockMarker: string | null) {
+  if (currentLockMarker() !== lockMarker) throw new VaultLockedError("The vault was locked in another tab.");
   const now = Date.now();
-  try {
-    return await saveSession(key, now);
-  } catch {
-    // Storage may refuse persistence. The in-memory session still has the same deadline.
-    return now + SESSION_MS;
+  const timing = newSessionTiming(policy, now);
+  let expiresAt = now + sessionDuration(policy);
+  try { expiresAt = await saveSession(key, now, timing); }
+  catch (error) {
+    let removed = false;
+    try { removed = await discardSavedSession(timing); } catch { /* the durable activity id still revokes the older key */ }
+    // Never accept memory-only fallback unless reload cannot reopen the old key.
+    if (!removed && currentSessionActivityId() !== timing.id) throw error;
   }
+  if (currentLockMarker() !== lockMarker) throw new VaultLockedError("The vault was locked in another tab.");
+  return { expiresAt, timing, lockMarker };
 }
 
-export async function vaultCreate(passphrase: string): Promise<{ vault: UnlockedVault; expiresAt: number }> {
-  const { vault, key } = await createVaultKeyed(deps, passphrase);
-  return { vault, expiresAt: await remember(key) };
+async function openRemembered(passphrase: string, policy: SessionPolicy, create: boolean) {
+  if (!validPolicy(policy)) throw new Error("Invalid session policy.");
+  const marker = currentLockMarker();
+  if (marker === "storage-unavailable") throw new VaultLockedError("Session storage is unavailable.");
+  const { vault, key } = await (create ? createVaultKeyed(deps, passphrase) : unlockVaultKeyed(deps, passphrase));
+  try { return { vault, ...await remember(key, policy, marker) }; }
+  catch (error) { vault.lock(); throw error; }
+}
+export function vaultCreate(passphrase: string, policy: SessionPolicy = DEFAULT_SESSION_POLICY) {
+  return openRemembered(passphrase, policy, true);
+}
+export function vaultUnlock(passphrase: string, policy: SessionPolicy = DEFAULT_SESSION_POLICY) {
+  return openRemembered(passphrase, policy, false);
 }
 
-export async function vaultUnlock(passphrase: string): Promise<{ vault: UnlockedVault; expiresAt: number }> {
-  const { vault, key } = await unlockVaultKeyed(deps, passphrase);
-  return { vault, expiresAt: await remember(key) };
-}
-
-/** Reopens the vault from a session saved in the last eight hours, or returns null. */
-export async function vaultResume(): Promise<{ vault: UnlockedVault; expiresAt: number; lockMarker: string | null } | null> {
+/** Reopens only an unexpired, non-idle, unrevoked remembered session. */
+export async function vaultResume() {
   try {
-    const saved = await loadSession(Date.now());
+    const saved = await loadSession(Date.now);
     if (!saved) return null;
     const vault = await resumeVault(deps, saved.key);
     const lockMarker = currentLockMarker();
-    if (saved.expiresAt <= Date.now() || (saved.lockMarker ?? null) !== lockMarker) {
+    if (saved.expiresAt <= Date.now() || hasReplacedSessionActivity(saved.timing) || sessionIdleRemaining(saved.timing, Date.now) <= 0 || (saved.lockMarker ?? null) !== lockMarker) {
       vault.lock();
-      await clearSession();
       return null;
     }
-    return { vault, expiresAt: saved.expiresAt, lockMarker: saved.lockMarker ?? null };
+    return { vault, expiresAt: saved.expiresAt, lockMarker: saved.lockMarker ?? null, timing: saved.timing };
   } catch {
-    await clearSession();
+    // loadSession already rejects invalid records atomically. A stale/failed
+    // resume must not delete another tab's replacement or its durable fence.
     return null;
   }
 }
