@@ -50,6 +50,9 @@ export function buildChatInviteLink(bundleText: string, baseUrl: string): string
  */
 export function readPostShareLink(hash: string): string | null {
   if (!hash.startsWith(POST_LINK_PREFIX)) return null;
+  if (hash.length > MAX_POST_LINK_CHARS) {
+    throw new AppError("That share link is too long. Ask your friend for a share file instead.");
+  }
   try {
     return fromBase64Url(hash.slice(POST_LINK_PREFIX.length));
   } catch {
