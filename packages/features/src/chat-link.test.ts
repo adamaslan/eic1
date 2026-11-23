@@ -171,6 +171,19 @@ describe("chat links", () => {
     expect(() => readConnectLink(`${CONNECT_LINK_PREFIX}${"A".repeat(MAX_CHAT_LINK_CHARS)}`)).toThrow(/too long/);
   });
 
+  it.each(["author", "kind"] as const)("rejects a later %s mismatch before applying any earlier valid envelope", async (mismatch) => {
+    const { alice, bob } = await pairedVaults();
+    const conn = await connectionFor(bob, "alice-id");
+    await sendChatMessage(bob, conn, "must not partly apply", deps);
+    const { link } = await buildChatShareLink(bob, conn, BASE);
+    const parsed = readChatShareLink(new URL(link).hash)!;
+    const good = parsed.envelopes[0];
+    const bad = mismatch === "author" ? { ...good, authorId: "wrong-author" } : { ...good, kind: "post" as const };
+    const malformed = { ...parsed, envelopes: [good, bad] };
+    await expect(applyChatShareLink(alice, malformed, deps)).rejects.toThrow(/damaged/);
+    expect(await listChatThread(alice, "bob-id")).toHaveLength(0);
+  });
+
   it("reports per-envelope failures honestly instead of calling the link damaged", async () => {
     const { alice, bob } = await pairedVaults();
     const conn = await connectionFor(bob, "alice-id");
