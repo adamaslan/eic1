@@ -43,3 +43,11 @@ describe("chat key invite links", () => {
     expect(readPostShareLink(new URL(link).hash)).toBe(card);
   });
 });
+
+
+describe("incoming share fragment bound", () => {
+  it("rejects an oversized fragment before base64 decoding", () => {
+    const hash = POST_LINK_PREFIX + "A".repeat(MAX_POST_LINK_CHARS);
+    expect(() => readPostShareLink(hash)).toThrow(/too long/);
+  });
+});
