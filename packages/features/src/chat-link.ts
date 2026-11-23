@@ -198,12 +198,13 @@ export async function applyChatShareLink(
   }
   // Structural mismatches reject the whole link; a per-envelope crypto failure is reported
   // honestly instead of mislabeling the link damaged - anything already applied stays applied.
+  // Preflight the complete structure before any envelope can mutate the vault.
+  if (link.envelopes.some((envelope) => envelope.authorId !== sender.id || envelope.kind !== "chat")) {
+    throw new AppError("That chat link is damaged. Ask your friend for a fresh one.");
+  }
   let applied = 0;
   let failed = 0;
   for (const envelope of link.envelopes) {
-    if (envelope.authorId !== sender.id || envelope.kind !== "chat") {
-      throw new AppError("That chat link is damaged. Ask your friend for a fresh one.");
-    }
     try {
       const result = await applyInboundChatEnvelope(vault, envelope, deps);
       if (result.applied) applied += 1;
