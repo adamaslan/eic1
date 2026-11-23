@@ -178,7 +178,7 @@ describe("chat links", () => {
     const { link } = await buildChatShareLink(bob, conn, BASE);
     const parsed = readChatShareLink(new URL(link).hash)!;
     const good = parsed.envelopes[0];
-    const bad = mismatch === "author" ? { ...good, authorId: "wrong-author" } : { ...good, kind: "post" as const };
+    const bad = mismatch === "author" ? { ...good, authorId: "wrong-author" } : { ...good, kind: "posts" as const };
     const malformed = { ...parsed, envelopes: [good, bad] };
     await expect(applyChatShareLink(alice, malformed, deps)).rejects.toThrow(/damaged/);
     expect(await listChatThread(alice, "bob-id")).toHaveLength(0);
