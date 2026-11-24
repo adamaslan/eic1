@@ -11,6 +11,7 @@ import {
 import { AppError } from "@veil/core";
 import {
   KeyRotationError,
+  CONNECT_LINK_PREFIX,
   MAX_CHAT_LINK_CHARS,
   applyChatShareLink,
   importConnectCard,
@@ -198,7 +199,11 @@ type PendingLink =
   | { kind: "connect"; text: string };
 
 function readPendingLink(hash: string): PendingLink | null {
-  if (hash.length > MAX_CHAT_LINK_CHARS) throw new AppError("That link is too long to be an eic link.");
+  // Connect links bound their signed card separately; the optional fragment extra is dropped
+  // when malformed or oversized and must not veto an otherwise valid card.
+  if (hash.length > MAX_CHAT_LINK_CHARS && !hash.startsWith(CONNECT_LINK_PREFIX)) {
+    throw new AppError("That link is too long to be an eic link.");
+  }
   const post = readPostShareLink(hash);
   if (post) return isJournalShareBundle(post) ? { kind: "journal", text: post } : { kind: "post", text: post };
   const chat = readChatShareLink(hash);

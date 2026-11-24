@@ -61,8 +61,12 @@ test("new recipient hits the handle gate, sees an honest error, and recovers via
   const link = await lastSharedLink(owner);
   expect(link).toContain("?connect=");
 
+  // A malformed overlong optional fragment must not veto the bounded public card.
+  const oversizedOptional = new URL(link);
+  oversizedOptional.hash = `relay=${"x".repeat(8_000)}`;
+
   // New user: lands on the link with no vault, creates one (no handle yet).
-  await friend.goto(link, { waitUntil: "domcontentloaded" });
+  await friend.goto(oversizedOptional.toString(), { waitUntil: "domcontentloaded" });
   await createVault(friend);
   await expect(friend.getByText("A friend wants to connect")).toBeVisible();
 

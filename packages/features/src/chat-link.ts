@@ -40,6 +40,7 @@ export const CONNECT_LINK_PREFIX = "#connect=";
 // `#connect=` links keep working.
 export const CONNECT_QUERY_PREFIX = "?connect=";
 export const MAX_CHAT_LINK_CHARS = 8000;
+const MAX_CONNECT_FRAGMENT_EXTRA_CHARS = 2048;
 const MAX_LINK_ENVELOPES = 20;
 const CONNECT_FORMAT = "eic-connect";
 const CONNECT_VERSION = 1;
@@ -252,9 +253,17 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
   // that vouch counts (the author must be a member, under quota); a non-member's invite is inert.
   const invite = settings.feedUrl ? await signRelayInvite(identity, now) : null;
   const relayInvite = invite ? { id: invite.inviteId, expiresAt: invite.expiresAt, signature: invite.signature } : undefined;
+  // Feed URLs can be persisted from older/external configurations and may contain credentials.
+  // Keep them with the invite in the fragment so neither value reaches the host or link preview.
+  const { feedUrl, ...queryAuthor } = unsigned.author;
+  const queryCard = { ...unsigned, author: queryAuthor };
+  const fragmentExtras = {
+    ...(feedUrl ? { feedUrl } : {}),
+    ...(relayInvite ? { relayInvite } : {}),
+  };
   const link = `${baseUrl}${CONNECT_QUERY_PREFIX}${toBase64Url(
-    JSON.stringify({ ...unsigned, ...(profile ? { profile } : {}), signature: encodeBase64(signature) }),
-  )}${relayInvite ? `#relay=${toBase64Url(JSON.stringify(relayInvite))}` : ""}`;
+    JSON.stringify({ ...queryCard, ...(profile ? { profile } : {}), signature: encodeBase64(signature) }),
+  )}${Object.keys(fragmentExtras).length ? `#relay=${toBase64Url(JSON.stringify(fragmentExtras))}` : ""}`;
   if (link.length > MAX_CHAT_LINK_CHARS) {
     throw new AppError("That connect link is too long.");
   }
@@ -277,17 +286,25 @@ export function connectQueryToHash(search: string, fragment = ""): string | null
 /** Reads a connect link fragment to its raw card text, or null when the hash is not one. */
 export function readConnectLink(hash: string): string | null {
   if (!hash.startsWith(CONNECT_LINK_PREFIX)) return null;
-  if (hash.length > MAX_CHAT_LINK_CHARS) throw new AppError("That connect link is too long to be real.");
+  const [encoded, relayPart] = hash.slice(CONNECT_LINK_PREFIX.length).split("&relay=");
+  if (encoded.length + CONNECT_LINK_PREFIX.length > MAX_CHAT_LINK_CHARS) {
+    throw new AppError("That connect link is too long to be real.");
+  }
   try {
-    const [encoded, relayPart] = hash.slice(CONNECT_LINK_PREFIX.length).split("&relay=");
     const text = fromPaddedBase64Url(encoded);
-    if (!relayPart) return text;
+    if (!relayPart || relayPart.length > MAX_CONNECT_FRAGMENT_EXTRA_CHARS) return text;
     try {
-      const relayInvite = JSON.parse(fromPaddedBase64Url(relayPart)) as unknown;
+      const extras = JSON.parse(fromPaddedBase64Url(relayPart)) as Record<string, unknown>;
+      if (typeof extras !== "object" || extras === null || Array.isArray(extras)) return text;
       const card = JSON.parse(text) as Record<string, unknown>;
-      return JSON.stringify({ ...card, relayInvite });
+      const author = card.author as Record<string, unknown> | undefined;
+      return JSON.stringify({
+        ...card,
+        ...(extras.feedUrl && author ? { author: { ...author, feedUrl: extras.feedUrl } } : {}),
+        ...(extras.relayInvite ? { relayInvite: extras.relayInvite } : {}),
+      });
     } catch {
-      // The invite is optional and separately signed; malformed invite bytes never veto a valid card.
+      // Feed URL and invite are optional metadata; malformed fragment bytes never veto a valid card.
       return text;
     }
   } catch {

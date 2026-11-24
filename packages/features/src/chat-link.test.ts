@@ -232,16 +232,20 @@ describe("connect links", () => {
     await saveSettings(carol, settingsFor("carol-id", "carol"));
     const plain = readConnectLink(arrivalHash(await buildConnectLink(bob, BASE, NOW))!)!;
     expect(JSON.parse(plain).relayInvite).toBeUndefined();
-    await saveSettings(bob, { ...settingsFor("bob-id", "bob"), feedUrl: "https://relay.example/feeds/bob" });
+    const feedUrl = "https://relay.example/feeds/bob?auth=synthetic-test-marker";
+    await saveSettings(bob, { ...settingsFor("bob-id", "bob"), feedUrl });
     const link = await buildConnectLink(bob, BASE, NOW);
     const url = new URL(link);
     const queryCard = JSON.parse(readConnectLink(`${CONNECT_LINK_PREFIX}${url.search.slice(9)}`)!);
     expect(queryCard.relayInvite).toBeUndefined();
+    expect(queryCard.author.feedUrl).toBeUndefined();
+    expect(url.search).not.toContain("synthetic-test-marker");
     expect(url.hash).toMatch(/^#relay=/);
     const brokenInviteHash = connectQueryToHash(url.search, "#relay=%%%")!;
     expect(JSON.parse(readConnectLink(brokenInviteHash)!)).not.toHaveProperty("relayInvite");
     const text = readConnectLink(arrivalHash(link)!)!;
     const card = JSON.parse(text);
+    expect(card.author.feedUrl).toBe(feedUrl);
     expect(card.relayInvite.expiresAt).toBe(NOW.getTime() + 14 * 24 * 60 * 60 * 1000);
     const result = await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
     expect(result.relayInvite).toMatchObject({ inviterPub: card.author.pubkey, inviteId: card.relayInvite.id, expiresAt: card.relayInvite.expiresAt });
@@ -269,6 +273,16 @@ describe("connect links", () => {
       "Choose a handle on your Connections page before connecting, then open their link again."
     );
     expect(await listConnections(carol)).toHaveLength(0);
+  });
+
+  it("drops oversized optional fragment metadata without rejecting the bounded connect card", async () => {
+    const { bob } = await pairedVaults();
+    const link = await buildConnectLink(bob, BASE, NOW);
+    const url = new URL(link);
+    const hash = `${CONNECT_LINK_PREFIX}${url.search.slice(9)}&relay=${"x".repeat(MAX_CHAT_LINK_CHARS)}`;
+    expect(hash.length).toBeGreaterThan(MAX_CHAT_LINK_CHARS);
+    expect(readConnectLink(hash)).toBe(readConnectLink(`${CONNECT_LINK_PREFIX}${url.search.slice(9)}`));
+    expect(() => readConnectLink(`${CONNECT_LINK_PREFIX}${"A".repeat(MAX_CHAT_LINK_CHARS)}`)).toThrow(/too long/);
   });
 
   it("carries an optional display-only profile preview that never enters the signed subset", async () => {
