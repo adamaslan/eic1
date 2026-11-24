@@ -59,7 +59,7 @@ test("new recipient hits the handle gate, sees an honest error, and recovers via
   await owner.getByRole("button", { name: "Text my connect link" }).click();
   await expect(owner.getByText(/Connect link copied/)).toBeVisible();
   const link = await lastSharedLink(owner);
-  expect(link).toContain("#connect=");
+  expect(link).toContain("?connect=");
 
   // New user: lands on the link with no vault, creates one (no handle yet).
   await friend.goto(link, { waitUntil: "domcontentloaded" });

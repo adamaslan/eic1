@@ -83,7 +83,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             and retains journal links in memory only. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: "try{var h=window.location.hash;if(h&&h.length>1){window.__eicArrivalHash=h}}catch(e){}",
+            __html:
+              'try{var l=window.location,h=l.hash;if(!(h&&h.length>1)&&l.search.indexOf("?connect=")===0){var c=l.search.slice(9).split("&")[0];if(c){h="#connect="+c;window.history.replaceState(null,"",l.pathname+h)}}if(h&&h.length>1){window.__eicArrivalHash=h}}catch(e){}',
           }}
         />
         <Meta />
@@ -208,7 +209,8 @@ function readPendingLink(hash: string): PendingLink | null {
 }
 
 /**
- * Watches for eic links (`#import=`, `#chat=`, `#connect=...`). The payload travels in the URL
+ * Watches for eic links (`#import=`, `#chat=`, `#connect=...`, or a texted `?connect=...`
+ * that the shell rewrites into the fragment form on arrival). Post and chat payloads travel in the URL
  * fragment, which browsers never put into an HTTP request to the app host. Chat links apply and open the conversation on their
  * own (they are sealed, signed, and idempotent); connect links ask first because they create a
  * connection from a bearer link; post links keep the original import prompt. Handled hashes are

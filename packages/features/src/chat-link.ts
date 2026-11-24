@@ -32,6 +32,13 @@ const fromPaddedBase64Url = (encoded: string): string =>
  */
 export const CHAT_LINK_PREFIX = "#chat=";
 export const CONNECT_LINK_PREFIX = "#connect=";
+// Connect links are TEXTED, so they are built as a plain query URL (`/?connect=<payload>`):
+// messaging apps linkify and wrap a query string more reliably than a fragment. Unlike '#',
+// a query reaches the app host, which is acceptable only because a connect card carries no
+// secrets (handle, public key, optional feed URL). The app moves the query into the legacy
+// `#connect=` fragment form on arrival, so every downstream reader sees one shape, and old
+// `#connect=` links keep working.
+export const CONNECT_QUERY_PREFIX = "?connect=";
 export const MAX_CHAT_LINK_CHARS = 8000;
 const MAX_LINK_ENVELOPES = 20;
 const CONNECT_FORMAT = "eic-connect";
@@ -245,13 +252,24 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
   // that vouch counts (the author must be a member, under quota); a non-member's invite is inert.
   const invite = settings.feedUrl ? await signRelayInvite(identity, now) : null;
   const relayInvite = invite ? { id: invite.inviteId, expiresAt: invite.expiresAt, signature: invite.signature } : undefined;
-  const link = `${baseUrl}${CONNECT_LINK_PREFIX}${toBase64Url(
+  const link = `${baseUrl}${CONNECT_QUERY_PREFIX}${toBase64Url(
     JSON.stringify({ ...unsigned, ...(profile ? { profile } : {}), ...(relayInvite ? { relayInvite } : {}), signature: encodeBase64(signature) }),
   )}`;
   if (link.length > MAX_CHAT_LINK_CHARS) {
     throw new AppError("That connect link is too long.");
   }
   return link;
+}
+
+/**
+ * Maps a `?connect=<payload>` query string to the equivalent `#connect=<payload>` fragment, or
+ * null when the query is not a connect link. The inline arrival script in the app shell mirrors
+ * this logic (it cannot import), so keep the two in step.
+ */
+export function connectQueryToHash(search: string): string | null {
+  if (!search.startsWith(CONNECT_QUERY_PREFIX)) return null;
+  const payload = search.slice(CONNECT_QUERY_PREFIX.length).split("&")[0];
+  return payload ? `${CONNECT_LINK_PREFIX}${payload}` : null;
 }
 
 /** Reads a connect link fragment to its raw card text, or null when the hash is not one. */

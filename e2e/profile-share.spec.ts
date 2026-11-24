@@ -49,7 +49,7 @@ async function lastCopiedLink(page: Page): Promise<string> {
 }
 
 function decodeConnectCard(link: string): { author: { handle: string }; profile?: { displayName: string; bio: string } } {
-  const payload = link.split("#connect=")[1];
+  const payload = link.split("?connect=")[1];
   const base64 = payload.replaceAll("-", "+").replaceAll("_", "/");
   const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
   return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(padded), (c) => c.charCodeAt(0))));
@@ -83,7 +83,7 @@ test("owner shares selected profile fields; recipient sees the preview and conne
   await owner.getByRole("button", { name: "Share profile" }).click();
   await expect(owner.getByText(/Profile link copied/)).toBeVisible();
   const link = await lastCopiedLink(owner);
-  expect(link).toContain("#connect=");
+  expect(link).toContain("?connect=");
   const card = decodeConnectCard(link);
   expect(card.profile).toEqual({ displayName: "Ada Lovelink", bio: "Selected bio for sharing" });
   expect(card.author.handle).toBe("ada-owner");

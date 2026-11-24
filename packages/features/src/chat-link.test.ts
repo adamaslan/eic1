@@ -8,6 +8,8 @@ import { listChatThread, sendChatMessage, type ChatDeps } from "./chat";
 import {
   CHAT_LINK_PREFIX,
   CONNECT_LINK_PREFIX,
+  CONNECT_QUERY_PREFIX,
+  connectQueryToHash,
   MAX_CHAT_LINK_CHARS,
   applyChatShareLink,
   buildChatShareLink,
@@ -204,8 +206,9 @@ describe("connect links", () => {
   it("round-trips a signed card that creates a verified connection", async () => {
     const { alice, bob } = await pairedVaults();
     const link = await buildConnectLink(bob, BASE, NOW);
-    expect(link.startsWith(`${BASE}${CONNECT_LINK_PREFIX}`)).toBe(true);
-    const text = readConnectLink(new URL(link).hash)!;
+    expect(link.startsWith(`${BASE}${CONNECT_QUERY_PREFIX}`)).toBe(true);
+    expect(new URL(link).hash).toBe("");
+    const text = readConnectLink(connectQueryToHash(new URL(link).search)!)!;
     expect(peekConnectCardHandle(text)).toBe("bob");
 
     // Carol has never seen bob: the card alone creates the connection with his verified key.
@@ -218,17 +221,17 @@ describe("connect links", () => {
 
     // And a chat sealed to carol's key... goes the other way: bob can now open carol's card.
     const aliceLink = await buildConnectLink(alice, BASE, NOW);
-    expect(peekConnectCardHandle(readConnectLink(new URL(aliceLink).hash)!)).toBe("alice");
+    expect(peekConnectCardHandle(readConnectLink(connectQueryToHash(new URL(aliceLink).search)!)!)).toBe("alice");
   });
 
   it("carries a relay invite only once the author has a feed, signed outside the card subset", async () => {
     const { bob } = await pairedVaults();
     const carol = await open();
     await saveSettings(carol, settingsFor("carol-id", "carol"));
-    const plain = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const plain = readConnectLink(connectQueryToHash(new URL(await buildConnectLink(bob, BASE, NOW)).search)!)!;
     expect(JSON.parse(plain).relayInvite).toBeUndefined();
     await saveSettings(bob, { ...settingsFor("bob-id", "bob"), feedUrl: "https://relay.example/feeds/bob" });
-    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const text = readConnectLink(connectQueryToHash(new URL(await buildConnectLink(bob, BASE, NOW)).search)!)!;
     const card = JSON.parse(text);
     expect(card.relayInvite.expiresAt).toBe(NOW.getTime() + 14 * 24 * 60 * 60 * 1000);
     const result = await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
@@ -240,7 +243,7 @@ describe("connect links", () => {
 
   it("verifies the signature: a tampered card is rejected", async () => {
     const { bob } = await pairedVaults();
-    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const text = readConnectLink(connectQueryToHash(new URL(await buildConnectLink(bob, BASE, NOW)).search)!)!;
     const card = JSON.parse(text);
     card.author.handle = "mallory";
     const carol = await open();
@@ -251,7 +254,7 @@ describe("connect links", () => {
 
   it("rejects a handle-less recipient with guidance to Connections and connects nothing", async () => {
     const { bob } = await pairedVaults();
-    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const text = readConnectLink(connectQueryToHash(new URL(await buildConnectLink(bob, BASE, NOW)).search)!)!;
     const carol = await open();
     await expect(importConnectCard(carol, text, importDeps(defaultSettings()))).rejects.toThrow(
       "Choose a handle on your Connections page before connecting, then open their link again."
@@ -264,7 +267,7 @@ describe("connect links", () => {
     const carol = await open();
     await saveSettings(carol, settingsFor("carol-id", "carol"));
     const link = await buildConnectLink(bob, BASE, NOW, { displayName: "Bob Loblaw", bio: "Law blog." });
-    const text = readConnectLink(new URL(link).hash)!;
+    const text = readConnectLink(connectQueryToHash(new URL(link).search)!)!;
     expect(peekConnectCardProfile(text)).toEqual({ displayName: "Bob Loblaw", bio: "Law blog." });
     const result = await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
     expect(result.handle).toBe("bob");
@@ -273,7 +276,7 @@ describe("connect links", () => {
   it("OLD-READER PROOF: an enriched card still verifies when unknown keys are stripped", async () => {
     const { bob } = await pairedVaults();
     const link = await buildConnectLink(bob, BASE, NOW, { displayName: "Bob Loblaw", bio: "Law blog." });
-    const text = readConnectLink(new URL(link).hash)!;
+    const text = readConnectLink(connectQueryToHash(new URL(link).search)!)!;
     const card = JSON.parse(text) as Record<string, unknown> & { author: { pubkey: string }; signature: string };
     // Simulate an old reader exactly: zod strips unknown keys, then it stringifies the
     // remaining card minus signature and verifies. The preview must not break that.
@@ -290,7 +293,7 @@ describe("connect links", () => {
     const { bob } = await pairedVaults();
     const carol = await open();
     await saveSettings(carol, settingsFor("carol-id", "carol"));
-    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW, { displayName: "Bob Loblaw", bio: "Law blog." })).hash)!;
+    const text = readConnectLink(connectQueryToHash(new URL(await buildConnectLink(bob, BASE, NOW, { displayName: "Bob Loblaw", bio: "Law blog." })).search)!)!;
     const card = JSON.parse(text) as Record<string, unknown>;
     // Preview is unsigned: altering it changes nothing about the connection decision.
     card.profile = { displayName: "Totally Bob", bio: "edited in transit" };
@@ -310,7 +313,7 @@ describe("connect links", () => {
     const { bob } = await pairedVaults();
     const carol = await open();
     await saveSettings(carol, settingsFor("carol-id", "carol"));
-    const raw = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const raw = readConnectLink(connectQueryToHash(new URL(await buildConnectLink(bob, BASE, NOW)).search)!)!;
     const card = { ...JSON.parse(raw), profile };
     const text = JSON.stringify(card);
     expect(peekConnectCardHandle(text)).toBe("bob");
@@ -328,7 +331,7 @@ describe("connect links", () => {
 
   it("rejects your own card and keeps nickname and sync state on re-import", async () => {
     const { alice, bob } = await pairedVaults();
-    const bobText = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const bobText = readConnectLink(connectQueryToHash(new URL(await buildConnectLink(bob, BASE, NOW)).search)!)!;
     await expect(importConnectCard(bob, bobText, importDeps(settingsFor("bob-id", "bob")))).rejects.toThrow(/your own connect link/);
 
     // Alice already knows bob with a nickname and sync progress; the card refreshes, never resets.
@@ -345,13 +348,13 @@ describe("connect links", () => {
     const { bob } = await pairedVaults();
     const carol = await open();
     await saveSettings(carol, settingsFor("carol-id", "carol"));
-    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const text = readConnectLink(connectQueryToHash(new URL(await buildConnectLink(bob, BASE, NOW)).search)!)!;
     await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
 
     // A second "bob" with the same id and handle but a fresh key must not rotate the old one.
     const bob2 = await open();
     await saveSettings(bob2, settingsFor("bob-id", "bob"));
-    const text2 = readConnectLink(new URL(await buildConnectLink(bob2, BASE, NOW)).hash)!;
+    const text2 = readConnectLink(connectQueryToHash(new URL(await buildConnectLink(bob2, BASE, NOW)).search)!)!;
     await expect(importConnectCard(carol, text2, importDeps(settingsFor("carol-id", "carol")))).rejects.toThrow(/different key/);
     expect((await connectionFor(carol, "bob-id")).pubkey).toBe(JSON.parse(text).author.pubkey);
   });
@@ -360,7 +363,7 @@ describe("connect links", () => {
     const { bob } = await pairedVaults();
     const carol = await open();
     await saveSettings(carol, settingsFor("carol-id", "carol"));
-    const text = readConnectLink(new URL(await buildConnectLink(bob, BASE, NOW)).hash)!;
+    const text = readConnectLink(connectQueryToHash(new URL(await buildConnectLink(bob, BASE, NOW)).search)!)!;
     await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
     // Same card again: fine, key unchanged.
     const again = await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
