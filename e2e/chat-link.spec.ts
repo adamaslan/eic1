@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { SubtleCryptoPort } from "@veil/crypto";
 import { createVault } from "@veil/vault";
 import { MemoryStore } from "../packages/vault/src/memory-store";
-import { buildChatShareLink, buildConnectLink, importConnectCard, readConnectLink } from "../packages/features/src/chat-link";
+import { buildChatShareLink, buildConnectLink, connectQueryToHash, importConnectCard, readConnectLink } from "../packages/features/src/chat-link";
 import { defaultSettings, listConnections, saveSettings } from "../packages/features/src/social";
 import { sendChatMessage } from "../packages/features/src/chat";
 
@@ -107,7 +107,8 @@ test("incoming legacy chat fragment: stranger stash binds after resume, connect 
   try {
     const settings = { ...defaultSettings(), authorId: "legacy-bob", handle: "bob" };
     await saveSettings(sender, settings);
-    await importConnectCard(sender, readConnectLink(new URL(recipientLink).hash)!, { settings, newId: () => "legacy-connect", now });
+    const recipientUrl = new URL(recipientLink);
+    await importConnectCard(sender, readConnectLink(connectQueryToHash(recipientUrl.search, recipientUrl.hash)!)!, { settings, newId: () => "legacy-connect", now });
     const connection = (await listConnections(sender))[0];
     expect(connection).toBeTruthy();
     const message = "synthetic incoming compatibility message";
