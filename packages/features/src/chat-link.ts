@@ -282,9 +282,14 @@ export function readConnectLink(hash: string): string | null {
     const [encoded, relayPart] = hash.slice(CONNECT_LINK_PREFIX.length).split("&relay=");
     const text = fromPaddedBase64Url(encoded);
     if (!relayPart) return text;
-    const card = JSON.parse(text) as Record<string, unknown>;
-    const relayInvite = JSON.parse(fromPaddedBase64Url(relayPart)) as unknown;
-    return JSON.stringify({ ...card, relayInvite });
+    try {
+      const relayInvite = JSON.parse(fromPaddedBase64Url(relayPart)) as unknown;
+      const card = JSON.parse(text) as Record<string, unknown>;
+      return JSON.stringify({ ...card, relayInvite });
+    } catch {
+      // The invite is optional and separately signed; malformed invite bytes never veto a valid card.
+      return text;
+    }
   } catch {
     throw new AppError("That connect link is damaged. Ask your friend for a fresh one.");
   }

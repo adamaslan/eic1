@@ -238,6 +238,8 @@ describe("connect links", () => {
     const queryCard = JSON.parse(readConnectLink(`${CONNECT_LINK_PREFIX}${url.search.slice(9)}`)!);
     expect(queryCard.relayInvite).toBeUndefined();
     expect(url.hash).toMatch(/^#relay=/);
+    const brokenInviteHash = connectQueryToHash(url.search, "#relay=%%%")!;
+    expect(JSON.parse(readConnectLink(brokenInviteHash)!)).not.toHaveProperty("relayInvite");
     const text = readConnectLink(arrivalHash(link)!)!;
     const card = JSON.parse(text);
     expect(card.relayInvite.expiresAt).toBe(NOW.getTime() + 14 * 24 * 60 * 60 * 1000);
