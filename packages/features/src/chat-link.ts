@@ -24,11 +24,11 @@ const fromPaddedBase64Url = (encoded: string): string =>
 
 /**
  * Chat and connect links: a textable URL that opens eic straight into a conversation, so a
- * friend never handles a JSON file. Everything travels in the URL fragment (after '#'), which
- * browsers never put into an HTTP request - the ciphertext and the card reach neither the
- * static host nor any link-preview unfurler. Same 8000-char cap as post links, so the URL
- * stays usable in chat apps and SMS. A link is hand delivery, not a transport: automatic
- * chat still rides the pull-sync feed.
+ * friend never handles a JSON file. Chat ciphertext stays in the URL fragment, outside HTTP
+ * requests. Connect URLs put the public card in the query for reliable linkification and keep
+ * the bearer relay invite in the fragment. Same 8000-char cap as post links, so the URL stays
+ * usable in chat apps and SMS. A link is hand delivery, not a transport: automatic chat still
+ * rides the pull-sync feed.
  */
 export const CHAT_LINK_PREFIX = "#chat=";
 export const CONNECT_LINK_PREFIX = "#connect=";
