@@ -9,7 +9,8 @@ async function openOlderImports(page: import("@playwright/test").Page) {
 
 test("unsigned chat offers its signed reimport path on desktop and phone", async ({ page }, testInfo) => {
   const passphrase = `legacy-upgrade-${Date.now()}`;
-  await page.goto("/unlock");
+  await page.goto("/");
+  await page.getByRole("link", { name: "Create or open your vault" }).first().click();
   await page.getByLabel("Passphrase", { exact: true }).fill(passphrase);
   await page.getByLabel("Confirm passphrase").fill(passphrase);
   await page.getByRole("button", { name: "Create vault" }).click();
