@@ -253,8 +253,8 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
   const invite = settings.feedUrl ? await signRelayInvite(identity, now) : null;
   const relayInvite = invite ? { id: invite.inviteId, expiresAt: invite.expiresAt, signature: invite.signature } : undefined;
   const link = `${baseUrl}${CONNECT_QUERY_PREFIX}${toBase64Url(
-    JSON.stringify({ ...unsigned, ...(profile ? { profile } : {}), ...(relayInvite ? { relayInvite } : {}), signature: encodeBase64(signature) }),
-  )}`;
+    JSON.stringify({ ...unsigned, ...(profile ? { profile } : {}), signature: encodeBase64(signature) }),
+  )}${relayInvite ? `#relay=${toBase64Url(JSON.stringify(relayInvite))}` : ""}`;
   if (link.length > MAX_CHAT_LINK_CHARS) {
     throw new AppError("That connect link is too long.");
   }
@@ -266,10 +266,12 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
  * null when the query is not a connect link. The inline arrival script in the app shell mirrors
  * this logic (it cannot import), so keep the two in step.
  */
-export function connectQueryToHash(search: string): string | null {
+export function connectQueryToHash(search: string, fragment = ""): string | null {
   if (!search.startsWith(CONNECT_QUERY_PREFIX)) return null;
   const payload = search.slice(CONNECT_QUERY_PREFIX.length).split("&")[0];
-  return payload ? `${CONNECT_LINK_PREFIX}${payload}` : null;
+  if (!payload) return null;
+  const relay = fragment.startsWith("#relay=") ? fragment.slice("#relay=".length).split("&")[0] : "";
+  return `${CONNECT_LINK_PREFIX}${payload}${relay ? `&relay=${relay}` : ""}`;
 }
 
 /** Reads a connect link fragment to its raw card text, or null when the hash is not one. */
@@ -277,7 +279,12 @@ export function readConnectLink(hash: string): string | null {
   if (!hash.startsWith(CONNECT_LINK_PREFIX)) return null;
   if (hash.length > MAX_CHAT_LINK_CHARS) throw new AppError("That connect link is too long to be real.");
   try {
-    return fromPaddedBase64Url(hash.slice(CONNECT_LINK_PREFIX.length));
+    const [encoded, relayPart] = hash.slice(CONNECT_LINK_PREFIX.length).split("&relay=");
+    const text = fromPaddedBase64Url(encoded);
+    if (!relayPart) return text;
+    const card = JSON.parse(text) as Record<string, unknown>;
+    const relayInvite = JSON.parse(fromPaddedBase64Url(relayPart)) as unknown;
+    return JSON.stringify({ ...card, relayInvite });
   } catch {
     throw new AppError("That connect link is damaged. Ask your friend for a fresh one.");
   }

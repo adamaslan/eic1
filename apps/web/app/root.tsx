@@ -84,7 +84,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <script
           dangerouslySetInnerHTML={{
             __html:
-              'try{var l=window.location,h=l.hash;if(!(h&&h.length>1)&&l.search.indexOf("?connect=")===0){var c=l.search.slice(9).split("&")[0];if(c){h="#connect="+c;window.history.replaceState(null,"",l.pathname+h)}}if(h&&h.length>1){window.__eicArrivalHash=h}}catch(e){}',
+              'try{var l=window.location,h=l.hash;if(l.search.indexOf("?connect=")===0){var c=l.search.slice(9).split("&")[0],r=h.indexOf("#relay=")===0?h.slice(7).split("&")[0]:"";if(c){h="#connect="+c+(r?"&relay="+r:"");window.history.replaceState(null,"",l.pathname+h)}}if(h&&h.length>1){window.__eicArrivalHash=h}}catch(e){}',
           }}
         />
         <Meta />

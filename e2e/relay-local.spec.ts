@@ -30,8 +30,8 @@ async function connectLink(page: Page) {
  await expect(page.getByText(/Connect link shared/)).toBeVisible();
  return await page.evaluate(()=>(window as unknown as {__shared:string[]}).__shared.at(-1)!.match(/https?:\/\/\S+/)![0]);
 }
-// The card is base64url JSON after #connect=; the author key is public by design.
-function linkAuthorKey(link:string){const b=link.split('#connect=')[1].replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(Buffer.from(b,'base64').toString('utf8')).author.pubkey as string;}
+// Connect cards use either ?connect=<payload> or the legacy #connect=<payload> form; the author key is public by design.
+function linkAuthorKey(link:string){const url=new URL(link);const b=(url.search.startsWith('?connect=')?url.search.slice(9).split('&')[0]:url.hash.split('#connect=')[1]).replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(Buffer.from(b,'base64').toString('utf8')).author.pubkey as string;}
 async function accept(page: Page,link:string) {
  await page.goto(link); await page.getByRole('button',{name:'Add and open chat'}).click(); await expect(page).toHaveURL(/\/chat\//);
 }
