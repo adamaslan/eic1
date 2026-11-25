@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { AppError, JOURNAL_ENTRY_MAX, timeAgo, type JournalEntry } from "@veil/core";
 import { addJournalEntry, applyJournalFilters, buildJournalShareBundle, buildJournalShareLink, deleteJournalEntry, emptyJournalFilter, isFeatureEnabled, isJournalFilterActive, JOURNAL_DATE_RANGES, listJournal, loadSettings, updateJournalEntry, type JournalDateRange } from "@veil/features";
@@ -111,13 +111,17 @@ export default function Journal() {
     }
   }
 
+  const readSequence = useRef(0);
   const reload = useCallback(async () => {
     if (!vault) return;
+    const sequence = ++readSequence.current;
     try {
-      setEntries(await listJournal(vault));
+      const rows = await listJournal(vault);
+      if (sequence !== readSequence.current) return;
+      setEntries(rows);
       setReadError(null);
     } catch {
-      setReadError("The journal could not be read.");
+      if (sequence === readSequence.current) setReadError("The journal could not be read.");
     }
   }, [vault]);
 
