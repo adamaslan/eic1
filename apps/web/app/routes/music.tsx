@@ -106,6 +106,7 @@ export default function Music() {
   const [filter, setFilter] = useState("");
   const [saved, setSaved] = useState<SavedPlaylist[]>([]);
   const [saveName, setSaveName] = useState("");
+  const [savingPlaylist, setSavingPlaylist] = useState(false);
   const [resumeHint, setResumeHint] = useState<string | null>(null);
   const [showShrink, setShowShrink] = useState(false);
   const [bitrate, setBitrate] = useState<number>(128_000);
@@ -235,7 +236,7 @@ export default function Music() {
   }
 
   async function onSave() {
-    if (!vault || store.tracks.length === 0) return;
+    if (!vault || store.tracks.length === 0 || savingPlaylist) return;
     const name = saveName.trim() || store.playlistName || "";
     if (!name) {
       store.setNote("Name the playlist first.");
@@ -245,6 +246,7 @@ export default function Music() {
       store.setNote(`Keep the name under ${MAX_PLAYLIST_NAME} characters.`);
       return;
     }
+    setSavingPlaylist(true);
     try {
       await savePlaylist(
         vault,
@@ -267,6 +269,8 @@ export default function Music() {
       await refreshSaved();
     } catch (err) {
       store.setNote(err instanceof Error ? err.message : "Could not save that playlist.");
+    } finally {
+      setSavingPlaylist(false);
     }
   }
 
@@ -714,13 +718,14 @@ export default function Music() {
           <div className="flex flex-wrap items-center gap-1">
             <input
               aria-label="Playlist name"
+              disabled={savingPlaylist}
               placeholder="Playlist name"
               value={saveName}
               onChange={(e) => setSaveName(e.target.value)}
               maxLength={MAX_PLAYLIST_NAME}
               className="min-w-0 flex-1 bg-white px-1.5 py-1 text-[12px] sm:w-[160px] sm:flex-none"
             />
-            <Button95 onClick={() => void onSave()} disabled={store.tracks.length === 0}>
+            <Button95 onClick={() => void onSave()} disabled={store.tracks.length === 0 || savingPlaylist}>
               Save playlist
             </Button95>
           </div>
