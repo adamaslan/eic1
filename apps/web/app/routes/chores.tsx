@@ -368,6 +368,7 @@ export default function Chores() {
             <label htmlFor="chore-person-name" className="sr-only">Person's name</label>
             <input
               id="chore-person-name"
+              disabled={savingPerson}
               type="text"
               maxLength={CHORE_PERSON_NAME_MAX}
               value={personName}
@@ -386,6 +387,7 @@ export default function Chores() {
           <label htmlFor="chore-name" className="sr-only">Chore name</label>
           <input
             id="chore-name"
+            disabled={saving}
             type="text"
             maxLength={CHORE_NAME_MAX}
             value={name}
@@ -393,7 +395,7 @@ export default function Chores() {
             placeholder="e.g. Water plants"
             className="w-full bg-white px-1.5 py-1 text-[12px] outline-none"
           />
-          <fieldset className="flex flex-wrap gap-x-3 gap-y-1">
+          <fieldset disabled={saving} className="flex flex-wrap gap-x-3 gap-y-1">
             <legend className="sr-only">Days this chore is for</legend>
             {WEEKDAY_LABELS.map((label, day) => (
               <label key={label} className="flex items-center gap-1">
