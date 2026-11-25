@@ -124,13 +124,17 @@ export default function Music() {
   const durationScan = useRef(0);
   const preserveResumedSession = useRef(false);
 
+  const savedReadSequence = useRef(0);
   const refreshSaved = useCallback(async () => {
     if (!vault) return;
+    const sequence = ++savedReadSequence.current;
     try {
-      setSaved(await listPlaylists(vault));
+      const rows = await listPlaylists(vault);
+      if (sequence !== savedReadSequence.current) return;
+      setSaved(rows);
       setSavedReadError(false);
     } catch {
-      setSavedReadError(true);
+      if (sequence === savedReadSequence.current) setSavedReadError(true);
     }
   }, [vault]);
 
