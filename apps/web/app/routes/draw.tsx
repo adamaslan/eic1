@@ -426,9 +426,17 @@ export default function Draw() {
     context.lineCap = "round";
     context.lineJoin = "round";
     context.beginPath();
-    context.moveTo(from.x, from.y);
-    context.lineTo(point.x, point.y);
-    context.stroke();
+    if (from.x === point.x && from.y === point.y) {
+      // A zero-length stroked path paints nothing in some canvas engines.
+      // Paint the round brush footprint explicitly so a tap makes a dot.
+      context.fillStyle = strokeColor(tool, color, paperColor);
+      context.arc(point.x, point.y, brush / 2, 0, Math.PI * 2);
+      context.fill();
+    } else {
+      context.moveTo(from.x, from.y);
+      context.lineTo(point.x, point.y);
+      context.stroke();
+    }
     last.current = point;
   };
 
