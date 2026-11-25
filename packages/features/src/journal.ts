@@ -77,9 +77,14 @@ const RANGE_MS: Record<Exclude<JournalDateRange, "all">, number> = {
 /** Keeps entries created at or after the window cutoff. An entry exactly at the cutoff still counts. */
 export function filterJournalByDate(entries: JournalEntry[], range: JournalDateRange, now: Date): JournalEntry[] {
   if (range === "all") return entries;
-  const cutoff = now.getTime() - RANGE_MS[range];
+  const end = now.getTime();
+  const cutoff = end - RANGE_MS[range];
   // JournalEntrySchema validates createdAt as an ISO datetime before entries reach this selector.
-  return entries.filter((entry) => Date.parse(entry.createdAt) >= cutoff);
+  // An imported entry or a device clock ahead of ours must not widen a window ending now.
+  return entries.filter((entry) => {
+    const createdAt = Date.parse(entry.createdAt);
+    return createdAt >= cutoff && createdAt <= end;
+  });
 }
 
 export interface JournalFilter {
