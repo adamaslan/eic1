@@ -19,6 +19,7 @@ export default function Journal() {
   const [entries, setEntries] = useState<JournalEntry[] | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
@@ -114,8 +115,9 @@ export default function Journal() {
     if (!vault) return;
     try {
       setEntries(await listJournal(vault));
+      setReadError(null);
     } catch {
-      setError("The journal could not be read.");
+      setReadError("The journal could not be read.");
     }
   }, [vault]);
 
@@ -256,8 +258,14 @@ export default function Journal() {
             )}
           </div>
         )}
+        {readError && (
+          <p role="alert" className="text-[12px] text-[#800000]">
+            {readError}{" "}
+            <button type="button" className="underline" onClick={() => void reload()}>Try again</button>
+          </p>
+        )}
         {shown === null ? (
-          <p className="text-[12px]">Loading…</p>
+          readError ? null : <p className="text-[12px]">Loading…</p>
         ) : entries!.length === 0 ? (
           <p className="text-[12px]">No entries yet.</p>
         ) : shown.length === 0 ? (
