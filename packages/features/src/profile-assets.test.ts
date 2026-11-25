@@ -73,10 +73,10 @@ it("encrypted backup restore preserves private assets and selected-field privacy
   await saveSettings(alice, { ...defaultSettings(), authorId: "alice", handle: "alice" });
   const profile = addProfileSticker(base(), "flower", "private-flower");
   profile.avatar = { kind: "data-uri", mime: "image/png", data: "aGVsbG8=" };
-  const draft = newProfileDraft(profile); await saveProfileDraft(alice, draft);
+  const draft = newProfileDraft(profile); const savedDraft = await saveProfileDraft(alice, draft);
   const backup = await exportBackup(source, now); expect(backup).not.toContain("private-flower");
   await importBackup(deps(target), backup); const restored = await unlockVault(deps(target), "asset-backup-passphrase");
-  const loaded = await loadProfileDraft(restored); expect(loaded).toEqual(draft);
+  const loaded = await loadProfileDraft(restored); expect(loaded).toEqual(savedDraft);
   expect(selectedProfile(loaded, "alice").avatar).toBeNull(); expect(selectedProfile(loaded, "alice").decorations).toEqual([]);
 });
 it("20 actual Paint exports are distinct bounded96px PNGs, not remote URLs", async () => {

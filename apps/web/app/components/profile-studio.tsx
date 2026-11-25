@@ -34,7 +34,7 @@ export function ProfileStudio({ initial, vault, handle, renderPreview, onSaved }
         setLatest(undefined);
         setMessage("Feed profile updated locally. Nothing was uploaded. Exporting a feed later includes exactly the selected preview. Old copies cannot be recalled.");
       } else {
-        await saveProfileDraft(vault, draft); window.dispatchEvent(new Event("eic-avatar-updated")); setSaved(draft); onSaved(draft);
+        const next = await saveProfileDraft(vault, draft); window.dispatchEvent(new Event("eic-avatar-updated")); setDraft(next); setSaved(next); onSaved(next);
         setMessage("Private draft saved in this encrypted vault. Feed profile unchanged.");
       }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save. Please try again."); }
