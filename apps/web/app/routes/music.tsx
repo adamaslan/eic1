@@ -196,7 +196,9 @@ export default function Music() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current, store.playing, store.currentTime]);
 
+  const selectionSequence = useRef(0);
   function load(event: ChangeEvent<HTMLInputElement>) {
+    ++selectionSequence.current;
     const picked = Array.from(event.target.files ?? []);
     event.target.value = "";
     preserveResumedSession.current = false;
@@ -290,6 +292,8 @@ export default function Music() {
     const picked = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (!name || !vault || picked.length === 0) return;
+    const sequence = ++selectionSequence.current;
+    const generation = usePlayerStore.getState().generation;
     const playlist = saved.find((p) => p.name === name);
     if (!playlist) return;
     const { mapping, missing } = matchSavedToPicked(playlist, picked);
@@ -319,6 +323,7 @@ export default function Music() {
     } catch {
       resumeReadFailed = true;
     }
+    if (sequence !== selectionSequence.current || generation !== usePlayerStore.getState().generation) return;
     const resumeAt = session?.playlistName === name
       ? tracks.findIndex((t) => t.file.name === session.trackName)
       : -1;
@@ -414,14 +419,13 @@ export default function Music() {
     }
   }
 
-  const importSequence = useRef(0);
   async function onImport(event: ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (picked.length === 0) return;
-    const sequence = ++importSequence.current;
+    const sequence = ++selectionSequence.current;
     const generation = usePlayerStore.getState().generation;
-    const isCurrentImport = () => sequence === importSequence.current && usePlayerStore.getState().generation === generation;
+    const isCurrentImport = () => sequence === selectionSequence.current && usePlayerStore.getState().generation === generation;
     try {
       let manifestRaw: string | null = null;
       let audioFiles: File[] = [];
