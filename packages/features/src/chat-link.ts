@@ -22,6 +22,12 @@ import { fromBase64Url, toBase64Url } from "./share-link";
 const fromPaddedBase64Url = (encoded: string): string =>
   fromBase64Url(encoded + "=".repeat((4 - (encoded.length % 4)) % 4));
 
+const fromPaddedBase64UrlStrict = (encoded: string): string => {
+  const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  return new TextDecoder("utf-8", { fatal: true }).decode(decodeBase64(padded));
+};
+
 /**
  * Chat and connect links: a textable URL that opens eic straight into a conversation, so a
  * friend never handles a JSON file. Chat ciphertext stays in the URL fragment, outside HTTP
@@ -311,19 +317,20 @@ export function readConnectLink(hash: string): string | null {
     const maxExtrasLength = MAX_CHAT_LINK_CHARS - CONNECT_LINK_PREFIX.length - encoded.length - "&relay=".length;
     if (!relayPart || relayPart.length > maxExtrasLength) return text;
     try {
-      const extras = JSON.parse(fromPaddedBase64Url(relayPart)) as Record<string, unknown>;
+      const extras = JSON.parse(fromPaddedBase64UrlStrict(relayPart)) as Record<string, unknown>;
       if (typeof extras !== "object" || extras === null || Array.isArray(extras)) return text;
       const card = JSON.parse(text) as Record<string, unknown>;
       const author = card.author as Record<string, unknown> | undefined;
       const detachedFeedUrl = card.feedUrlMode === "detached-v1"
         && typeof extras.feedUrl === "string"
         && extras.feedUrl.length > 0;
-      return JSON.stringify({
+      const enriched = JSON.stringify({
         ...card,
         ...(detachedFeedUrl && author ? { author: { ...author, feedUrl: extras.feedUrl } } : {}),
         ...(detachedFeedUrl && typeof extras.feedUrlProof === "string" ? { feedUrlProof: extras.feedUrlProof } : {}),
         ...(extras.relayInvite ? { relayInvite: extras.relayInvite } : {}),
       });
+      return new TextEncoder().encode(enriched).byteLength > MAX_CHAT_LINK_CHARS ? text : enriched;
     } catch {
       // Feed URL and invite are optional metadata; malformed fragment bytes never veto a valid card.
       return text;

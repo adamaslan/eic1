@@ -227,6 +227,25 @@ describe("connect links", () => {
     expect(peekConnectCardHandle(readConnectLink(arrivalHash(aliceLink)!)!)).toBe("alice");
   });
 
+  it("drops malformed UTF-8 optional metadata without rejecting the signed card", async () => {
+    const { bob } = await pairedVaults();
+    const baseText = readConnectLink(arrivalHash(await buildConnectLink(bob, BASE, NOW))!)!;
+    const prefix = new TextEncoder().encode('{"relayInvite":{"id":"abcdefghijklmnop","expiresAt":1,"signature":"');
+    const suffix = new TextEncoder().encode('"}}');
+    const raw = new Uint8Array(prefix.length + 3000 + suffix.length);
+    raw.set(prefix);
+    raw.fill(0xff, prefix.length, prefix.length + 3000);
+    raw.set(suffix, prefix.length + 3000);
+    const relay = btoa(String.fromCharCode(...raw)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    const hash = `${CONNECT_LINK_PREFIX}${btoa(baseText).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")}&relay=${relay}`;
+
+    expect(readConnectLink(hash)).toBe(baseText);
+    const carol = await open();
+    await saveSettings(carol, settingsFor("carol-id", "carol"));
+    const result = await importConnectCard(carol, baseText, importDeps(settingsFor("carol-id", "carol")));
+    expect(result).toEqual({ authorId: "bob-id", handle: "bob", isNew: true, relayInvite: null });
+  });
+
   it("carries a relay invite only once the author has a feed, signed outside the card subset", async () => {
     const { bob } = await pairedVaults();
     const carol = await open();
