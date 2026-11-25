@@ -181,15 +181,32 @@ export interface MatchResult {
 
 /** Matches freshly picked files onto a saved playlist. Extra picked files are ignored. */
 export function matchSavedToPicked(saved: SavedPlaylist, picked: readonly PickedFile[]): MatchResult {
-  const byKey = new Map<string, number>();
+  const pathOf = (file: PickedFile) => file.path || (file as PickedFile & { webkitRelativePath?: string }).webkitRelativePath || "";
+  const byKey = new Map<string, number[]>();
+  const looseByName = new Map<string, number[]>();
+  const savedNames = new Map<string, number>();
+  for (const track of saved.tracks) {
+    const name = track.name.toLowerCase();
+    savedNames.set(name, (savedNames.get(name) ?? 0) + 1);
+  }
   picked.forEach((file, i) => {
-    const key = trackKey(file);
-    if (!byKey.has(key)) byKey.set(key, i);
+    const path = pathOf(file);
+    const key = (path || file.name).toLowerCase();
+    byKey.set(key, [...(byKey.get(key) ?? []), i]);
+    if (!path) {
+      const name = file.name.toLowerCase();
+      looseByName.set(name, [...(looseByName.get(name) ?? []), i]);
+    }
   });
   const mapping: (number | null)[] = [];
   const missing: string[] = [];
   for (const track of saved.tracks) {
-    const hit = byKey.get(trackKey(track));
+    const exact = byKey.get(trackKey(track));
+    const loose = looseByName.get(track.name.toLowerCase());
+    // A folder's path wins. A loose-file picker strips that path, so allow a
+    // unique basename only when neither side could mean another saved song.
+    const hit = exact?.length === 1 ? exact[0] : !exact && track.path &&
+      savedNames.get(track.name.toLowerCase()) === 1 && loose?.length === 1 ? loose[0] : null;
     if (hit == null) {
       mapping.push(null);
       missing.push(track.name);
