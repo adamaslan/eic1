@@ -352,9 +352,11 @@ export default function Music() {
     if (!vault) return;
     const to = window.prompt(`Rename "${name}" to:`, name);
     if (!to || to.trim() === name) return;
+    const generation = usePlayerStore.getState().generation;
     try {
       await renamePlaylist(vault, name, to.trim());
-      if (store.playlistName === name) store.setPlaylistName(to.trim());
+      const currentPlayer = usePlayerStore.getState();
+      if (currentPlayer.generation === generation && currentPlayer.playlistName === name) store.setPlaylistName(to.trim());
       await refreshSaved();
     } catch (err) {
       store.setNote(err instanceof Error ? err.message : "Could not rename that playlist.");
@@ -364,6 +366,7 @@ export default function Music() {
   async function onDelete(name: string) {
     if (!vault) return;
     if (!window.confirm(`Delete the saved playlist "${name}"? The songs on your device are not touched.`)) return;
+    const generation = usePlayerStore.getState().generation;
     try {
       await deletePlaylist(vault, name);
     } catch (err) {
@@ -372,7 +375,8 @@ export default function Music() {
       store.setNote(`Couldn't confirm deletion of "${name}". ${err instanceof Error ? err.message : "Please try again."}`);
       return;
     }
-    if (store.playlistName === name) store.setPlaylistName(null);
+    const currentPlayer = usePlayerStore.getState();
+    if (currentPlayer.generation === generation && currentPlayer.playlistName === name) store.setPlaylistName(null);
     await refreshSaved();
   }
 
