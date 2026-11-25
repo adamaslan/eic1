@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { AppError } from "@veil/core";
 import { buildVaultExport, describeExport, listJournal, type ExportSelection } from "@veil/features";
@@ -31,7 +31,11 @@ export default function VaultScreen() {
   const [selection, setSelection] = useState<ExportSelection>({ items: true, journal: true, connections: true });
   const [pendingReadableExport, setPendingReadableExport] = useState<{ text: string; day: string; description: string } | null>(null);
 
+  const exportRequest = useRef(0);
+  useEffect(() => () => { exportRequest.current += 1; }, []);
+
   async function handleReadableExport() {
+    const request = ++exportRequest.current;
     setError(null);
     if (!vault) return;
     if (selection.items && state.status !== "ready") {
@@ -45,6 +49,7 @@ export default function VaultScreen() {
         listConnections(vault),
         loadSettings(vault),
       ]);
+      if (request !== exportRequest.current) return;
       const bundle = buildVaultExport({
         handle: settings.handle,
         items,
@@ -56,7 +61,7 @@ export default function VaultScreen() {
       const day = new Date().toISOString().slice(0, 10);
       setPendingReadableExport({ text: JSON.stringify(bundle, null, 2), day, description: describeExport(bundle) });
     } catch (caught) {
-      setError(caught instanceof AppError ? caught.message : "The export could not be created.");
+      if (request === exportRequest.current) setError(caught instanceof AppError ? caught.message : "The export could not be created.");
     }
   }
 
@@ -133,7 +138,7 @@ export default function VaultScreen() {
                 <input
                   type="checkbox"
                   checked={selection[key]}
-                  onChange={() => { setPendingReadableExport(null); setSelection((current) => ({ ...current, [key]: !current[key] })); }}
+                  onChange={() => { exportRequest.current += 1; setPendingReadableExport(null); setSelection((current) => ({ ...current, [key]: !current[key] })); }}
                 />
                 {key === "items" ? "Posts and listings" : key === "journal" ? "Journal entries" : "Connections"}
               </label>
