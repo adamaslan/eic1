@@ -302,7 +302,14 @@ export default function Music() {
       store.setNote(`None of the songs in "${name}" were in that selection. Pick the files the playlist lists.`);
       return;
     }
-    const session = await loadMusicSession(vault);
+    // Resume metadata is optional. A read failure must not discard valid audio picks.
+    let session: Awaited<ReturnType<typeof loadMusicSession>> = null;
+    let resumeReadFailed = false;
+    try {
+      session = await loadMusicSession(vault);
+    } catch {
+      resumeReadFailed = true;
+    }
     const resumeAt = session?.playlistName === name
       ? tracks.findIndex((t) => t.file.name === session.trackName)
       : -1;
@@ -319,8 +326,8 @@ export default function Music() {
     }
     store.setNote(
       missing.length > 0
-        ? `Opened "${name}" without ${missing.length} song(s): ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}`
-        : `Opened "${name}".`,
+        ? `Opened "${name}" without ${missing.length} song(s): ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}${resumeReadFailed ? ". Resume position could not be read; starting at the beginning." : ""}`
+        : `Opened "${name}".${resumeReadFailed ? " Resume position could not be read; starting at the beginning." : ""}`,
     );
   }
 
