@@ -56,6 +56,12 @@ export function filterSocialGraph(graph: SocialGraph, filter: GraphFilter): Filt
   }
 
   const kindKept = new Set(graph.nodes.filter(kindAllowed).map((node) => node.id));
+  // A liked item must not survive its author's kind toggle just because its like
+  // edge still reaches "you". Apply authorship to the kind stage only: searches
+  // retain their existing direct-neighbour semantics when Connections is enabled.
+  for (const edge of graph.edges) {
+    if (edge.kind === "authors" && !kindKept.has(edge.source)) kindKept.delete(edge.target);
+  }
   const queryMatches = new Set(
     query === ""
       ? []
