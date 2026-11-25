@@ -13,6 +13,7 @@ export const ProfileSelectionSchema = z.object({
 export const ProfileDraftSchema = z.object({
   format: z.literal("eic-profile-draft"), version: z.literal(1),
   profile: ProfileSchema,
+  revision: z.number().int().nonnegative().default(0),
   feedBaseline: ProfileSchema.nullable().default(null),
   song: z.string().trim().max(120), book: z.string().trim().max(120),
   selected: ProfileSelectionSchema,
@@ -37,11 +38,26 @@ export async function loadProfileDraft(vault: UnlockedVault): Promise<ProfileDra
   return newProfileDraft(existing ?? defaultProfile(settings.authorId, settings.handle, new Date()), !!existing);
 }
 
-export async function saveProfileDraft(vault: UnlockedVault, draft: ProfileDraft): Promise<void> {
+export async function saveProfileDraft(vault: UnlockedVault, draft: ProfileDraft): Promise<ProfileDraft> {
   const parsed = ProfileDraftSchema.parse(draft);
   const settings = await loadSettings(vault);
   if (!settings.authorId || settings.authorId !== parsed.profile.authorId) throw new AppError("This is not your profile draft.");
-  await vault.putJson("settings", id(settings.authorId), parsed);
+  const key = id(settings.authorId);
+  const raw = await vault.getJson(key);
+  const current = raw === null ? null : ProfileDraftSchema.safeParse(raw);
+  if (current && (!current.success || current.data.revision !== parsed.revision)) {
+    throw new AppError("Your private draft changed in another editor. Reopen your profile to review the latest saved draft. Nothing was overwritten.");
+  }
+  if (raw === null && parsed.revision !== 0) {
+    throw new AppError("Your private draft changed. Reopen your profile before saving. Nothing was overwritten.");
+  }
+  const next = ProfileDraftSchema.parse({ ...parsed, revision: parsed.revision + 1 });
+  try {
+    await vault.putJsonIfUnchanged("settings", key, next, raw);
+  } catch {
+    throw new AppError("Your private draft could not be saved, or changed in another editor. Your edits are still here. Reopen your profile to review the latest saved draft before trying again.");
+  }
+  return next;
 }
 
 /** Exact legacy-v1 payload, with private fields omitted, not CSS-hidden. Never truncates. */
