@@ -253,6 +253,7 @@ export default function Music() {
       store.setNote(`Keep the name under ${MAX_PLAYLIST_NAME} characters.`);
       return;
     }
+    const generation = usePlayerStore.getState().generation;
     setSavingPlaylist(true);
     try {
       await savePlaylist(
@@ -270,7 +271,9 @@ export default function Music() {
           })),
         }),
       );
-      store.setPlaylistName(name);
+      // The write still belongs in the saved list, but a newer audio pick must
+      // not inherit its name or a later Save could overwrite the wrong playlist.
+      if (usePlayerStore.getState().generation === generation) store.setPlaylistName(name);
       store.setNote(`Saved "${name}" - the list, not the songs. Your device keeps the audio.`);
       setSaveName("");
       await refreshSaved();
