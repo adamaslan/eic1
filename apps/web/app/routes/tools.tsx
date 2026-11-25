@@ -41,6 +41,8 @@ const GATES = [
 
 export default function Tools() {
   const vault = useSessionStore((state) => state.vault);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [features, setFeatures] = useState<Record<string, boolean> | null>(null);
 
   useEffect(() => {
@@ -55,22 +57,31 @@ export default function Tools() {
   }, [vault]);
 
   async function toggle(feature: string, enabled: boolean) {
-    if (!vault) return;
-    const saved = await setFeatureEnabled(vault, feature, enabled);
-    setFeatures(saved.features);
-    // Gates apply across the shell (nav, routes), which reads settings on load.
-    window.location.reload();
+    if (!vault || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await setFeatureEnabled(vault, feature, enabled);
+      setFeatures(saved.features);
+      // Gates apply across the shell (nav, routes), which reads settings on load.
+      window.location.reload();
+    } catch {
+      setError("This feature choice could not be saved. Please check your saved choices and try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <Window title="Tools">
+      {error && <p role="alert" className="mb-2 text-[12px] text-[#800000]">{error}</p>}
       <fieldset className="mb-2 flex flex-col gap-1 bg-white px-1.5 py-1 text-[12px]">
         <legend className="font-bold">Features</legend>
         {GATES.map((gate) => (
           <label key={gate.id} className="flex items-start gap-1">
             <input
               type="checkbox"
-              disabled={features === null}
+              disabled={features === null || saving}
               checked={features !== null && features[gate.id] !== false}
               onChange={(e) => void toggle(gate.id, e.target.checked)}
             />
