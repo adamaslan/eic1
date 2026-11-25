@@ -163,6 +163,7 @@ export default function Draw() {
   // Ref mirror so the unmount cleanup always revokes the current URLs, not the ones
   // captured by a stale closure.
   const previewRef = useRef<{ full: string; thumb: string } | null>(null);
+  const previewRequest = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -201,6 +202,7 @@ export default function Draw() {
   };
 
   const refreshSize = async (targetFormat: FormatId = format) => {
+    closePreview();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const request = ++sizeRequest.current;
@@ -497,6 +499,7 @@ export default function Draw() {
   };
 
   const closePreview = () => {
+    previewRequest.current += 1;
     if (previewRef.current) {
       URL.revokeObjectURL(previewRef.current.full);
       URL.revokeObjectURL(previewRef.current.thumb);
@@ -511,10 +514,12 @@ export default function Draw() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     discardTextPreview();
+    closePreview();
+    const request = previewRequest.current;
     try {
       const mime = mimeFor(format);
       const { bytes, thumb } = await encodeDrawingMedia(canvas, mime, format === "jpeg" ? JPEG_QUALITY : undefined);
-      closePreview();
+      if (request !== previewRequest.current) return;
       const next = {
         full: URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: mime })),
         thumb: URL.createObjectURL(new Blob([new Uint8Array(thumb)], { type: mime })),
@@ -524,13 +529,14 @@ export default function Draw() {
       previewRef.current = next;
       setPreview(next);
     } catch {
-      setNotice("This browser could not encode the drawing.");
+      if (request === previewRequest.current) setNotice("This browser could not encode the drawing.");
     }
   };
 
   // Object URLs are released when the panel closes or the route unmounts.
   useEffect(
     () => () => {
+      previewRequest.current += 1;
       if (previewRef.current) {
         URL.revokeObjectURL(previewRef.current.full);
         URL.revokeObjectURL(previewRef.current.thumb);
