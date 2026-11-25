@@ -148,6 +148,7 @@ export default function Journal() {
   }
 
   function startEdit(entry: JournalEntry) {
+    if (saving) return;
     setEditingId(entry.id);
     setEditDraft(entry.text);
     setConfirmingId(null);
@@ -288,6 +289,7 @@ export default function Journal() {
                       value={editDraft}
                       onChange={(e) => setEditDraft(e.target.value)}
                       aria-label="Edit entry"
+                      disabled={saving}
                       className="w-full bg-white px-1.5 py-1 text-[12px] outline-none"
                     />
                     <div className="flex gap-1">
@@ -301,7 +303,7 @@ export default function Journal() {
                     <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[var(--w95-muted)]">
                       <span>{timeAgo(entry.createdAt, now)} ago</span>
                       {editingEnabled && (
-                        <button type="button" onClick={() => startEdit(entry)} className="text-[var(--w95-link)] underline">
+                        <button type="button" disabled={saving} onClick={() => startEdit(entry)} className="text-[var(--w95-link)] underline">
                           Edit
                         </button>
                       )}
