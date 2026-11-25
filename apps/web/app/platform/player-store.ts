@@ -89,6 +89,11 @@ interface PlayerState {
   clearSeek: () => void;
 }
 
+// A-B points belong to audio bytes, not a playlist slot. Preserve them when only
+// metadata/order changes; a different File must never inherit another song's loop.
+const trackLoopChange = (before: PlayerTrack | undefined, after: PlayerTrack | undefined) =>
+  before?.file === after?.file ? {} : { abA: null, abB: null };
+
 const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { all: "one", one: "off", off: "all" };
 
 function toTrack(file: File, i: number): PlayerTrack {
@@ -173,14 +178,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const tracks = [...state.tracks];
     tracks[index] = track;
     return index === state.index
-      ? { tracks, currentTime: 0, duration: 0, seekTo: 0 }
+      ? { tracks, currentTime: 0, duration: 0, seekTo: 0, ...trackLoopChange(state.tracks[state.index], track) }
       : { tracks };
   }),
 
   playAt: (index) => {
     if (index < 0 || index >= get().tracks.length) return;
     // The current File may not change, so resetting store time alone does not seek audio.
-    set((state) => ({ index, currentTime: 0, seekTo: 0, playAttempt: state.playAttempt + 1 }));
+    set((state) => ({ index, currentTime: 0, seekTo: 0, playAttempt: state.playAttempt + 1, ...trackLoopChange(state.tracks[state.index], state.tracks[index]) }));
   },
 
   setPlaying: (playing) => set((state) => ({
@@ -198,7 +203,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (queue.length > 0 && (direction === 1 || !auto)) {
       const [next, rest] = dequeue(queue);
       if (next !== null && next < tracks.length) {
-        set({ queue: rest, index: next, currentTime: 0, playing: true });
+        set({ queue: rest, index: next, currentTime: 0, playing: true, ...trackLoopChange(tracks[index], tracks[next]) });
         return;
       }
       set({ queue: rest });
@@ -215,7 +220,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({ currentTime: 0, seekTo: 0, playing: true });
       return;
     }
-    set({ index: next, currentTime: 0, playing: true });
+    set({ index: next, currentTime: 0, playing: true, ...trackLoopChange(tracks[index], tracks[next]) });
   },
 
   onEnded: () => {
@@ -273,9 +278,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const { tracks, index: current, queue } = get();
     if (index < 0 || index >= tracks.length) return;
     const next = tracks.filter((_, i) => i !== index);
+    const nextIndex = next.length === 0 ? 0 : index < current ? current - 1 : Math.min(current, next.length - 1);
     set({
+      ...trackLoopChange(tracks[current], next[nextIndex]),
       tracks: next,
-      index: next.length === 0 ? 0 : index < current ? current - 1 : Math.min(current, next.length - 1),
+      index: nextIndex,
       playing: next.length === 0 ? false : index === current ? false : get().playing,
       queue: queue.filter((queued) => queued !== index).map((queued) => queued > index ? queued - 1 : queued),
       order: [],
