@@ -857,12 +857,13 @@ export default function Draw() {
           <span className="font-bold">Title</span>
           <input
             className="w-full bg-white px-1.5 py-1 text-[12px] text-[var(--w95-ink)] outline-none"
+            disabled={saving}
             value={title}
             onChange={(event) => setTitle(event.target.value)}
           />
         </label>
         <label className="flex items-start gap-1">
-          <input type="checkbox" checked={shareable} onChange={(event) => setShareable(event.target.checked)} className="mt-0.5" />
+          <input type="checkbox" disabled={saving} checked={shareable} onChange={(event) => setShareable(event.target.checked)} className="mt-0.5" />
           <span>
             <b>Allow sharing this post.</b> It stays encrypted in your vault. It only leaves this device, readable by
             anyone who gets the link or file, if you share it.
