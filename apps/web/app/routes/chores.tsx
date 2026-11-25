@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import {
   AppError,
@@ -69,11 +69,16 @@ export default function Chores() {
   const atForwardCap = weeksAhead >= CHORE_ROTATION_WEEKS;
   const weekLabel = `${week[0]!.toLocaleDateString([], { month: "short", day: "numeric" })} – ${week[6]!.toLocaleDateString([], { month: "short", day: "numeric" })}`;
 
+  const assignmentRequest = useRef(0);
+  useEffect(() => () => { assignmentRequest.current += 1; }, []);
+
   const loadAssignments = useCallback(
     async (base: Date): Promise<boolean> => {
+      const request = ++assignmentRequest.current;
       if (!vault) return false;
       try {
         const [map, chart] = await Promise.all([assignmentsForWeek(vault, base), getChoreChart(vault)]);
+        if (request !== assignmentRequest.current) return false;
         const plain: Record<string, Record<string, string>> = {};
         for (const [choreId, byDate] of map) {
           plain[choreId] = Object.fromEntries(byDate);
@@ -84,7 +89,7 @@ export default function Chores() {
         setEraPeople(chart ? rotationForWeek(chart, weekStartKey(localDateKey(weekOf(base)[0]!)))?.people ?? [] : []);
         return true;
       } catch (caught) {
-        setError(caught instanceof AppError ? caught.message : "The rotation could not be read.");
+        if (request === assignmentRequest.current) setError(caught instanceof AppError ? caught.message : "The rotation could not be read.");
         return false;
       }
     },
