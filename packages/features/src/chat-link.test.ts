@@ -22,6 +22,7 @@ import {
 } from "./chat-link";
 import { verifySignature } from "@veil/crypto";
 import { decodeBase64 } from "@veil/core";
+import { toBase64Url } from "./share-link";
 
 const NOW = new Date("2026-10-31T12:00:00Z");
 const BASE = "https://everybodyiscool.netlify.app/";
@@ -242,16 +243,49 @@ describe("connect links", () => {
     expect(url.search).not.toContain("synthetic-test-marker");
     expect(url.hash).toMatch(/^#relay=/);
     const brokenInviteHash = connectQueryToHash(url.search, "#relay=%%%")!;
-    expect(JSON.parse(readConnectLink(brokenInviteHash)!)).not.toHaveProperty("relayInvite");
+    const cardWithoutExtras = readConnectLink(brokenInviteHash)!;
+    expect(JSON.parse(cardWithoutExtras)).not.toHaveProperty("relayInvite");
+    const dave = await open();
+    await saveSettings(dave, settingsFor("dave-id", "dave"));
+    const noExtrasResult = await importConnectCard(dave, cardWithoutExtras, importDeps(settingsFor("dave-id", "dave")));
+    expect(noExtrasResult.relayInvite).toBeNull();
+    expect((await connectionFor(dave, "bob-id")).feedUrl).toBeNull();
     const text = readConnectLink(arrivalHash(link)!)!;
     const card = JSON.parse(text);
     expect(card.author.feedUrl).toBe(feedUrl);
     expect(card.relayInvite.expiresAt).toBe(NOW.getTime() + 14 * 24 * 60 * 60 * 1000);
     const result = await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
     expect(result.relayInvite).toMatchObject({ inviterPub: card.author.pubkey, inviteId: card.relayInvite.id, expiresAt: card.relayInvite.expiresAt });
+    const forgedFeedCard = { ...card, author: { ...card.author, feedUrl: "https://attacker.example/feeds/forged" }, feedUrlProof: "invalid-proof" };
+    const erin = await open();
+    await saveSettings(erin, settingsFor("erin-id", "erin"));
+    await importConnectCard(erin, JSON.stringify(forgedFeedCard), importDeps(settingsFor("erin-id", "erin")));
+    expect((await connectionFor(erin, "bob-id")).feedUrl).toBeNull();
+    const laterLink = await buildConnectLink(bob, BASE, new Date(NOW.getTime() + 1000));
+    const laterCard = JSON.parse(readConnectLink(arrivalHash(laterLink)!)!);
+    expect(laterCard.signature).not.toBe(card.signature);
+    const replayedFeedProof = { ...laterCard, feedUrlProof: card.feedUrlProof };
+    const frank = await open();
+    await saveSettings(frank, settingsFor("frank-id", "frank"));
+    await importConnectCard(frank, JSON.stringify(replayedFeedProof), importDeps(settingsFor("frank-id", "frank")));
+    expect((await connectionFor(frank, "bob-id")).feedUrl).toBeNull();
     // A malformed invite is dropped, never a veto on the signed card.
     const broken = JSON.stringify({ ...card, relayInvite: { id: "x", expiresAt: -1, signature: "" } });
     expect((await importConnectCard(carol, broken, importDeps(settingsFor("carol-id", "carol")))).relayInvite).toBeNull();
+  });
+
+  it("round-trips a long signed feed URL in fragment metadata without rejecting its own link", async () => {
+    const { bob } = await pairedVaults();
+    const feedUrl = `https://relay.example/feeds/${"x".repeat(1700)}`;
+    await saveSettings(bob, { ...settingsFor("bob-id", "bob"), feedUrl });
+    const link = await buildConnectLink(bob, BASE, NOW);
+    expect(link.length).toBeLessThanOrEqual(MAX_CHAT_LINK_CHARS);
+    expect(new URL(link).search).not.toContain("relay.example");
+    const text = readConnectLink(arrivalHash(link)!)!;
+    const carol = await open();
+    await saveSettings(carol, settingsFor("carol-id", "carol"));
+    await importConnectCard(carol, text, importDeps(settingsFor("carol-id", "carol")));
+    expect((await connectionFor(carol, "bob-id")).feedUrl).toBe(feedUrl);
   });
 
   it("verifies the signature: a tampered card is rejected", async () => {
@@ -283,6 +317,17 @@ describe("connect links", () => {
     expect(hash.length).toBeGreaterThan(MAX_CHAT_LINK_CHARS);
     expect(readConnectLink(hash)).toBe(readConnectLink(`${CONNECT_LINK_PREFIX}${url.search.slice(9)}`));
     expect(() => readConnectLink(`${CONNECT_LINK_PREFIX}${"A".repeat(MAX_CHAT_LINK_CHARS)}`)).toThrow(/too long/);
+  });
+
+  it("ignores empty feed URL metadata and feed metadata attached to a legacy card", async () => {
+    const { alice } = await pairedVaults();
+    const link = await buildConnectLink(alice, BASE, NOW);
+    const url = new URL(link);
+    const extras = toBase64Url(JSON.stringify({ feedUrl: "", feedUrlProof: "bad-proof" }));
+    const hash = connectQueryToHash(url.search, `#relay=${extras}`)!;
+    const card = JSON.parse(readConnectLink(hash)!);
+    expect(card.author.feedUrl).toBeUndefined();
+    expect(card).not.toHaveProperty("feedUrlProof");
   });
 
   it("carries an optional display-only profile preview that never enters the signed subset", async () => {

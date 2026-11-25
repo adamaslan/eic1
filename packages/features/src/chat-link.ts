@@ -40,10 +40,10 @@ export const CONNECT_LINK_PREFIX = "#connect=";
 // `#connect=` links keep working.
 export const CONNECT_QUERY_PREFIX = "?connect=";
 export const MAX_CHAT_LINK_CHARS = 8000;
-const MAX_CONNECT_FRAGMENT_EXTRA_CHARS = 2048;
 const MAX_LINK_ENVELOPES = 20;
 const CONNECT_FORMAT = "eic-connect";
 const CONNECT_VERSION = 1;
+const CONNECT_FEED_URL_DOMAIN = "eic-connect-feed-url:v1:";
 
 const idField = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 
@@ -95,6 +95,10 @@ const ConnectCardSchema = z.object({
     expiresAt: z.number().int().positive(),
     signature: z.string().min(1).max(128),
   }).optional().catch(undefined),
+  // New query cards sign this marker in the base subset and carry feedUrl with its own
+  // fragment-only signature. Legacy fragment cards have no marker and keep their old subset.
+  feedUrlMode: z.literal("detached-v1").optional(),
+  feedUrlProof: z.string().min(1).max(128).optional().catch(undefined),
   signature: z.string().min(1),
 });
 export type ConnectCard = z.infer<typeof ConnectCardSchema>;
@@ -245,7 +249,6 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
       ...(settings.feedUrl ? { feedUrl: settings.feedUrl } : {}),
     },
   } as const;
-  const signature = await signPayload(identity.secretKey, new TextEncoder().encode(JSON.stringify(unsigned)));
   // The preview rides OUTSIDE the signed subset on purpose: display-only, re-proven by the
   // signed feed profile chunk after connecting. Caps enforced here, never assumed.
   const profile = preview ? ConnectProfilePreviewSchema.parse(preview) : undefined;
@@ -256,13 +259,26 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
   // Feed URLs can be persisted from older/external configurations and may contain credentials.
   // Keep them with the invite in the fragment so neither value reaches the host or link preview.
   const { feedUrl, ...queryAuthor } = unsigned.author;
-  const queryCard = { ...unsigned, author: queryAuthor };
+  const queryCard = {
+    ...unsigned,
+    author: queryAuthor,
+    ...(feedUrl ? { feedUrlMode: "detached-v1" as const } : {}),
+  };
+  const signature = await signPayload(identity.secretKey, new TextEncoder().encode(JSON.stringify(queryCard)));
+  const signatureText = encodeBase64(signature);
+  const feedUrlProof = feedUrl
+    ? encodeBase64(await signPayload(
+      identity.secretKey,
+      new TextEncoder().encode(`${CONNECT_FEED_URL_DOMAIN}${signatureText}:${feedUrl}`),
+    ))
+    : undefined;
   const fragmentExtras = {
     ...(feedUrl ? { feedUrl } : {}),
+    ...(feedUrlProof ? { feedUrlProof } : {}),
     ...(relayInvite ? { relayInvite } : {}),
   };
   const link = `${baseUrl}${CONNECT_QUERY_PREFIX}${toBase64Url(
-    JSON.stringify({ ...queryCard, ...(profile ? { profile } : {}), signature: encodeBase64(signature) }),
+    JSON.stringify({ ...queryCard, ...(profile ? { profile } : {}), signature: signatureText }),
   )}${Object.keys(fragmentExtras).length ? `#relay=${toBase64Url(JSON.stringify(fragmentExtras))}` : ""}`;
   if (link.length > MAX_CHAT_LINK_CHARS) {
     throw new AppError("That connect link is too long.");
@@ -292,15 +308,20 @@ export function readConnectLink(hash: string): string | null {
   }
   try {
     const text = fromPaddedBase64Url(encoded);
-    if (!relayPart || relayPart.length > MAX_CONNECT_FRAGMENT_EXTRA_CHARS) return text;
+    const maxExtrasLength = MAX_CHAT_LINK_CHARS - CONNECT_LINK_PREFIX.length - encoded.length - "&relay=".length;
+    if (!relayPart || relayPart.length > maxExtrasLength) return text;
     try {
       const extras = JSON.parse(fromPaddedBase64Url(relayPart)) as Record<string, unknown>;
       if (typeof extras !== "object" || extras === null || Array.isArray(extras)) return text;
       const card = JSON.parse(text) as Record<string, unknown>;
       const author = card.author as Record<string, unknown> | undefined;
+      const detachedFeedUrl = card.feedUrlMode === "detached-v1"
+        && typeof extras.feedUrl === "string"
+        && extras.feedUrl.length > 0;
       return JSON.stringify({
         ...card,
-        ...(extras.feedUrl && author ? { author: { ...author, feedUrl: extras.feedUrl } } : {}),
+        ...(detachedFeedUrl && author ? { author: { ...author, feedUrl: extras.feedUrl } } : {}),
+        ...(detachedFeedUrl && typeof extras.feedUrlProof === "string" ? { feedUrlProof: extras.feedUrlProof } : {}),
         ...(extras.relayInvite ? { relayInvite: extras.relayInvite } : {}),
       });
     } catch {
@@ -361,7 +382,16 @@ export async function importConnectCard(
     // Explicit signed subset - never "everything except signature": an added display-only
     // field (profile) must not change what verification covers, which is exactly what an
     // old reader that strips unknown keys recomputes.
-    const unsigned = { format: card.format, version: card.version, exportedAt: card.exportedAt, author: card.author };
+    const signedAuthor = card.feedUrlMode === "detached-v1"
+      ? (({ feedUrl: _feedUrl, ...author }) => author)(card.author)
+      : card.author;
+    const unsigned = {
+      format: card.format,
+      version: card.version,
+      exportedAt: card.exportedAt,
+      author: signedAuthor,
+      ...(card.feedUrlMode ? { feedUrlMode: card.feedUrlMode } : {}),
+    };
     verified = await verifySignature(
       decodeBase64(card.author.pubkey),
       new TextEncoder().encode(JSON.stringify(unsigned)),
@@ -372,6 +402,22 @@ export async function importConnectCard(
   }
   if (!verified) {
     throw new AppError("That connect link's signature does not check out. Ask your friend for a fresh one.");
+  }
+  if (card.feedUrlMode === "detached-v1" && card.author.feedUrl) {
+    let feedUrlVerified = false;
+    try {
+      feedUrlVerified = typeof card.feedUrlProof === "string" && await verifySignature(
+        decodeBase64(card.author.pubkey),
+        new TextEncoder().encode(`${CONNECT_FEED_URL_DOMAIN}${card.signature}:${card.author.feedUrl}`),
+        decodeBase64(card.feedUrlProof),
+      );
+    } catch {
+      feedUrlVerified = false;
+    }
+    if (!feedUrlVerified) {
+      const { feedUrl: _discarded, ...authorWithoutFeedUrl } = card.author;
+      card.author = authorWithoutFeedUrl;
+    }
   }
   if (!deps.settings.authorId) throw new AppError("Choose a handle on your Connections page before connecting, then open their link again.");
   const { author } = card;
