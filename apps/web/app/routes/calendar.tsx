@@ -208,6 +208,7 @@ export default function Calendar() {
           <label htmlFor="calendar-title" className="sr-only">Event title</label>
           <input
             id="calendar-title"
+            disabled={saving}
             type="text"
             maxLength={CALENDAR_TITLE_MAX}
             value={title}
@@ -219,6 +220,7 @@ export default function Calendar() {
             <label htmlFor="calendar-time">Time</label>
             <input
               id="calendar-time"
+            disabled={saving}
               type="time"
               value={time}
               onChange={(change) => { setTime(change.target.value); setNotice(null); }}
@@ -229,6 +231,7 @@ export default function Calendar() {
           <label htmlFor="calendar-note" className="sr-only">Note</label>
           <textarea
             id="calendar-note"
+            disabled={saving}
             rows={2}
             maxLength={CALENDAR_NOTE_MAX}
             value={note}
