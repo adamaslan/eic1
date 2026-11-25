@@ -179,7 +179,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   playAt: (index) => {
     if (index < 0 || index >= get().tracks.length) return;
-    set((state) => ({ index, currentTime: 0, playAttempt: state.playAttempt + 1 }));
+    // The current File may not change, so resetting store time alone does not seek audio.
+    set((state) => ({ index, currentTime: 0, seekTo: 0, playAttempt: state.playAttempt + 1 }));
   },
 
   setPlaying: (playing) => set((state) => ({
