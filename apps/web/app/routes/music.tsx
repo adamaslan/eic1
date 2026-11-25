@@ -414,10 +414,14 @@ export default function Music() {
     }
   }
 
+  const importSequence = useRef(0);
   async function onImport(event: ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (picked.length === 0) return;
+    const sequence = ++importSequence.current;
+    const generation = usePlayerStore.getState().generation;
+    const isCurrentImport = () => sequence === importSequence.current && usePlayerStore.getState().generation === generation;
     try {
       let manifestRaw: string | null = null;
       let audioFiles: File[] = [];
@@ -442,6 +446,7 @@ export default function Music() {
         if (json) manifestRaw = await json.text();
         audioFiles = picked.filter((f) => f !== json);
       }
+      if (!isCurrentImport()) return;
       if (!manifestRaw) {
         // Plain audio picks: treat as a normal load.
         store.loadFiles(picked);
@@ -474,7 +479,7 @@ export default function Music() {
           : `Imported "${manifest.name}" - ${tracks.length} song(s) ready to play.`,
       );
     } catch (err) {
-      store.setNote(err instanceof Error ? err.message : "That shared playlist could not be read.");
+      if (isCurrentImport()) store.setNote(err instanceof Error ? err.message : "That shared playlist could not be read.");
     }
   }
 
