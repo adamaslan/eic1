@@ -163,7 +163,7 @@ export default function Journal() {
         setError("Journal editing is turned off in Tools. Your entry is unchanged.");
         return;
       }
-      await updateJournalEntry(vault, entry.id, editDraft);
+      await updateJournalEntry(vault, entry.id, editDraft, entry);
       setEditingId(null);
       await reload();
       setNotice("Changes saved - encrypted in this vault.");

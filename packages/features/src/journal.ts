@@ -30,15 +30,33 @@ export async function addJournalEntry(
   return entry;
 }
 
-/** Edits an entry in place: same id and original timestamp, new text. */
-export async function updateJournalEntry(vault: UnlockedVault, id: string, text: string): Promise<JournalEntry> {
-  const existing = JournalEntrySchema.safeParse(await vault.getJson(id));
+/** Edits an entry without overwriting another tab: same id and original timestamp, new text.
+ * Callers with a displayed entry pass it as expected so an already-stale editor also refuses. */
+export async function updateJournalEntry(
+  vault: UnlockedVault, id: string, text: string, expected?: JournalEntry,
+): Promise<JournalEntry> {
+  const raw = await vault.getJson(id);
+  const existing = JournalEntrySchema.safeParse(raw);
   if (!existing.success) throw new AppError("That entry does not exist.");
+  const conflict = "That entry changed in another tab. Your draft is still here. Nothing was overwritten. Reload to review the latest entry before trying again.";
+  if (expected && (expected.id !== existing.data.id || expected.text !== existing.data.text ||
+    expected.createdAt !== existing.data.createdAt || expected.schemaVersion !== existing.data.schemaVersion)) {
+    throw new AppError(conflict);
+  }
   const clean = text.trim();
   if (!clean) throw new AppError("Write something first.");
   if (clean.length > JOURNAL_ENTRY_MAX) throw new AppError(`Keep an entry under ${JOURNAL_ENTRY_MAX} characters.`);
   const updated = JournalEntrySchema.parse({ ...existing.data, text: clean });
-  await vault.putJson("journal", updated.id, updated);
+  try {
+    await vault.putJsonIfUnchanged("journal", updated.id, updated, raw);
+  } catch (error) {
+    if (error instanceof AppError) {
+      let latest: unknown;
+      try { latest = await vault.getJson(id); } catch { throw error; }
+      if (JSON.stringify(latest) !== JSON.stringify(raw)) throw new AppError(conflict);
+    }
+    throw error;
+  }
   return updated;
 }
 
