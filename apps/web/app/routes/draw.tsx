@@ -318,6 +318,8 @@ export default function Draw() {
   const downloadImage = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // Match Save and Save preview: only placed text belongs to the drawing.
+    discardTextPreview();
     try {
       const bytes = await encodeCanvas(canvas, mimeFor(format), format === "jpeg" ? JPEG_QUALITY : undefined);
       const blob = new Blob([new Uint8Array(bytes)], { type: mimeFor(format) });
