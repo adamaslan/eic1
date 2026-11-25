@@ -105,6 +105,7 @@ export default function Music() {
   const [showList, setShowList] = useState(true);
   const [filter, setFilter] = useState("");
   const [saved, setSaved] = useState<SavedPlaylist[]>([]);
+  const [savedReadError, setSavedReadError] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [savingPlaylist, setSavingPlaylist] = useState(false);
   const [resumeHint, setResumeHint] = useState<string | null>(null);
@@ -127,10 +128,10 @@ export default function Music() {
     if (!vault) return;
     try {
       setSaved(await listPlaylists(vault));
+      setSavedReadError(false);
     } catch {
-      store.setNote("Saved playlists could not be read from the vault.");
+      setSavedReadError(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vault]);
 
   useEffect(() => {
@@ -729,6 +730,9 @@ export default function Music() {
               Save playlist
             </Button95>
           </div>
+          {savedReadError && (
+            <p role="alert">Saved playlists could not be read from the vault. <Button95 onClick={() => void refreshSaved()}>Try again</Button95></p>
+          )}
           {saved.length > 0 && (
             <ul aria-label="Saved playlists" className="mt-1 bg-white">
               {saved.map((p) => (
