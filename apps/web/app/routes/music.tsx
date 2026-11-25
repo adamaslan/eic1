@@ -177,7 +177,7 @@ export default function Music() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
-      if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (target.closest("input, textarea, select, button, a, [contenteditable=true], [role=button]")) return;
       if (event.key === " ") {
         event.preventDefault();
         if (current) store.setPlaying(!store.playing);
