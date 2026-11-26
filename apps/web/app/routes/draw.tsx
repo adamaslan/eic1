@@ -271,6 +271,7 @@ export default function Draw() {
   };
 
   const undo = () => {
+    if (saving) return;
     discardTextPreview();
     const current = snapshotCanvas();
     if (!current) return;
@@ -282,6 +283,7 @@ export default function Draw() {
   };
 
   const redo = () => {
+    if (saving) return;
     discardTextPreview();
     const current = snapshotCanvas();
     if (!current) return;
