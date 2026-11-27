@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router";
 import { addNote, defaultSettings } from "@veil/features";
 import type { Social } from "./platform/use-social";
 
-const mocks = vi.hoisted(() => ({ social: {} as Social, vault: {} as UnlockedVault | null, states: null as unknown[] | null, setters: [] as ReturnType<typeof vi.fn>[], navigate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ social: {} as Social, vault: {} as UnlockedVault | null, states: null as unknown[] | null, setters: [] as ReturnType<typeof vi.fn>[], navigate: vi.fn(), locationState: null as unknown }));
 vi.mock("react", async (original) => {
   const react = await original<typeof import("react")>();
   return {
@@ -24,11 +24,16 @@ vi.mock("~/platform/use-social", () => ({ useSocial: () => mocks.social }));
 vi.mock("@veil/features", async (original) => ({ ...await original<typeof import("@veil/features")>(), addNote: vi.fn() }));
 vi.mock("~/platform/session", () => ({ useSessionStore: (select: (s: unknown) => unknown) => select({ vault: mocks.vault, lock: vi.fn(), setVault: vi.fn() }) }));
 vi.mock("~/platform/vault-service", () => ({ newItemId: vi.fn(), vaultExists: vi.fn(), vaultUnlock: vi.fn(), vaultCreate: vi.fn(), vaultImport: vi.fn() }));
-vi.mock("react-router", async (original) => ({
-  ...await original<typeof import("react-router")>(),
-  Navigate: ({ to }: { to: string }) => <span data-redirect={to} />,
-  useNavigate: () => mocks.navigate,
-}));
+vi.mock("react-router", async (original) => {
+  const router = await original<typeof import("react-router")>();
+  return {
+    ...router,
+    Navigate: ({ to }: { to: string }) => <span data-redirect={to} />,
+    useNavigate: () => mocks.navigate,
+    // Components called directly as functions (states set) have no router around them.
+    useLocation: () => mocks.states ? { pathname: "/unlock", search: "", hash: "", state: mocks.locationState, key: "test" } : router.useLocation(),
+  };
+});
 import { LandingDashboard } from "./components/landing-dashboard";
 import Connections from "./routes/connections";
 import DesktopLayout from "./layouts/desktop";
@@ -41,6 +46,7 @@ beforeEach(() => {
   mocks.vault = {} as UnlockedVault;
   mocks.states = null;
   mocks.setters = [];
+  mocks.locationState = null;
   mocks.navigate.mockClear();
   mocks.social = { items: { status: "ready", items: [] }, settings: defaultSettings(), settingsReady: false, notes: [], connections: [], update: vi.fn(), refresh: vi.fn() };
 });
@@ -154,6 +160,15 @@ describe("dashboard navigation", () => {
     await form!.props.onSubmit({ preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>);
     expect(mocks.navigate).toHaveBeenCalledWith("/", { replace: true });
     expect(vaultUnlock).toHaveBeenCalledWith("pass phrase", { privateDevice: false, idleMinutes: 60 });
+  });
+
+  it("returns to the screen that asked for the unlock", async () => {
+    mocks.vault = null;
+    mocks.locationState = { from: "/market" };
+    mocks.states = [true, "pass phrase", "", null, false, false, 60, null];
+    vi.mocked(vaultUnlock).mockResolvedValue({ vault: {} as UnlockedVault, expiresAt: Date.now() + 28_800_000, lockMarker: null, timing: { id: "fixture-return", startedAt: Date.now(), policy: { privateDevice: false, idleMinutes: 60 } } });
+    await findForm(Unlock())!.props.onSubmit({ preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>);
+    expect(mocks.navigate).toHaveBeenCalledWith("/market", { replace: true });
   });
 
   it("passes the explicit private-device and selected idle policy into unlock", async () => {

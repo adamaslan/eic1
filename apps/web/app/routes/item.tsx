@@ -262,6 +262,13 @@ export default function ItemDetail({ params }: Route.ComponentProps) {
             </>
           )}
         </div>
+        {item.authorId === null && (
+          // Visible, not only a tooltip: phones have no hover.
+          <p className="bg-[#ffffe1] px-1.5 py-1 text-[11px]">
+            Sharing sends this post outside your vault, even while it is Private. What you send is <b>not encrypted</b>:
+            anyone who gets it can read it.
+          </p>
+        )}
         {shareNote && <p role="status" className="text-[11px]">{shareNote}</p>}
         {item.authorId === null && !social.settings.handle && (
           <p className="text-[11px] text-[var(--w95-muted)]">

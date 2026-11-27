@@ -6,7 +6,7 @@ import { Bevel } from "~/ui95/Bevel";
 import { Taskbar } from "~/ui95/Taskbar";
 import { PlayerAudio } from "~/components/player-audio";
 import { usePlayerStore } from "~/platform/player-store";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { motion } from "motion/react";
 import { useSessionStore } from "~/platform/session";
 import { useThemeStore } from "~/platform/theme-store";
@@ -53,6 +53,11 @@ export default function DesktopLayout() {
   const oneHand = useThemeStore((state) => state.theme.oneHand);
   const marquee = useThemeStore((state) => state.theme.marquee);
 
+  // Stable identity: <Navigate> re-navigates whenever its state object changes, so a fresh
+  // object on every render loops while the unlock route is still loading.
+  const from = `${pathname}${search}${hash}`;
+  const redirectState = useMemo(() => ({ from }), [from]);
+
   // Locking or switching vaults must stop the music and drop private playlist state,
   // not just leave the player running against a locked vault.
   useEffect(() => {
@@ -74,7 +79,7 @@ export default function DesktopLayout() {
     return <p className="p-2 text-[12px] text-white">Opening your desktop…</p>;
   }
   if (!vault) {
-    return <Navigate to="/unlock" replace />;
+    return <Navigate to="/unlock" replace state={redirectState} />;
   }
 
   const active = pathname === "/" ? "home" : pathname.startsWith("/market") ? "market" : pathname.startsWith("/compose")
