@@ -14,6 +14,18 @@ NODE_VERSION = "24"
 [functions]
 directory = "netlify/functions"
 
+# Static responses only: Netlify does not apply these to the function responses above.
+# The CSP deliberately restricts no script or style source: the SPA shell has inline scripts
+# whose hashes change per build. Microphone stays allowed for the piano room.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "same-origin"
+    Permissions-Policy = "camera=(), geolocation=(), payment=(), usb=(), microphone=(self)"
+    Strict-Transport-Security = "max-age=31536000"
+
 [[redirects]]
 from = "/*"
 to = "/index.html"

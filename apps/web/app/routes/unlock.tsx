@@ -3,10 +3,11 @@ import { AppError } from "@veil/core";
 import type { Route } from "./+types/unlock";
 import { Window } from "~/ui95/Window";
 import { Button95 } from "~/ui95/Button95";
-import { Link, Navigate, useNavigate } from "react-router";
+import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { vaultCreate, vaultExists, vaultImport, vaultUnlock } from "~/platform/vault-service";
 import { useSessionStore } from "~/platform/session";
 import { SignInNav } from "~/components/sign-in-nav";
+import { returnPath } from "~/platform/return-path";
 import { IDLE_MINUTES, type IdleMinutes } from "~/platform/session-policy";
 
 export function meta(_args: Route.MetaArgs) {
@@ -20,6 +21,7 @@ export default function Unlock() {
   const vault = useSessionStore((state) => state.vault);
   const setVault = useSessionStore((state) => state.setVault);
   const navigate = useNavigate();
+  const destination = returnPath(useLocation().state);
 
   const [exists, setExists] = useState<boolean | null>(null);
   const [passphrase, setPassphrase] = useState("");
@@ -79,7 +81,7 @@ export default function Unlock() {
       const policy = { privateDevice, idleMinutes };
       const opened = exists ? await vaultUnlock(passphrase, policy) : await vaultCreate(passphrase, policy);
       setVault(opened.vault, opened.expiresAt, opened.lockMarker, opened.timing);
-      navigate("/", { replace: true });
+      navigate(destination, { replace: true });
       setPassphrase("");
       setConfirm("");
     } catch (caught) {
@@ -90,7 +92,7 @@ export default function Unlock() {
   }
 
   if (vault) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={destination} replace />;
   }
 
   return (
