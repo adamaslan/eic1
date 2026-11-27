@@ -11,6 +11,7 @@ import {
 import { AppError } from "@veil/core";
 import {
   KeyRotationError,
+  CONNECT_LINK_PREFIX,
   MAX_CHAT_LINK_CHARS,
   applyChatShareLink,
   importConnectCard,
@@ -83,7 +84,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             and retains journal links in memory only. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: "try{var h=window.location.hash;if(h&&h.length>1){window.__eicArrivalHash=h}}catch(e){}",
+            __html:
+              'try{var l=window.location,h=l.hash;if(l.search.indexOf("?connect=")===0){var c=l.search.slice(9).split("&")[0],r=h.indexOf("#relay=")===0?h.slice(7).split("&")[0]:"";if(c){h="#connect="+c+(r?"&relay="+r:"");window.history.replaceState(null,"",l.pathname+h)}}if(h&&h.length>1){window.__eicArrivalHash=h}}catch(e){}',
           }}
         />
         <Meta />
@@ -197,7 +199,11 @@ type PendingLink =
   | { kind: "connect"; text: string };
 
 function readPendingLink(hash: string): PendingLink | null {
-  if (hash.length > MAX_CHAT_LINK_CHARS) throw new AppError("That link is too long to be an eic link.");
+  // Connect links bound their signed card separately; the optional fragment extra is dropped
+  // when malformed or oversized and must not veto an otherwise valid card.
+  if (hash.length > MAX_CHAT_LINK_CHARS && !hash.startsWith(CONNECT_LINK_PREFIX)) {
+    throw new AppError("That link is too long to be an eic link.");
+  }
   const post = readPostShareLink(hash);
   if (post) return isJournalShareBundle(post) ? { kind: "journal", text: post } : { kind: "post", text: post };
   const chat = readChatShareLink(hash);
@@ -208,7 +214,8 @@ function readPendingLink(hash: string): PendingLink | null {
 }
 
 /**
- * Watches for eic links (`#import=`, `#chat=`, `#connect=...`). The payload travels in the URL
+ * Watches for eic links (`#import=`, `#chat=`, `#connect=...`, or a texted `?connect=...`
+ * that the shell rewrites into the fragment form on arrival). Post and chat payloads travel in the URL
  * fragment, which browsers never put into an HTTP request to the app host. Chat links apply and open the conversation on their
  * own (they are sealed, signed, and idempotent); connect links ask first because they create a
  * connection from a bearer link; post links keep the original import prompt. Handled hashes are

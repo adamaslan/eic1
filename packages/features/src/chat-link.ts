@@ -22,20 +22,34 @@ import { fromBase64Url, toBase64Url } from "./share-link";
 const fromPaddedBase64Url = (encoded: string): string =>
   fromBase64Url(encoded + "=".repeat((4 - (encoded.length % 4)) % 4));
 
+const fromPaddedBase64UrlStrict = (encoded: string): string => {
+  const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  return new TextDecoder("utf-8", { fatal: true }).decode(decodeBase64(padded));
+};
+
 /**
  * Chat and connect links: a textable URL that opens eic straight into a conversation, so a
- * friend never handles a JSON file. Everything travels in the URL fragment (after '#'), which
- * browsers never put into an HTTP request - the ciphertext and the card reach neither the
- * static host nor any link-preview unfurler. Same 8000-char cap as post links, so the URL
- * stays usable in chat apps and SMS. A link is hand delivery, not a transport: automatic
- * chat still rides the pull-sync feed.
+ * friend never handles a JSON file. Chat ciphertext stays in the URL fragment, outside HTTP
+ * requests. Connect URLs put the public card in the query for reliable linkification and keep
+ * the bearer relay invite in the fragment. Same 8000-char cap as post links, so the URL stays
+ * usable in chat apps and SMS. A link is hand delivery, not a transport: automatic chat still
+ * rides the pull-sync feed.
  */
 export const CHAT_LINK_PREFIX = "#chat=";
 export const CONNECT_LINK_PREFIX = "#connect=";
+// Connect links are TEXTED, so they are built as a plain query URL (`/?connect=<payload>`):
+// messaging apps linkify and wrap a query string more reliably than a fragment. Unlike '#',
+// a query reaches the app host, which is acceptable only because a connect card carries no
+// secrets (handle, public key, optional feed URL). The app moves the query into the legacy
+// `#connect=` fragment form on arrival, so every downstream reader sees one shape, and old
+// `#connect=` links keep working.
+export const CONNECT_QUERY_PREFIX = "?connect=";
 export const MAX_CHAT_LINK_CHARS = 8000;
 const MAX_LINK_ENVELOPES = 20;
 const CONNECT_FORMAT = "eic-connect";
 const CONNECT_VERSION = 1;
+const CONNECT_FEED_URL_DOMAIN = "eic-connect-feed-url:v1:";
 
 const idField = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 
@@ -87,6 +101,10 @@ const ConnectCardSchema = z.object({
     expiresAt: z.number().int().positive(),
     signature: z.string().min(1).max(128),
   }).optional().catch(undefined),
+  // New query cards sign this marker in the base subset and carry feedUrl with its own
+  // fragment-only signature. Legacy fragment cards have no marker and keep their old subset.
+  feedUrlMode: z.literal("detached-v1").optional(),
+  feedUrlProof: z.string().min(1).max(128).optional().catch(undefined),
   signature: z.string().min(1),
 });
 export type ConnectCard = z.infer<typeof ConnectCardSchema>;
@@ -237,7 +255,6 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
       ...(settings.feedUrl ? { feedUrl: settings.feedUrl } : {}),
     },
   } as const;
-  const signature = await signPayload(identity.secretKey, new TextEncoder().encode(JSON.stringify(unsigned)));
   // The preview rides OUTSIDE the signed subset on purpose: display-only, re-proven by the
   // signed feed profile chunk after connecting. Caps enforced here, never assumed.
   const profile = preview ? ConnectProfilePreviewSchema.parse(preview) : undefined;
@@ -245,21 +262,79 @@ export async function buildConnectLink(vault: UnlockedVault, baseUrl: string, no
   // that vouch counts (the author must be a member, under quota); a non-member's invite is inert.
   const invite = settings.feedUrl ? await signRelayInvite(identity, now) : null;
   const relayInvite = invite ? { id: invite.inviteId, expiresAt: invite.expiresAt, signature: invite.signature } : undefined;
-  const link = `${baseUrl}${CONNECT_LINK_PREFIX}${toBase64Url(
-    JSON.stringify({ ...unsigned, ...(profile ? { profile } : {}), ...(relayInvite ? { relayInvite } : {}), signature: encodeBase64(signature) }),
-  )}`;
+  // Feed URLs can be persisted from older/external configurations and may contain credentials.
+  // Keep them with the invite in the fragment so neither value reaches the host or link preview.
+  const { feedUrl, ...queryAuthor } = unsigned.author;
+  const queryCard = {
+    ...unsigned,
+    author: queryAuthor,
+    ...(feedUrl ? { feedUrlMode: "detached-v1" as const } : {}),
+  };
+  const signature = await signPayload(identity.secretKey, new TextEncoder().encode(JSON.stringify(queryCard)));
+  const signatureText = encodeBase64(signature);
+  const feedUrlProof = feedUrl
+    ? encodeBase64(await signPayload(
+      identity.secretKey,
+      new TextEncoder().encode(`${CONNECT_FEED_URL_DOMAIN}${signatureText}:${feedUrl}`),
+    ))
+    : undefined;
+  const fragmentExtras = {
+    ...(feedUrl ? { feedUrl } : {}),
+    ...(feedUrlProof ? { feedUrlProof } : {}),
+    ...(relayInvite ? { relayInvite } : {}),
+  };
+  const link = `${baseUrl}${CONNECT_QUERY_PREFIX}${toBase64Url(
+    JSON.stringify({ ...queryCard, ...(profile ? { profile } : {}), signature: signatureText }),
+  )}${Object.keys(fragmentExtras).length ? `#relay=${toBase64Url(JSON.stringify(fragmentExtras))}` : ""}`;
   if (link.length > MAX_CHAT_LINK_CHARS) {
     throw new AppError("That connect link is too long.");
   }
   return link;
 }
 
+/**
+ * Maps a `?connect=<payload>` query string to the equivalent `#connect=<payload>` fragment, or
+ * null when the query is not a connect link. The inline arrival script in the app shell mirrors
+ * this logic (it cannot import), so keep the two in step.
+ */
+export function connectQueryToHash(search: string, fragment = ""): string | null {
+  if (!search.startsWith(CONNECT_QUERY_PREFIX)) return null;
+  const payload = search.slice(CONNECT_QUERY_PREFIX.length).split("&")[0];
+  if (!payload) return null;
+  const relay = fragment.startsWith("#relay=") ? fragment.slice("#relay=".length).split("&")[0] : "";
+  return `${CONNECT_LINK_PREFIX}${payload}${relay ? `&relay=${relay}` : ""}`;
+}
+
 /** Reads a connect link fragment to its raw card text, or null when the hash is not one. */
 export function readConnectLink(hash: string): string | null {
   if (!hash.startsWith(CONNECT_LINK_PREFIX)) return null;
-  if (hash.length > MAX_CHAT_LINK_CHARS) throw new AppError("That connect link is too long to be real.");
+  const [encoded, relayPart] = hash.slice(CONNECT_LINK_PREFIX.length).split("&relay=");
+  if (encoded.length + CONNECT_LINK_PREFIX.length > MAX_CHAT_LINK_CHARS) {
+    throw new AppError("That connect link is too long to be real.");
+  }
   try {
-    return fromPaddedBase64Url(hash.slice(CONNECT_LINK_PREFIX.length));
+    const text = fromPaddedBase64Url(encoded);
+    const maxExtrasLength = MAX_CHAT_LINK_CHARS - CONNECT_LINK_PREFIX.length - encoded.length - "&relay=".length;
+    if (!relayPart || relayPart.length > maxExtrasLength) return text;
+    try {
+      const extras = JSON.parse(fromPaddedBase64UrlStrict(relayPart)) as Record<string, unknown>;
+      if (typeof extras !== "object" || extras === null || Array.isArray(extras)) return text;
+      const card = JSON.parse(text) as Record<string, unknown>;
+      const author = card.author as Record<string, unknown> | undefined;
+      const detachedFeedUrl = card.feedUrlMode === "detached-v1"
+        && typeof extras.feedUrl === "string"
+        && extras.feedUrl.length > 0;
+      const enriched = JSON.stringify({
+        ...card,
+        ...(detachedFeedUrl && author ? { author: { ...author, feedUrl: extras.feedUrl } } : {}),
+        ...(detachedFeedUrl && typeof extras.feedUrlProof === "string" ? { feedUrlProof: extras.feedUrlProof } : {}),
+        ...(extras.relayInvite ? { relayInvite: extras.relayInvite } : {}),
+      });
+      return new TextEncoder().encode(enriched).byteLength > MAX_CHAT_LINK_CHARS ? text : enriched;
+    } catch {
+      // Feed URL and invite are optional metadata; malformed fragment bytes never veto a valid card.
+      return text;
+    }
   } catch {
     throw new AppError("That connect link is damaged. Ask your friend for a fresh one.");
   }
@@ -314,7 +389,16 @@ export async function importConnectCard(
     // Explicit signed subset - never "everything except signature": an added display-only
     // field (profile) must not change what verification covers, which is exactly what an
     // old reader that strips unknown keys recomputes.
-    const unsigned = { format: card.format, version: card.version, exportedAt: card.exportedAt, author: card.author };
+    const signedAuthor = card.feedUrlMode === "detached-v1"
+      ? (({ feedUrl: _feedUrl, ...author }) => author)(card.author)
+      : card.author;
+    const unsigned = {
+      format: card.format,
+      version: card.version,
+      exportedAt: card.exportedAt,
+      author: signedAuthor,
+      ...(card.feedUrlMode ? { feedUrlMode: card.feedUrlMode } : {}),
+    };
     verified = await verifySignature(
       decodeBase64(card.author.pubkey),
       new TextEncoder().encode(JSON.stringify(unsigned)),
@@ -325,6 +409,22 @@ export async function importConnectCard(
   }
   if (!verified) {
     throw new AppError("That connect link's signature does not check out. Ask your friend for a fresh one.");
+  }
+  if (card.feedUrlMode === "detached-v1" && card.author.feedUrl) {
+    let feedUrlVerified = false;
+    try {
+      feedUrlVerified = typeof card.feedUrlProof === "string" && await verifySignature(
+        decodeBase64(card.author.pubkey),
+        new TextEncoder().encode(`${CONNECT_FEED_URL_DOMAIN}${card.signature}:${card.author.feedUrl}`),
+        decodeBase64(card.feedUrlProof),
+      );
+    } catch {
+      feedUrlVerified = false;
+    }
+    if (!feedUrlVerified) {
+      const { feedUrl: _discarded, ...authorWithoutFeedUrl } = card.author;
+      card.author = authorWithoutFeedUrl;
+    }
   }
   if (!deps.settings.authorId) throw new AppError("Choose a handle on your Connections page before connecting, then open their link again.");
   const { author } = card;
