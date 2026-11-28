@@ -10,14 +10,15 @@ import {
   type VaultStore,
 } from "@veil/core";
 
-export const BACKUP_FORMAT = "veil95-vault";
+export const BACKUP_FORMAT = "eic-vault";
+const LEGACY_BACKUP_FORMAT = "veil95-vault";
 const BACKUP_VERSION = 1;
 
 // Bytes travel as base64 strings; the shape below mirrors VaultMeta and EncryptedRecord.
 const base64Field = z.string();
 
 const BackupSchema = z.object({
-  format: z.literal(BACKUP_FORMAT),
+  format: z.union([z.literal(BACKUP_FORMAT), z.literal(LEGACY_BACKUP_FORMAT)]),
   version: z.literal(BACKUP_VERSION),
   exportedAt: z.string(),
   meta: z.object({
@@ -94,11 +95,11 @@ function parseBackup(text: string): {
   try {
     json = JSON.parse(text);
   } catch {
-    throw new VaultCorruptError("That file is not a Veil backup.");
+    throw new VaultCorruptError("That file is not an EIC backup.");
   }
   const parsed = BackupSchema.safeParse(json);
   if (!parsed.success) {
-    throw new VaultCorruptError("That file is not a Veil backup, or it is from a newer version.");
+    throw new VaultCorruptError("That file is not an EIC backup, or it is from a newer version.");
   }
   try {
     const meta = VaultMetaSchema.parse({
