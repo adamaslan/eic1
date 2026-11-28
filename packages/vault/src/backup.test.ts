@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   VaultAlreadyExistsError,
   VaultCorruptError,
@@ -118,6 +119,16 @@ describe("backup", () => {
     expect(result.records).toBe(2);
     const vault = await unlockVault(depsFor(target), PASSPHRASE);
     expect(await vault.listItems()).toEqual([item]);
+  });
+
+  it("restores a backup with the legacy Veil format marker", async () => {
+    const legacyBackup = readFileSync(new URL("../../../e2e/fixtures/old-drawing-backup.vault", import.meta.url), "utf8");
+    const target = new MemoryStore();
+
+    const result = await importBackup(depsFor(target), legacyBackup);
+
+    expect(result.records).toBe(3);
+    expect((await target.getBackupSnapshot()).meta).not.toBeNull();
   });
 
   it("locks out a session that was open before a wipe and restore of the same vault", async () => {
@@ -246,7 +257,7 @@ describe("playlist record kind compatibility", () => {
     backup.records[0].kind = "kind-from-the-future";
     const store2 = new MemoryStore();
     await expect(importBackup({ store: store2, crypto: new SubtleCryptoPort() }, JSON.stringify(backup))).rejects.toThrow(
-      /not a Veil backup, or it is from a newer version/,
+      /not an EIC backup, or it is from a newer version/,
     );
     // Nothing partial was written: the store still has no vault.
     expect((await store2.getBackupSnapshot()).meta).toBeNull();
