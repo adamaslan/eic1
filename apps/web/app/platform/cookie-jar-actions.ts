@@ -51,9 +51,17 @@ export function clearPreferences(local: KeyValueStore, session: KeyValueStore): 
   return { removed, kept };
 }
 
-/** "Forget remembered access": drops the saved session key, leaves the vault content alone. */
-export async function forgetRememberedAccess(clearSession: () => Promise<void>): Promise<void> {
-  await clearSession();
+/**
+ * "Forget remembered access": deletes the saved session key AND locks every open tab, so the
+ * current in-memory access cannot outlive the choice. Locking runs even if deleting the key
+ * throws (fail closed). The vault content is never touched.
+ */
+export async function forgetRememberedAccess(options: { clearSession: () => Promise<void>; lock: () => Promise<void> }): Promise<void> {
+  try {
+    await options.clearSession();
+  } finally {
+    await options.lock();
+  }
 }
 
 export const ERASE_CONFIRMATION = "ERASE";

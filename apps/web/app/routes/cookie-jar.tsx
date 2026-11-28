@@ -88,7 +88,7 @@ export default function CookieJar() {
         <div className="flex flex-col gap-1 text-[12px]">
           <Link to="/" className="underline">Home</Link>
           <p>Most of EIC lives in this browser, not in cookies. This page lists everything this device remembers, what could leave it, and lets you change your mind. Nothing here turns on tracking: EIC has no analytics to turn on.</p>
-          <p className="text-[var(--w95-muted)]">Not anonymity: the host still sees page loads, and the relay join screen loads Cloudflare Turnstile. Someone using your unlocked browser can see an unlocked app.</p>
+          <p className="text-[var(--w95-muted)]">Not anonymity: the host still sees page loads, and the relay join screen can load Cloudflare Turnstile when this build has it configured. Someone using your unlocked browser can see an unlocked app.</p>
           {persisted === "memory" && <p role="alert" className="text-[#800000]">This browser blocked storage, so your choices apply to this visit only and will not be remembered.</p>}
           {notice && <p role="status" className="bg-[#ffffe1] px-1">{notice}</p>}
 
@@ -177,7 +177,7 @@ export default function CookieJar() {
           <Section title="Actions (each one says exactly what it touches)">
             <div className="flex flex-col gap-1">
               <div><Button95 onClick={() => { const r = clearPreferences(window.localStorage, window.sessionStorage); setDesk({ tray: [], lastTool: null }); setKept([]); setNotice(`Cleared ${r.removed.length} preference item(s). Your vault, remembered access and lock were not touched.`); refresh(); }}>Clear preferences</Button95> <span className="text-[11px]">Look, desk, bookmark, postcards, map layout. Never your vault or login.</span></div>
-              <div><Button95 onClick={() => void run("Forget remembered access", async () => { await forgetRememberedAccess(() => clearSession()); return "Remembered access forgotten. You will need your passphrase next time. Your vault content was not touched."; })}>Forget remembered access</Button95> <span className="text-[11px]">Drops the saved unlock key only.</span></div>
+              <div><Button95 onClick={() => void run("Forget remembered access", async () => { await forgetRememberedAccess({ clearSession: () => clearSession(), lock: () => useSessionStore.getState().lock() }); return "Remembered access forgotten and every open tab locked. You will need your passphrase to open the vault again. Your vault content was not touched."; })}>Forget remembered access</Button95> <span className="text-[11px]">Deletes the saved unlock key and locks all open tabs. Vault content stays.</span></div>
               <div><Link className="underline" to="/feed">Review shared links</Link> <span className="text-[11px]">Each post shows its own link state and a revoke button. Revoking stops future opens; it cannot delete copies people already have.</span></div>
               <div><Button95 disabled={!vault} onClick={() => void run("Export", async () => { downloadTextFile("eic-vault-backup.json", await vaultExport()); return "Encrypted backup downloaded. It still needs your passphrase to open."; })}>Export encrypted backup</Button95> <span className="text-[11px]">Reads your vault; writes nothing here.{vault ? "" : " Unlock first."}</span></div>
               <div><Button95 onClick={() => { resetChoices(); setNotice("Your Cookie Jar choices were reset to the defaults. Nothing else changed."); }}>Reset these choices</Button95></div>

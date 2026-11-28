@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ERASE_CONFIRMATION, clearPreferences, eraseVault, type KeyValueStore } from "./cookie-jar-actions";
+import { ERASE_CONFIRMATION, clearPreferences, eraseVault, forgetRememberedAccess, type KeyValueStore } from "./cookie-jar-actions";
 import { DEFAULT_CHOICES, PRESETS, applyPreset, purposeEnabled, sanitizeChoices, type PresetId } from "./cookie-jar-store";
 
 function fakeStore(initial: Record<string, string>): KeyValueStore & { dump(): Record<string, string> } {
@@ -52,6 +52,19 @@ describe("eraseVault", () => {
     const outcome = await eraseVault({ typed: ` ${ERASE_CONFIRMATION} `, wipe: async () => { order.push("wipe"); }, clearSession: async () => { order.push("session"); } });
     expect(outcome).toBe("erased");
     expect(order).toEqual(["wipe", "session"]);
+  });
+});
+
+describe("forgetRememberedAccess (fail closed)", () => {
+  it("deletes the saved key, then locks open tabs", async () => {
+    const order: string[] = [];
+    await forgetRememberedAccess({ clearSession: async () => { order.push("key"); }, lock: async () => { order.push("lock"); } });
+    expect(order).toEqual(["key", "lock"]);
+  });
+  it("still locks when deleting the key throws, and surfaces the error", async () => {
+    const lock = vi.fn(async () => undefined);
+    await expect(forgetRememberedAccess({ clearSession: async () => { throw new Error("idb blocked"); }, lock })).rejects.toThrow("idb blocked");
+    expect(lock).toHaveBeenCalledOnce();
   });
 });
 
