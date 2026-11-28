@@ -28,6 +28,11 @@ const TOOLS = [
     blurb: "A weekly chart of chores with check-offs per day. Encrypted in your vault.",
   },
   {
+    to: "/cookie-jar",
+    name: "Cookie Jar & Privacy",
+    blurb: "See everything this device remembers, pick a privacy preset, send a room postcard, and reset or erase on your terms.",
+  },
+  {
     to: "/draw",
     name: "Paint",
     blurb: "Draw with brushes, an eraser, and text on a chunky canvas, with undo. Saves as an encrypted photo post.",

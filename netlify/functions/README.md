@@ -62,3 +62,42 @@ are activation blockers requiring an owner decision, not a post-release follow-u
   client-side as before.
 - All rendered fields are HTML-escaped; og:image serves only whitelisted image types.
 - The stored projection is one post + author handle/pubkey. No likes, no vault data.
+
+## Encrypted backup sync (api-backup.ts) - Cookie Jar P3
+
+Optional recovery of an already passphrase-encrypted vault export on another device. The
+function stores that opaque ciphertext under the SHA-256 of a random recovery secret the owner
+holds; the host never sees the passphrase or any plaintext, and the secret is never stored in
+the browser (the Cookie Jar shows it once).
+
+### Activation (owner decision, off by default)
+
+Set `EIC_BACKUP_SYNC=on` (functions) and `VITE_EIC_BACKUP_SYNC=on` (app build) as Netlify env
+vars scoped to production, then redeploy. While unset, every `/api/backup` method answers 404
+and the blob client is never resolved (regression-tested in `lib/backup-gate.test.ts`). The
+Cookie Jar hides the sync switch when the build flag is off. Revoking the vars and redeploying
+turns it off; stored backups stop being served and expire on their own.
+
+### Free-tier shape ($0 today; plan terms can change, check Usage & billing)
+
+| Limit | Value |
+|---|---|
+| Per backup | 2 MB |
+| Backups total | 200, and 100 MB total |
+| Retention | 30 days from the last upload (an upload renews it; expired entries are removed on read) |
+| Writes | 6 per hour per connection, compare-and-swap counter |
+
+Uses one `encrypted-backups` blob store and function invocations only. No database, no new
+service, no sign-up.
+
+### Known limits (same class as the share relay's activation blockers)
+
+- Global count/byte accounting is read-then-write, not one transaction: two simultaneous first
+  uploads can briefly exceed the caps by a small margin. Caps are far below plan limits, so this
+  is a budget overshoot, not a correctness bug, but it needs a reservation design before heavy use.
+- Reads are unmetered per link, like shares. The secret is 256 bits, so guessing is not the risk;
+  a widely copied recovery code can cost bandwidth.
+- No scheduled sweep ships. `sweepExpiredBackups` exists and is tested; running it on a schedule
+  is an owner decision. Until then expired entries are removed when read or replaced.
+- This is a sensitive surface (crypto-adjacent storage, rate limiting). It needs owner
+  confirmation before activation.

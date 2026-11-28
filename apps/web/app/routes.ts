@@ -23,6 +23,7 @@ export default [
     route("item/:id", "routes/item.tsx"),
   ]),
   route("stickers", "routes/stickers.tsx"),
+  route("cookie-jar", "routes/cookie-jar.tsx"),
   route("music-library", "routes/music-library.tsx"),
   route("learn-piano", "routes/learn-piano.tsx"),
   route("unlock", "routes/unlock.tsx"),
