@@ -9,6 +9,7 @@ import { usePlayerStore } from "~/platform/player-store";
 import { useEffect, useMemo } from "react";
 import { motion } from "motion/react";
 import { useSessionStore } from "~/platform/session";
+import { useCassetteBookmark } from "~/platform/use-cassette-bookmark";
 import { useThemeStore } from "~/platform/theme-store";
 import type { StartItem } from "~/ui95/StartMenu";
 import { RELAY_APPLIED_EVENT, startRelayBackground } from "~/platform/relay-background";
@@ -63,6 +64,9 @@ export default function DesktopLayout() {
   useEffect(() => {
     if (!vault) usePlayerStore.getState().resetAll();
   }, [vault]);
+
+  // Opt-in only: a no-op unless "Cassette bookmark" is switched on in the Cookie Jar.
+  useCassetteBookmark(Boolean(vault));
 
   // Friends' messages arrive while the app is open and unlocked, not only inside an open chat.
   // The owner of this effect is the vault: switching or locking stops the pass first.
